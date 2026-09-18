@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { vly } from "../lib/vly-integrations";
+import type { Id } from "./_generated/dataModel";
 
 /* ── Shared helpers ───────────────────────────────────────────────────── */
 
@@ -113,7 +114,267 @@ function parsePersona(json: string) {
   };
 }
 
-/* ── Actions ──────────────────────────────────────────────────────────── */
+/* ── Create-module actions: gaps → topics → writing ───────────────────── */
+
+/**
+ * Detect content gaps per persona × journey stage from project context,
+ * personas and journey maps. Returns structured gaps; caller persists via
+ * contentPlanning.createGap.
+ */
+export const detectContentGaps = action({
+  args: {
+    project: projectSnapshotValidator,
+    personas: v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        role: v.optional(v.string()),
+        goals: v.optional(v.array(v.string())),
+        pains: v.optional(v.array(v.string())),
+        objections: v.optional(v.array(v.string())),
+      }),
+    ),
+    journeys: v.array(
+      v.object({
+        id: v.string(),
+        personaId: v.optional(v.string()),
+        name: v.string(),
+        goal: v.optional(v.string()),
+        stages: v.array(
+          v.object({
+            stage: v.string(),
+            score: v.optional(v.number()),
+            pains: v.optional(v.string()),
+            opportunities: v.optional(v.string()),
+          }),
+        ),
+      }),
+    ),
+  },
+  handler: async (_ctx, { project, personas, journeys }) => {
+    const text = await complete(
+      `You are a content strategist auditing a business's content coverage. Identify CONTENT GAPS: questions, topics or moments in the customer journey where the business has no good content answering the persona's real need. Ground every gap in the persona's pains/goals and the journey stage (weakest stages = biggest gaps). Return ONLY valid JSON (no markdown) shaped as:
+{"gaps": [{"personaId": string|null, "journeyMapId": string|null, "journeyStage": string|null, "title": string, "description": string, "severity": "low"|"medium"|"high"}]}
+Give 5-10 gaps. Use the provided persona/journey ids exactly. title = short label (≤8 words). description = 1-2 sentences on what's missing and why it matters.`,
+      [
+        {
+          role: "user",
+          content: `${contextLines(project).join("\n")}\n\nPersonas:\n${personas.map((p) => `- [${p.id}] ${p.name}${p.role ? ` (${p.role})` : ""}${p.pains?.length ? ` — pains: ${p.pains.join("; ")}` : ""}`).join("\n") || "(none)"}\n\nJourney maps:\n${journeys.map((j) => `- [${j.id}] ${j.name}${j.personaId ? ` (persona ${j.personaId})` : ""}\n${j.stages.map((s) => `    • ${s.stage}${typeof s.score === "number" ? ` (score ${s.score}/10)` : ""}${s.pains ? ` — pains: ${s.pains}` : ""}`).join("\n")}`).join("\n") || "(none)"}`,
+        },
+      ],
+      { temperature: 0.6, maxTokens: 1400 },
+    );
+
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("AI returned an unreadable response");
+    const raw = JSON.parse(cleaned.slice(start, end + 1)) as {
+      gaps?: Array<{
+        personaId?: string | null;
+        journeyMapId?: string | null;
+        journeyStage?: string | null;
+        title?: string;
+        description?: string;
+        severity?: string;
+      }>;
+    };
+    const validIds = new Set([...personas.map((p) => p.id), ...journeys.map((j) => j.id)]);
+    const gaps = (raw.gaps ?? [])
+      .filter(
+        (g): g is NonNullable<typeof g> & { title: string } =>
+          typeof g?.title === "string" && g.title.trim() !== "",
+      )
+      .slice(0, 12)
+      .map((g) => ({
+        personaId:
+          typeof g.personaId === "string" && validIds.has(g.personaId)
+            ? (g.personaId as Id<"personas">)
+            : undefined,
+        journeyMapId:
+          typeof g.journeyMapId === "string" && validIds.has(g.journeyMapId)
+            ? (g.journeyMapId as Id<"journeyMaps">)
+            : undefined,
+        journeyStage:
+          typeof g.journeyStage === "string" && g.journeyStage.trim() !== ""
+            ? g.journeyStage.trim()
+            : undefined,
+        title: g.title.trim().slice(0, 120),
+        description: typeof g.description === "string" ? g.description.trim() : undefined,
+        severity:
+          g.severity === "low" || g.severity === "medium" || g.severity === "high"
+            ? g.severity
+            : ("medium" as const),
+      }));
+    if (!gaps.length) throw new Error("AI returned no gaps");
+    return { gaps };
+  },
+});
+
+/**
+ * Suggest topics (with angle + best content type + keywords) to fill a gap.
+ * Caller persists via contentPlanning.createTopic.
+ */
+export const suggestTopics = action({
+  args: {
+    project: projectSnapshotValidator,
+    gap: v.object({
+      title: v.string(),
+      description: v.optional(v.string()),
+      personaName: v.optional(v.string()),
+      journeyStage: v.optional(v.string()),
+    }),
+    researchDigest: v.optional(v.array(v.string())), // condensed research hits
+  },
+  handler: async (_ctx, { project, gap, researchDigest }) => {
+    const text = await complete(
+      `You are a content strategist. For the given content gap, propose 4 concrete, distinct topics to fill it. For each: title (audience-facing, specific), angle (the hook that makes it fresh), contentType — one of landing_page|script|social_post|social_series|blog|email|video_script — and 2-4 keywords. Return ONLY valid JSON shaped as:
+{"topics": [{"title": string, "angle": string, "contentType": string, "keywords": string[]}]}`,
+      [
+        {
+          role: "user",
+          content: `${contextLines(project).join("\n")}\n\nGap to fill: ${gap.title}\n${gap.description ?? ""}\n${gap.personaName ? `Audience persona: ${gap.personaName}` : ""}\n${gap.journeyStage ? `Journey stage: ${gap.journeyStage}` : ""}\n\nLive research findings:\n${(researchDigest ?? []).slice(0, 20).join("\n") || "(none)"}`,
+        },
+      ],
+      { temperature: 0.8, maxTokens: 900 },
+    );
+
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("AI returned an unreadable response");
+    const raw = JSON.parse(cleaned.slice(start, end + 1)) as {
+      topics?: Array<{ title?: string; angle?: string; contentType?: string; keywords?: unknown }>;
+    };
+    const CONTENT_TYPES = [
+      "landing_page", "script", "social_post", "social_series",
+      "blog", "email", "video_script",
+    ];
+    const topics = (raw.topics ?? [])
+      .filter(
+        (t): t is NonNullable<typeof t> & { title: string } =>
+          typeof t?.title === "string" && t.title.trim() !== "",
+      )
+      .slice(0, 6)
+      .map((t) => ({
+        title: t.title.trim().slice(0, 160),
+        angle: typeof t.angle === "string" ? t.angle.trim() : undefined,
+        contentType:
+          typeof t.contentType === "string" && CONTENT_TYPES.includes(t.contentType)
+            ? t.contentType
+            : "blog",
+        keywords: Array.isArray(t.keywords)
+          ? t.keywords.filter((k): k is string => typeof k === "string").slice(0, 4)
+          : [],
+      }));
+    if (!topics.length) throw new Error("AI returned no topics");
+    return { topics };
+  },
+});
+
+/**
+ * Generate the full content piece (HTML for Tiptap) from the topic,
+ * persona, journey context and research findings. Type-aware.
+ */
+export const generateContent = action({
+  args: {
+    project: projectSnapshotValidator,
+    topic: v.object({
+      title: v.string(),
+      angle: v.optional(v.string()),
+      contentType: v.optional(v.string()),
+      keywords: v.optional(v.array(v.string())),
+    }),
+    persona: v.optional(
+      v.object({
+        name: v.string(),
+        role: v.optional(v.string()),
+        goals: v.optional(v.array(v.string())),
+        pains: v.optional(v.array(v.string())),
+        objections: v.optional(v.array(v.string())),
+      }),
+    ),
+    journeyStage: v.optional(v.string()),
+    researchDigest: v.optional(v.array(v.string())),
+    userInstructions: v.optional(v.string()),
+  },
+  handler: async (_ctx, { project, topic, persona, journeyStage, researchDigest, userInstructions }) => {
+    const TYPE_GUIDE: Record<string, string> = {
+      landing_page:
+        "a high-converting landing page: hero headline + subhead, 3 benefit sections each with heading + 2-3 sentences, a social-proof section, and a clear CTA section",
+      blog:
+        "a blog article: engaging intro, 4-6 H2 sections each with 2-4 substantial paragraphs, a conclusion with a takeaway, useful where natural a bullet list",
+      social_post:
+        "a single social media post: 80-150 words, hook first line, short paragraphs/line breaks, 1-3 relevant hashtags at the end",
+      social_series:
+        "a social media series of 4-5 posts: each post as an H2 heading (Post 1: …) followed by its short post copy",
+      script:
+        "a script: H2 scene/section headings with spoken lines as paragraphs, [bracketed] stage directions where helpful",
+      video_script:
+        "a video script: H2 section headings (Hook, Main points, CTA) with spoken lines as paragraphs and [b-roll/cut] notes in brackets",
+      email:
+        "an email: subject line as H2, preview text, short scannable body with one clear CTA",
+    };
+    const contentType = topic.contentType ?? "blog";
+    const personaDesc = persona
+      ? `\nWrite for persona: ${persona.name}${persona.role ? ` (${persona.role})` : ""}${persona.pains?.length ? ` — pains: ${persona.pains.join("; ")}` : ""}${persona.objections?.length ? ` — objections to handle: ${persona.objections.join("; ")}` : ""}`
+      : "";
+
+    const text = await complete(
+      `You are an expert content writer. Write the full content piece as clean HTML using only <h1>, <h2>, <p>, <ul>, <ol>, <li>, <strong>, <em> tags. Start with an <h1>. Format: ${TYPE_GUIDE[contentType] ?? TYPE_GUIDE.blog}. Match the brand voice of the business and speak the persona's language. Ground claims in the research findings where given. Return ONLY the HTML, no markdown fences, no explanation.${personaDesc}${journeyStage ? `\nThis content targets the journey stage: ${journeyStage}.` : ""}`,
+      [
+        {
+          role: "user",
+          content: `${contextLines(project).join("\n")}\n\nTopic: ${topic.title}\n${topic.angle ? `Angle: ${topic.angle}` : ""}\n${topic.keywords?.length ? `Keywords to include naturally: ${topic.keywords.join(", ")}` : ""}\n\nResearch findings to ground it:\n${(researchDigest ?? []).slice(0, 25).join("\n") || "(none)"}\n${userInstructions ? `\nUser instructions: ${userInstructions}` : ""}`,
+        },
+      ],
+      { temperature: 0.7, maxTokens: 2400 },
+    );
+
+    // strip anything outside a bare HTML doc
+    const html = text
+      .replace(/```html|```/g, "")
+      .replace(/^[\s\S]*?<body>/i, "")
+      .replace(/<\/body>[\s\S]*$/i, "")
+      .trim();
+    if (!html) throw new Error("AI returned empty content");
+    return html;
+  },
+});
+
+/**
+ * AI-edit a selection inside Tiptap: expand or rewrite (or custom ops later).
+ * Returns HTML for the replacement fragment.
+ */
+export const editSelection = action({
+  args: {
+    op: v.union(v.literal("expand"), v.literal("rewrite")),
+    selectionHtml: v.string(),
+    surroundingContext: v.optional(v.string()),
+    project: projectSnapshotValidator,
+    personaName: v.optional(v.string()),
+    instruction: v.optional(v.string()),
+  },
+  handler: async (_ctx, { op, selectionHtml, surroundingContext, project, personaName, instruction }) => {
+    const text = await complete(
+      op === "expand"
+        ? `You are an expert content editor. The user selected part of a document. Expand the selection: keep its meaning, language and voice, add depth/examples/nuance so it is roughly 2-3x longer. Return ONLY the replacement HTML using only <p>, <ul>, <ol>, <li>, <strong>, <em> tags. No preamble.${personaName ? ` Audience: ${personaName}.` : ""}`
+        : `You are an expert content editor. The user selected part of a document. Rewrite the selection: same core meaning, fresh wording and structure, matching the document's voice. Return ONLY the replacement HTML using only <p>, <ul>, <ol>, <li>, <strong>, <em> tags. No preamble.${personaName ? ` Audience: ${personaName}.` : ""}`,
+      [
+        {
+          role: "user",
+          content: `${contextLines(project).join("\n")}\n\nDocument context around the selection:\n${(surroundingContext ?? "(start of document)").slice(-1500)}\n\nSelected text:\n${selectionHtml}`,
+        },
+      ],
+      { temperature: op === "expand" ? 0.8 : 0.6, maxTokens: 1200 },
+    );
+    const html = text.replace(/```html|```/g, "").trim();
+    if (!html) throw new Error("AI returned empty content");
+    return html;
+  },
+});
+
+/* ── Actions ─────────────────────────────────────────────────────────── */
 
 /**
  * Generate a full persona from project details (files included) using AI.

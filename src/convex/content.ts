@@ -25,6 +25,11 @@ export const create = mutation({
     body: v.optional(v.string()),
     surface: v.optional(v.string()),
     personaId: v.optional(v.id("personas")),
+    topicId: v.optional(v.id("contentTopics")),
+    gapId: v.optional(v.id("contentGaps")),
+    journeyMapId: v.optional(v.id("journeyMaps")),
+    journeyStage: v.optional(v.string()),
+    contentType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -60,6 +65,11 @@ export const update = mutation({
       ),
     ),
     personaId: v.optional(v.id("personas")),
+    topicId: v.optional(v.id("contentTopics")),
+    gapId: v.optional(v.id("contentGaps")),
+    journeyMapId: v.optional(v.id("journeyMaps")),
+    journeyStage: v.optional(v.string()),
+    contentType: v.optional(v.string()),
   },
   handler: async (ctx, { id, ...patch }) => {
     const userId = await getAuthUserId(ctx);

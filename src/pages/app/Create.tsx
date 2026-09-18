@@ -1,360 +1,1038 @@
-import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import * as Y from "yjs";
 import {
-  Check,
+  AlertTriangle,
+  Crosshair,
+  FileText,
   Loader2,
   PenTool,
   Plus,
-  Send,
+  Search,
+  Sparkles,
   Trash2,
+  Wand2,
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
-import {
-  ConfirmDelete,
-  ModuleEmpty,
-  StatusBadge,
-} from "@/components/app/module-kit";
-import { Route as RouteIcon } from "lucide-react";
+import { ConfirmDelete, ModuleEmpty, StatusBadge } from "@/components/app/module-kit";
+import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
+import { ContentEditor } from "@/components/app/ContentEditor";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
-const SURFACES = ["website", "email", "social", "ads"] as const;
+const CONTENT_TYPES = [
+  { id: "landing_page", label: "Landing page" },
+  { id: "blog", label: "Blog article" },
+  { id: "social_post", label: "Social post" },
+  { id: "social_series", label: "Social series" },
+  { id: "script", label: "Script" },
+  { id: "video_script", label: "Video script" },
+  { id: "email", label: "Email" },
+] as const;
 
-function ContentForm({
-  projectId,
-  onDone,
-}: {
+const SOURCE_LABELS: Record<string, string> = {
+  reddit: "Reddit",
+  wikipedia: "Wikipedia",
+  wikibooks: "Wikibooks",
+  gdlt: "GDELT",
+  youtube: "YouTube",
+  newsapi: "NewsAPI",
+  trends: "G. Trends",
+  local_news: "Local news",
+  serp_news: "Serp news",
+  google_books: "G. Books",
+};
+
+type Hit = { source: string; title: string; url?: string; snippet?: string };
+
+type TopicRow = {
+  _id: Id<"contentTopics">;
   projectId: Id<"projects">;
-  onDone: () => void;
-}) {
-  const personas = useQuery(api.personas.list, { projectId }) ?? [];
-  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
-  const create = useMutation(api.content.create);
-  const [title, setTitle] = useState("");
-  const [topic, setTopic] = useState("");
-  const [brief, setBrief] = useState("");
-  const [surface, setSurface] = useState<(typeof SURFACES)[number]>("website");
-  const [personaId, setPersonaId] = useState<string>("");
-  const [journeyId, setJourneyId] = useState<string>("");
-  const [isSaving, setIsSaving] = useState(false);
+  gapId?: Id<"contentGaps">;
+  title: string;
+  angle?: string;
+  contentType?: string;
+  keywords?: string[];
+  research?: Hit[];
+  researchedAt?: number;
+  status?: string;
+};
 
-  // Content research seeded from the selected journey: lowest-score stages
-  // (worst experience) become the strongest content opportunities.
-  const selectedJourney = journeys.find((j) => j._id === journeyId);
-  const journeyResearch = selectedJourney
-    ? [...selectedJourney.stages]
-        .sort((a, b) => (a.score ?? 5) - (b.score ?? 5))
-        .slice(0, 4)
-        .map((s) => ({
-          stage: s.stage,
-          score: s.score,
-          pain: s.cells[3] ?? "",
-          opportunity: s.cells[4] ?? "",
-        }))
-    : [];
-
-  const applyStage = (s: { stage: string; pain: string; opportunity: string }) => {
-    if (!topic) setTopic(`${selectedJourney?.name ?? "journey"} — ${s.stage.toLowerCase()}`);
-    const parts = [
-      s.pain ? `Pain: ${s.pain}` : "",
-      s.opportunity ? `Opportunity: ${s.opportunity}` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    setBrief((prev) => (prev ? `${prev}
-${parts}` : parts));
-  };
-
-  const handleSave = async () =>
-    {if (!title.trim()) return;
-    setIsSaving(true);
-    try {
-      await create({
-        projectId,
-        title: title.trim(),
-        topic: topic.trim() || undefined,
-        brief: brief.trim() || undefined,
-        surface,
-        personaId: (personaId || undefined) as Id<"personas"> | undefined,
-      });
-      toast.success("Content piece created");
-      onDone();
-    } catch (e) {
-      toast.error("Save failed", {
-        description: e instanceof Error ? e.message : "Try again.",
-      });
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-4">
-      <div className="grid gap-2">
-        <Label htmlFor="cf-title">Title / working title</Label>
-        <Input
-          id="cf-title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Best coffee subscriptions for offices"
-          autoFocus
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="cf-topic">Topic cluster</Label>
-        <Input
-          id="cf-topic"
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          placeholder="e.g. office coffee buying guides"
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="cf-brief">Brief (the gap this fills)</Label>
-        <Textarea
-          id="cf-brief"
-          value={brief}
-          onChange={(e) => setBrief(e.target.value)}
-          rows={3}
-          placeholder="What question does this answer, for whom, and why us?"
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="cf-surface">Surface</Label>
-          <select
-            id="cf-surface"
-            className="h-9 rounded-md border bg-card px-3 font-mono text-small"
-            value={surface}
-            onChange={(e) => setSurface(e.target.value as (typeof SURFACES)[number])}
-          >
-            {SURFACES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="cf-persona">Persona</Label>
-          <select
-            id="cf-persona"
-            className="h-9 rounded-md border bg-card px-3 font-mono text-small"
-            value={personaId}
-            onChange={(e) => setPersonaId(e.target.value)}
-          >
-            <option value="">— none —</option>
-            {personas.map((p) => (
-              <option key={p._id} value={p._id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      {/* Journey-based content research */}
-      {journeys.length > 0 && (
-        <div className="grid gap-2 rounded-md border border-dashed p-3">
-          <div className="flex items-center gap-2">
-            <RouteIcon className="size-4 text-terminal-green" />
-            <Label className="font-mono text-caption text-muted-foreground">
-              research from a journey map
-            </Label>
-          </div>
-          <select
-            className="h-9 rounded-md border bg-card px-3 font-mono text-small"
-            value={journeyId}
-            onChange={(e) => setJourneyId(e.target.value)}
-          >
-            <option value="">— pick a journey —</option>
-            {journeys.map((j) => (
-              <option key={j._id} value={j._id}>
-                {j.name} ({j.stages.length} stages)
-              </option>
-            ))}
-          </select>
-          {journeyResearch.length > 0 && (
-            <div className="grid gap-1.5">
-              <p className="font-mono text-caption text-muted-foreground">
-                weakest stages first — click to seed this brief:
-              </p>
-              {journeyResearch.map((s) => (
-                <button
-                  key={s.stage}
-                  type="button"
-                  className="rounded-sm border px-2.5 py-1.5 text-left font-mono text-caption ease-terminal hover:border-terminal-green/50 hover:bg-terminal-green-soft"
-                  onClick={() => applyStage(s)}
-                >
-                  <span className="text-terminal-green">{s.stage}</span>
-                  {typeof s.score === "number" && (
-                    <span className="ml-1 text-muted-foreground">({s.score}/10)</span>
-                  )}
-                  {s.pain && <span className="ml-2 text-muted-foreground">{s.pain}</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-        <Button onClick={handleSave} disabled={isSaving || !title.trim()}>
-          {isSaving && <Loader2 className="size-4 animate-spin" />}
-          Create
-        </Button>
-      </div>
-    </div>
-  );
-}
+/* ══ Flow: tabs — Gaps · Topics · Content ═══════════════════════════════ */
 
 export default function Create({ projectId }: { projectId: Id<"projects"> }) {
-  const pieces = useQuery(api.content.list, { projectId }) ?? [];
-  const remove = useMutation(api.content.remove);
-  const update = useMutation(api.content.update);
-  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState("gaps");
 
   return (
     <div>
       <ModuleHeader
         icon={PenTool}
         title="Create"
-        subtitle="Content planning & generation — briefs linked to personas and gaps"
-      >
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="size-4" /> New content piece
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="font-mono text-h3">
-                New content piece
-              </DialogTitle>
-              <DialogDescription className="font-mono text-caption">
-                Briefs feed the website builder, email and social — with the
-                persona baked in.
-              </DialogDescription>
-            </DialogHeader>
-            <ContentForm projectId={projectId} onDone={() => setOpen(false)} />
-          </DialogContent>
-        </Dialog>
-      </ModuleHeader>
+        subtitle="Map content gaps per persona × journey stage → research topics → write with AI in a collaborative editor"
+      />
+      <Tabs value={tab} onValueChange={setTab} className="gap-4">
+        <TabsList>
+          <TabsTrigger value="gaps" className="font-mono text-caption">
+            <Crosshair className="mr-1.5 size-3.5" /> Gaps
+          </TabsTrigger>
+          <TabsTrigger value="topics" className="font-mono text-caption">
+            <Search className="mr-1.5 size-3.5" /> Topics &amp; research
+          </TabsTrigger>
+          <TabsTrigger value="content" className="font-mono text-caption">
+            <FileText className="mr-1.5 size-3.5" /> Content
+          </TabsTrigger>
+        </TabsList>
 
-      {pieces.length === 0 ? (
+        <TabsContent value="gaps">
+          <GapsTab projectId={projectId} onNext={() => setTab("topics")} />
+        </TabsContent>
+        <TabsContent value="topics">
+          <TopicsTab projectId={projectId} onNext={() => setTab("content")} />
+        </TabsContent>
+        <TabsContent value="content">
+          <ContentTab projectId={projectId} onNext={() => setTab("topics")} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+/* ══ Tab 1: Content gap analysis ════════════════════════════════════════ */
+
+function GapsTab({
+  projectId,
+  onNext,
+}: {
+  projectId: Id<"projects">;
+  onNext: () => void;
+}) {
+  const gaps = (useQuery(api.contentPlanning.listGaps, { projectId }) ?? []) as Array<{
+    _id: Id<"contentGaps">;
+    personaId?: Id<"personas">;
+    journeyMapId?: Id<"journeyMaps">;
+    journeyStage?: string;
+    title: string;
+    description?: string;
+    severity?: string;
+    status?: string;
+    source?: string;
+  }>;
+  const personas = useQuery(api.personas.list, { projectId }) ?? [];
+  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
+  const { snapshot } = useProjectSnapshot(projectId);
+  const detect = useAction(api.ai.detectContentGaps);
+  const createGap = useMutation(api.contentPlanning.createGap);
+  const removeGap = useMutation(api.contentPlanning.removeGap);
+  const updateGap = useMutation(api.contentPlanning.updateGap);
+
+  const [busy, setBusy] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [mTitle, setMTitle] = useState("");
+  const [mDesc, setMDesc] = useState("");
+  const [mPersona, setMPersona] = useState("none");
+  const [mJourney, setMJourney] = useState("none");
+  const [mStage, setMStage] = useState("none");
+
+  const selectedJourney = journeys.find((j) => j._id === mJourney);
+
+  const runDetect = async () => {
+    if (!snapshot || busy) return;
+    setBusy(true);
+    try {
+      const result = await detect({
+        project: snapshot,
+        personas: personas.map((p) => ({
+          id: p._id,
+          name: p.name,
+          role: p.role,
+          goals: p.goals,
+          pains: p.pains,
+          objections: p.objections,
+        })),
+        journeys: journeys.map((j) => ({
+          id: j._id,
+          personaId: j.personaId,
+          name: j.name,
+          goal: j.goal,
+          stages: j.stages.map((s) => ({
+            stage: s.stage,
+            score: s.score,
+            pains: s.cells[3],
+            opportunities: s.cells[4],
+          })),
+        })),
+      });
+      for (const g of result.gaps) {
+        await createGap({
+          projectId,
+          personaId: g.personaId,
+          journeyMapId: g.journeyMapId,
+          journeyStage: g.journeyStage,
+          title: g.title,
+          description: g.description,
+          severity: g.severity as "low" | "medium" | "high" | undefined,
+          source: "ai",
+        });
+      }
+      toast.success(`${result.gaps.length} content gaps mapped`, {
+        description: "Review them below — AI marked the weakest journey stages first.",
+      });
+    } catch (e) {
+      toast.error("Gap analysis failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addManual = async () => {
+    if (!mTitle.trim()) return;
+    try {
+      await createGap({
+        projectId,
+        title: mTitle.trim(),
+        description: mDesc.trim() || undefined,
+        personaId: (mPersona !== "none" ? mPersona : undefined) as
+          | Id<"personas">
+          | undefined,
+        journeyMapId: (mJourney !== "none" ? mJourney : undefined) as
+          | Id<"journeyMaps">
+          | undefined,
+        journeyStage: mStage !== "none" ? mStage : undefined,
+        source: "manual",
+      });
+      toast.success("Gap added");
+      setMTitle("");
+      setMDesc("");
+      setManualOpen(false);
+    } catch (e) {
+      toast.error("Save failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    }
+  };
+
+  const SEVERITY_TONE: Record<string, string> = {
+    high: "text-terminal-red border-terminal-red/40 bg-terminal-red-soft",
+    medium: "text-terminal-amber border-terminal-amber/40 bg-terminal-amber-soft",
+    low: "text-muted-foreground",
+  };
+
+  const openGaps = gaps.filter((g) => g.status !== "dismissed");
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={runDetect} disabled={busy || !snapshot}>
+          {busy ? (
+            <>
+              <Loader2 className="size-4 animate-spin" /> Analyzing…
+            </>
+          ) : (
+            <>
+              <Sparkles className="size-4" /> Detect gaps with AI
+            </>
+          )}
+        </Button>
+        <Button variant="outline" onClick={() => setManualOpen(true)}>
+          <Plus className="size-4" /> Add gap manually
+        </Button>
+        <span className="font-mono text-caption text-muted-foreground">
+          needs personas &amp; journey maps (from Understand / Journeys)
+        </span>
+      </div>
+
+      {openGaps.length === 0 ? (
         <ModuleEmpty
-          icon={PenTool}
-          title="No content pieces yet"
-          hint="Start from a question your persona asks that no one answers well. Every brief here can flow to the website builder, email or social."
+          icon={AlertTriangle}
+          title="No content gaps mapped yet"
+          hint="AI cross-checks personas + journey stages against the business and flags where content is missing. Or add your own."
           action={
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> Create the first brief
+            <Button onClick={runDetect} disabled={busy || !snapshot}>
+              <Sparkles className="size-4" /> Detect gaps with AI
             </Button>
           }
         />
       ) : (
         <div className="grid gap-3">
-          {pieces.map((c) => (
-            <div
-              key={c._id}
-              className="flex flex-wrap items-center gap-3 rounded-md border bg-card p-4 shadow-card"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="font-mono text-small font-medium">{c.title}</p>
-                <p className="font-mono text-caption text-muted-foreground">
-                  {c.topic ? `${c.topic} · ` : ""}
-                  {c.surface ?? "no surface"} · updated{" "}
-                  {new Date(c.updatedAt).toLocaleDateString()}
-                </p>
+          {openGaps.map((g) => {
+            const persona = personas.find((p) => p._id === g.personaId);
+            const journey = journeys.find((j) => j._id === g.journeyMapId);
+            return (
+              <div key={g._id} className="rounded-md border bg-card p-4 shadow-card">
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-mono text-small font-medium">{g.title}</p>
+                      {g.severity && (
+                        <Badge
+                          variant="outline"
+                          className={cn("font-mono text-caption", SEVERITY_TONE[g.severity])}
+                        >
+                          {g.severity}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="font-mono text-caption text-muted-foreground">
+                        {g.source === "ai" ? "ai" : "manual"}
+                      </Badge>
+                    </div>
+                    {g.description && (
+                      <p className="mt-1 font-mono text-caption text-muted-foreground">
+                        {g.description}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-caption text-muted-foreground">
+                      {persona && <span className="text-terminal-blue">persona: {persona.name}</span>}
+                      {journey && <span>journey: {journey.name}</span>}
+                      {g.journeyStage && <span>stage: {g.journeyStage}</span>}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 font-mono text-caption"
+                      onClick={() => {
+                        onNext();
+                      }}
+                    >
+                      <Search className="size-3.5" /> Research topics
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Dismiss gap"
+                      title="Dismiss"
+                      onClick={async () => {
+                        await updateGap({ id: g._id, status: "dismissed" });
+                        toast.success("Gap dismissed");
+                      }}
+                    >
+                      ×
+                    </Button>
+                    <ConfirmDelete
+                      what={`"${g.title}"`}
+                      onConfirm={async () => {
+                        await removeGap({ id: g._id });
+                        toast.success("Gap deleted");
+                      }}
+                      trigger={
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Delete ${g.title}`}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                  </div>
+                </div>
               </div>
-              <Badge
-                variant="outline"
-                className="hidden font-mono text-caption text-muted-foreground sm:inline-flex"
-              >
-                {c.surface ?? "unassigned"}
-              </Badge>
-              <StatusBadge status={c.status} />
-              {c.status === "draft" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await update({ id: c._id, status: "approved" });
-                      toast.success("Brief approved — ready to generate", {
-                        description:
-                          "Approved briefs feed the website builder and campaigns.",
-                      });
-                    } catch (e) {
-                      toast.error("Approve failed", {
-                        description:
-                          e instanceof Error ? e.message : "Try again.",
-                      });
-                    }
-                  }}
-                >
-                  <Check className="size-3.5" /> Approve
-                </Button>
-              )}
-              {c.status === "approved" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await update({
-                        id: c._id,
-                        status: "published",
-                        body: c.body ?? `Draft body for: ${c.title}`,
-                      });
-                      toast.success("Published");
-                    } catch (e) {
-                      toast.error("Publish failed", {
-                        description:
-                          e instanceof Error ? e.message : "Try again.",
-                      });
-                    }
-                  }}
-                >
-                  <Send className="size-3.5" /> Publish
-                </Button>
-              )}
-              <ConfirmDelete
-                what={`"${c.title}"`}
-                onConfirm={async () => {
-                  await remove({ id: c._id });
-                  toast.success("Content piece deleted");
-                }}
-                trigger={
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label={`Delete ${c.title}`}
-                    className="text-destructive"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                }
+            );
+          })}
+        </div>
+      )}
+
+      {/* Manual gap dialog */}
+      <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-h3">Add content gap</DialogTitle>
+            <DialogDescription className="font-mono text-caption">
+              A question, topic or moment where content is missing for a persona.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="gap-title">Title</Label>
+              <Input
+                id="gap-title"
+                value={mTitle}
+                onChange={(e) => setMTitle(e.target.value)}
+                placeholder="e.g. No content answering “will it work with our CRM?”"
               />
             </div>
-          ))}
+            <div className="grid gap-1.5">
+              <Label htmlFor="gap-desc">Why it matters (optional)</Label>
+              <Textarea
+                id="gap-desc"
+                value={mDesc}
+                onChange={(e) => setMDesc(e.target.value)}
+                rows={2}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-1.5">
+                <Label>Persona</Label>
+                <Select value={mPersona} onValueChange={setMPersona}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— none —</SelectItem>
+                    {personas.map((p) => (
+                      <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Journey</Label>
+                <Select
+                  value={mJourney}
+                  onValueChange={(v) => {
+                    setMJourney(v);
+                    setMStage("none");
+                  }}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— none —</SelectItem>
+                    {journeys.map((j) => (
+                      <SelectItem key={j._id} value={j._id}>{j.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Stage</Label>
+                <Select value={mStage} onValueChange={setMStage}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— none —</SelectItem>
+                    {(selectedJourney?.stages ?? []).map((s, i) => (
+                      <SelectItem key={i} value={s.stage}>{s.stage}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setManualOpen(false)}>Cancel</Button>
+              <Button onClick={addManual} disabled={!mTitle.trim()}>Add gap</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ══ Tab 2: Topics & research ═══════════════════════════════════════════ */
+
+function TopicsTab({
+  projectId,
+  onNext,
+}: {
+  projectId: Id<"projects">;
+  onNext: () => void;
+}) {
+  const gaps = useQuery(api.contentPlanning.listGaps, { projectId }) ?? [];
+  const topics = (useQuery(api.contentPlanning.listTopics, { projectId }) ?? []) as TopicRow[];
+  const personas = useQuery(api.personas.list, { projectId }) ?? [];
+  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
+  const suggest = useAction(api.ai.suggestTopics);
+  const research = useAction(api.research.researchTopic);
+  const createTopic = useMutation(api.contentPlanning.createTopic);
+  const updateTopic = useMutation(api.contentPlanning.updateTopic);
+  const removeTopic = useMutation(api.contentPlanning.removeTopic);
+
+  const [gapId, setGapId] = useState("none");
+  const [busy, setBusy] = useState(false);
+  const [researching, setResearching] = useState<string | null>(null);
+  const [researchOpen, setResearchOpen] = useState<string | null>(null);
+  const [manualTopic, setManualTopic] = useState("");
+  const [manualType, setManualType] = useState("blog");
+
+  const gap = gaps.find((g) => g._id === gapId);
+  const openGaps = gaps.filter((g) => g.status !== "dismissed");
+
+  const topicsForGap = useMemo(
+    () => (gapId === "none" ? topics : topics.filter((t) => t.gapId === gapId)),
+    [topics, gapId],
+  );
+
+  const personaOf = (t: TopicRow) => {
+    const g = gaps.find((gg) => gg._id === t.gapId);
+    return personas.find((p) => p._id === g?.personaId);
+  };
+
+  const runSuggest = async () => {
+    if (!snapshot || !gap || busy) return;
+    setBusy(true);
+    try {
+      // 1. quick live research on the gap title to ground topic suggestions
+      let digest: string[] = [];
+      try {
+        const hits = await research({ query: gap.title });
+        digest = hits.slice(0, 12).map((h) => `- [${h.source}] ${h.title}`);
+      } catch {
+        /* research optional here */
+      }
+      const result = await suggest({
+        project: snapshot,
+        gap: {
+          title: gap.title,
+          description: gap.description,
+          personaName: personas.find((p) => p._id === gap.personaId)?.name,
+          journeyStage: gap.journeyStage,
+        },
+        researchDigest: digest,
+      });
+      for (const t of result.topics) {
+        await createTopic({
+          projectId,
+          gapId: gap._id,
+          title: t.title,
+          angle: t.angle,
+          contentType: t.contentType,
+          keywords: t.keywords,
+        });
+      }
+      toast.success(`${result.topics.length} topics suggested`, {
+        description: "Research any topic, then turn it into content.",
+      });
+    } catch (e) {
+      toast.error("Suggestion failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runResearch = async (t: TopicRow) => {
+    if (researching) return;
+    setResearching(t._id);
+    try {
+      const hits = await research({
+        query: `${t.title}${t.angle ? ` ${t.angle}` : ""}`,
+        personaContext: personaOf(t)?.name,
+      });
+      await updateTopic({
+        id: t._id,
+        research: hits,
+        researchedAt: Date.now(),
+        status: "researched",
+      });
+      toast.success(`${hits.length} findings from ${new Set(hits.map((h) => h.source)).size} sources`);
+    } catch (e) {
+      toast.error("Research failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setResearching(null);
+    }
+  };
+
+  const addManual = async () => {
+    if (!manualTopic.trim()) return;
+    await createTopic({
+      projectId,
+      gapId: gapId !== "none" ? (gapId as Id<"contentGaps">) : undefined,
+      title: manualTopic.trim(),
+      contentType: manualType,
+    });
+    setManualTopic("");
+    toast.success("Topic added");
+  };
+
+  const makeContent = async (t: TopicRow) => {
+    try {
+      await createPiece({
+        projectId,
+        topicId: t._id as never,
+        gapId: t.gapId as never,
+        title: t.title,
+        topic: t.title,
+        brief: [t.angle, ...(t.keywords ?? [])].filter(Boolean).join(" · "),
+        contentType: t.contentType ?? "blog",
+        personaId: personaOf(t)?._id,
+        journeyMapId: gaps.find((g) => g._id === t.gapId)?.journeyMapId,
+        journeyStage: gaps.find((g) => g._id === t.gapId)?.journeyStage,
+      });
+      toast.success("Content piece created — open it in the Content tab", {
+        description: "The editor can AI-draft from the topic + research.",
+      });
+      onNext();
+    } catch (e) {
+      toast.error("Create failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    }
+  };
+
+  const createPiece = useMutation(api.content.create);
+
+  return (
+    <div className="grid gap-4">
+      {/* gap picker + AI suggest */}
+      <div className="flex flex-wrap items-end gap-2 rounded-md border border-dashed p-3">
+        <div className="min-w-52 flex-1">
+          <Label className="font-mono text-caption text-muted-foreground">
+            fill a gap
+          </Label>
+          <Select value={gapId} onValueChange={setGapId}>
+            <SelectTrigger className="mt-1 w-full">
+              <SelectValue placeholder="Pick a gap" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">All topics</SelectItem>
+              {openGaps.map((g) => (
+                <SelectItem key={g._id} value={g._id}>{g.title}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+        <Button onClick={runSuggest} disabled={busy || !gap || !snapshot}>
+          {busy ? (
+            <>
+              <Loader2 className="size-4 animate-spin" /> Working…
+            </>
+          ) : (
+            <>
+              <Sparkles className="size-4" /> AI topic research
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* manual topic */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-52 flex-1">
+          <Input
+            value={manualTopic}
+            onChange={(e) => setManualTopic(e.target.value)}
+            placeholder="Or add a topic manually…"
+            onKeyDown={(e) => e.key === "Enter" && void addManual()}
+          />
+        </div>
+        <Select value={manualType} onValueChange={setManualType}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {CONTENT_TYPES.map((ct) => (
+              <SelectItem key={ct.id} value={ct.id}>{ct.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" onClick={addManual} disabled={!manualTopic.trim()}>
+          <Plus className="size-4" /> Add
+        </Button>
+      </div>
+
+      {topicsForGap.length === 0 ? (
+        <ModuleEmpty
+          icon={Search}
+          title="No topics yet"
+          hint="Pick a gap and run AI topic research — or add topics manually. Each topic can be researched across 10 sources."
+        />
+      ) : (
+        <div className="grid gap-3">
+          {topicsForGap.map((t) => {
+            const persona = personaOf(t);
+            return (
+              <div key={t._id} className="rounded-md border bg-card p-4 shadow-card">
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-small font-medium">{t.title}</p>
+                    {t.angle && (
+                      <p className="mt-0.5 font-mono text-caption text-muted-foreground">
+                        {t.angle}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className="font-mono text-caption">
+                        {CONTENT_TYPES.find((c) => c.id === t.contentType)?.label ?? t.contentType ?? "blog"}
+                      </Badge>
+                      {persona && (
+                        <Badge variant="outline" className="font-mono text-caption text-terminal-blue">
+                          {persona.name}
+                        </Badge>
+                      )}
+                      {t.keywords?.map((k) => (
+                        <Badge key={k} variant="outline" className="font-mono text-caption text-muted-foreground">
+                          {k}
+                        </Badge>
+                      ))}
+                    </div>
+                    {t.research && t.research.length > 0 && (
+                      <p className="mt-2 font-mono text-caption text-muted-foreground">
+                        {t.research.length} findings ·{" "}
+                        {[...new Set(t.research.map((h) => h.source))]
+                          .map((s) => SOURCE_LABELS[s] ?? s)
+                          .join(", ")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 font-mono text-caption"
+                      onClick={() => void runResearch(t)}
+                      disabled={researching !== null}
+                    >
+                      {researching === t._id ? (
+                        <>
+                          <Loader2 className="size-3.5 animate-spin" /> researching…
+                        </>
+                      ) : (
+                        <>
+                          <Search className="size-3.5" /> Research
+                        </>
+                      )}
+                    </Button>
+                    {t.research && t.research.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 font-mono text-caption"
+                        onClick={() =>
+                          setResearchOpen(researchOpen === t._id ? null : t._id)
+                        }
+                      >
+                        findings
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      className="h-7 font-mono text-caption"
+                      onClick={() => void makeContent(t)}
+                    >
+                      <Wand2 className="size-3.5" /> Create content
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Delete ${t.title}`}
+                      className="text-destructive"
+                      onClick={async () => {
+                        await removeTopic({ id: t._id });
+                        toast.success("Topic deleted");
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                {/* research findings */}
+                {researchOpen === t._id && t.research && (
+                  <div className="mt-3 grid gap-1.5 border-t pt-3">
+                    {t.research.map((h, i) => (
+                      <a
+                        key={i}
+                        href={h.url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-sm border px-2.5 py-1.5 ease-terminal hover:border-terminal-green/50 hover:bg-terminal-green-soft"
+                      >
+                        <span className="font-mono text-caption text-terminal-green">
+                          [{SOURCE_LABELS[h.source] ?? h.source}]
+                        </span>{" "}
+                        <span className="font-mono text-caption">{h.title}</span>
+                        {h.snippet && (
+                          <span className="block truncate font-mono text-caption text-muted-foreground">
+                            {h.snippet}
+                          </span>
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══ Tab 3: Content pieces + editor ═════════════════════════════════════ */
+
+function ContentTab({ projectId, onNext }: { projectId: Id<"projects">; onNext: () => void }) {
+  const pieces = useQuery(api.content.list, { projectId }) ?? [];
+  const remove = useMutation(api.content.remove);
+  const update = useMutation(api.content.update);
+
+  const [openPiece, setOpenPiece] = useState<Id<"contentPieces"> | null>(null);
+  const piece = pieces.find((p) => p._id === openPiece);
+
+  if (openPiece && piece) {
+    return (
+      <PieceEditor
+        key={piece._id}
+        projectId={projectId}
+        piece={piece}
+        onBack={() => setOpenPiece(null)}
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      {pieces.length === 0 ? (
+        <ModuleEmpty
+          icon={FileText}
+          title="No content pieces yet"
+          hint="Turn a researched topic into a content piece — the collaborative editor drafts, expands and rewrites with AI."
+          action={
+            <Button onClick={onNext}>
+              <Search className="size-4" /> Start from topics
+            </Button>
+          }
+        />
+      ) : (
+        <div className="grid gap-3">
+          {pieces.map((c) => {
+            return (
+              <div
+                key={c._id}
+                className="flex flex-wrap items-center gap-3 rounded-md border bg-card p-4 shadow-card"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-small font-medium">{c.title}</p>
+                  <p className="font-mono text-caption text-muted-foreground">
+                    {c.contentType
+                      ? `${CONTENT_TYPES.find((ct) => ct.id === c.contentType)?.label ?? c.contentType} · `
+                      : ""}
+                    {c.topic ? `${c.topic} · ` : ""}
+                    updated {new Date(c.updatedAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <StatusBadge status={c.status} />
+                {c.status === "draft" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 font-mono text-caption"
+                    onClick={() => void update({ id: c._id, status: "approved" })}
+                  >
+                    Approve
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 font-mono text-caption"
+                  onClick={() => setOpenPiece(c._id)}
+                >
+                  <PenTool className="size-3.5" /> Open editor
+                </Button>
+                <ConfirmDelete
+                  what={`"${c.title}"`}
+                  onConfirm={async () => {
+                    await remove({ id: c._id });
+                    toast.success("Content piece deleted");
+                  }}
+                  trigger={
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Delete ${c.title}`}
+                      className="text-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  }
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Single piece: Y.Doc lifecycle + AI wiring ────────────────────────── */
+
+type PieceRow = {
+  _id: Id<"contentPieces">;
+  title: string;
+  topicId?: Id<"contentTopics">;
+  personaId?: Id<"personas">;
+  journeyStage?: string;
+  topic?: string;
+  body?: string;
+  contentType?: string;
+  status: "draft" | "approved" | "published";
+  updatedAt: number;
+};
+
+function PieceEditor({
+  projectId,
+  piece,
+  onBack,
+}: {
+  projectId: Id<"projects">;
+  piece: PieceRow;
+  onBack: () => void;
+}) {
+  const personas = useQuery(api.personas.list, { projectId }) ?? [];
+  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
+  const topics = useQuery(api.contentPlanning.listTopics, { projectId }) ?? [];
+  const saveDoc = useMutation(api.contentPlanning.saveDoc);
+  const update = useMutation(api.content.update);
+  const editSelectionAi = useAction(api.ai.editSelection);
+  const generateContentAi = useAction(api.ai.generateContent);
+  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
+
+  const storedDoc = useQuery(api.contentPlanning.getDoc, { pieceId: piece._id });
+
+  const [doc, setDoc] = useState<Y.Doc | null>(null);
+  const [initialHtml, setInitialHtml] = useState<string | undefined>(undefined);
+
+  // Create + hydrate the Y.Doc exactly once per opened piece: apply the
+  // stored snapshot when there is one, otherwise seed from the piece body.
+  useEffect(() => {
+    if (storedDoc === undefined) return; // still loading
+    const ydoc = new Y.Doc();
+    if (storedDoc?.snapshot) {
+      Y.applyUpdate(ydoc, new Uint8Array(storedDoc.snapshot));
+    } else if (piece.body) {
+      setInitialHtml(piece.body);
+    }
+    setDoc(ydoc);
+    return () => {
+      ydoc.destroy();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storedDoc === undefined]);
+
+  const topic = piece.topicId ? topics.find((t) => t._id === piece.topicId) : undefined;
+  const persona = personas.find((p) => p._id === piece.personaId);
+  const journey = journeys.find((j) => j._id === (piece as { journeyMapId?: Id<"journeyMaps"> }).journeyMapId);
+
+  const researchDigest = (topic?.research ?? [])
+    .slice(0, 20)
+    .map(
+      (h) =>
+        `- [${h.source}] ${h.title}${h.snippet ? `: ${h.snippet.slice(0, 120)}` : ""}`,
+    );
+
+  const runAiEdit = async ({
+    op,
+    selectionText,
+    surroundingText,
+  }: {
+    op: "expand" | "rewrite";
+    selectionText: string;
+    surroundingText: string;
+  }) => {
+    if (!snapshot) throw new Error("Project context not loaded yet");
+    // empty selection + expand = full AI draft
+    if (!selectionText.trim() && op === "expand") {
+      return await generateContentAi({
+        project: snapshot,
+        topic: {
+          title: topic?.title ?? piece.title,
+          angle: topic?.angle,
+          contentType: piece.contentType ?? topic?.contentType,
+          keywords: topic?.keywords,
+        },
+        persona: persona
+          ? {
+              name: persona.name,
+              role: persona.role,
+              goals: persona.goals,
+              pains: persona.pains,
+              objections: persona.objections,
+            }
+          : undefined,
+        journeyStage: piece.journeyStage ?? journey?.stages.find((s) => s.stage === piece.journeyStage)?.stage,
+        researchDigest,
+      });
+    }
+    return await editSelectionAi({
+      op,
+      selectionHtml: selectionText,
+      surroundingContext: surroundingText,
+      project: snapshot,
+      personaName: persona?.name,
+    });
+  };
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 font-mono text-caption"
+          onClick={onBack}
+        >
+          ← back to list
+        </Button>
+        <p className="font-mono text-small font-medium">{piece.title}</p>
+        <StatusBadge status={piece.status} />
+        <div className="ml-auto flex gap-1">
+          {piece.status === "draft" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 font-mono text-caption"
+              onClick={async () => {
+                try {
+                  await update({ id: piece._id, status: "approved" });
+                  toast.success("Approved");
+                } catch (e) {
+                  toast.error("Approve failed", {
+                    description: e instanceof Error ? e.message : "Try again.",
+                  });
+                }
+              }}
+            >
+              Approve
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {doc ? (
+        <ContentEditor
+          doc={doc}
+          initialHtml={initialHtml}
+          ctx={{
+            personaName: persona?.name,
+            journeyStage: piece.journeyStage ?? undefined,
+            topicTitle: topic?.title ?? piece.topic,
+          }}
+          onSave={async ({ snapshot: snap, bodyHtml }) => {
+            await saveDoc({
+              pieceId: piece._id,
+              snapshot: snap.slice().buffer as ArrayBuffer,
+              bodyHtml,
+            });
+          }}
+          onAiEdit={runAiEdit}
+        />
+      ) : (
+        <p className="font-mono text-caption text-muted-foreground">Preparing editor…</p>
       )}
     </div>
   );

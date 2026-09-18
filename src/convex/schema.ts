@@ -129,10 +129,16 @@ const schema = defineSchema(
     contentPieces: defineTable({
       projectId: v.id("projects"),
       personaId: v.optional(v.id("personas")),
+      topicId: v.optional(v.id("contentTopics")),
+      gapId: v.optional(v.id("contentGaps")),
+      journeyMapId: v.optional(v.id("journeyMaps")),
+      journeyStage: v.optional(v.string()),
       title: v.string(),
       topic: v.optional(v.string()),
       brief: v.optional(v.string()),
       body: v.optional(v.string()),
+      // landing_page | script | social_post | social_series | blog | email | video_script
+      contentType: v.optional(v.string()),
       // draft | approved | published
       status: v.union(
         v.literal("draft"),
@@ -310,6 +316,68 @@ const schema = defineSchema(
       createdAt: v.number(),
       updatedAt: v.number(),
     }).index("by_project", ["projectId"]),
+
+    // ── Create module: gap analysis → topic research → content writing ────
+
+    // A content gap: missing / weak coverage for one persona at one journey
+    // stage. Created by AI analysis of personas + journey maps, or by hand.
+    contentGaps: defineTable({
+      projectId: v.id("projects"),
+      personaId: v.optional(v.id("personas")),
+      journeyMapId: v.optional(v.id("journeyMaps")),
+      journeyStage: v.optional(v.string()),
+      title: v.string(), // short label of the gap
+      description: v.optional(v.string()), // what is missing and why it matters
+      severity: v.optional(
+        v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+      ),
+      // open | covered | dismissed — “covered” links the gap to topics/pieces
+      status: v.optional(
+        v.union(v.literal("open"), v.literal("covered"), v.literal("dismissed")),
+      ),
+      source: v.optional(v.union(v.literal("ai"), v.literal("manual"))),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_persona", ["projectId", "personaId"]),
+
+    // A researched topic that fills a gap. `research` holds the raw results
+    // (provenance-tagged) from the universal research action.
+    contentTopics: defineTable({
+      projectId: v.id("projects"),
+      gapId: v.optional(v.id("contentGaps")),
+      title: v.string(),
+      angle: v.optional(v.string()), // the angle / hook AI proposes
+      // landing_page | script | social_post | social_series | blog | email | video_script
+      contentType: v.optional(v.string()),
+      keywords: v.optional(v.array(v.string())),
+      research: v.optional(
+        v.array(
+          v.object({
+            source: v.string(), // reddit | wikipedia | wikibooks | gdlt | youtube | newsapi | trends | local_news | serp_news | google_books
+            title: v.string(),
+            url: v.optional(v.string()),
+            snippet: v.optional(v.string()),
+          }),
+        ),
+      ),
+      researchedAt: v.optional(v.number()),
+      status: v.optional(
+        v.union(v.literal("idea"), v.literal("researched"), v.literal("in_progress"), v.literal("done")),
+      ),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Collaborative document editor state. BaseYjs updates are stored as a
+    // document snapshot; comments/mentions are out of scope for now.
+    contentDocs: defineTable({
+      pieceId: v.id("contentPieces"),
+      snapshot: v.optional(v.bytes()), // latest Yjs update (binary)
+      updatedAt: v.number(),
+      updatedBy: v.optional(v.id("users")),
+    }).index("by_piece", ["pieceId"]),
 
     // Chat history with a persona (persona mode) or about it (analyst mode)
     personaMessages: defineTable({
