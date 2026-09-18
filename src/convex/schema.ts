@@ -55,9 +55,50 @@ const schema = defineSchema(
       websiteUrl: v.optional(v.string()),
       industry: v.optional(v.string()),
       competitors: v.optional(v.array(v.string())),
+      // Competitor entries tagged as either website URLs or GMB business names
+      competitorEntries: v.optional(
+        v.array(
+          v.object({
+            type: v.union(v.literal("website"), v.literal("gmb")),
+            value: v.string(), // normalized https://… for websites, raw name for GMB
+          }),
+        ),
+      ),
+      googleBusinessName: v.optional(v.string()),
+      productsServices: v.optional(v.array(v.string())),
       goals: v.optional(v.array(v.string())),
       kpis: v.optional(v.array(v.string())),
       channels: v.optional(v.array(v.string())),
+      // Result of the last onboarding website scan (scraper + SerpApi)
+      websiteScan: v.optional(
+        v.object({
+          status: v.union(
+            v.literal("pending"),
+            v.literal("scraped"),
+            v.literal("partial"),
+            v.literal("failed"),
+          ),
+          scannedAt: v.number(),
+          sitemapUrls: v.optional(v.array(v.string())),
+          titles: v.optional(v.array(v.string())),
+          metaDescription: v.optional(v.string()),
+          headings: v.optional(v.array(v.string())),
+          // detected product / service names extracted from the site or GMB
+          productsServices: v.optional(v.array(v.string())),
+          gmb: v.optional(
+            v.object({
+              title: v.optional(v.string()),
+              address: v.optional(v.string()),
+              phone: v.optional(v.string()),
+              website: v.optional(v.string()),
+              rating: v.optional(v.number()),
+              reviews: v.optional(v.number()),
+              category: v.optional(v.string()),
+              openHours: v.optional(v.string()),
+            }),
+          ),
+        }),
+      ),
       createdAt: v.number(),
     })
       .index("by_owner", ["ownerId"])

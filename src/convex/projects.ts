@@ -34,6 +34,16 @@ export const create = mutation({
     websiteUrl: v.optional(v.string()),
     industry: v.optional(v.string()),
     competitors: v.optional(v.array(v.string())),
+    competitorEntries: v.optional(
+      v.array(
+        v.object({
+          type: v.union(v.literal("website"), v.literal("gmb")),
+          value: v.string(),
+        }),
+      ),
+    ),
+    googleBusinessName: v.optional(v.string()),
+    productsServices: v.optional(v.array(v.string())),
     goals: v.optional(v.array(v.string())),
     kpis: v.optional(v.array(v.string())),
     channels: v.optional(v.array(v.string())),
@@ -44,6 +54,66 @@ export const create = mutation({
       ...args,
       ownerId: userId,
       createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Called after the wizard's scan step finishes — stores scrape + SerpApi
+ * findings on the project so every module can reuse the enriched context.
+ */
+export const saveScan = mutation({
+  args: {
+    id: v.id("projects"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("scraped"),
+      v.literal("partial"),
+      v.literal("failed"),
+    ),
+    sitemapUrls: v.optional(v.array(v.string())),
+    titles: v.optional(v.array(v.string())),
+    metaDescription: v.optional(v.string()),
+    headings: v.optional(v.array(v.string())),
+    productsServices: v.optional(v.array(v.string())),
+    gmb: v.optional(
+      v.object({
+        title: v.optional(v.string()),
+        address: v.optional(v.string()),
+        phone: v.optional(v.string()),
+        website: v.optional(v.string()),
+        rating: v.optional(v.number()),
+        reviews: v.optional(v.number()),
+        category: v.optional(v.string()),
+        openHours: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, { id, ...scan }) => {
+    const userId = await requireUser(ctx);
+    const project = await ctx.db.get(id);
+    if (!project || project.ownerId !== userId) throw new Error("Not found");
+
+    // Auto-populate description from the best evidence we got.
+    const description =
+      scan.metaDescription ??
+      project.description ??
+      (scan.titles?.length ? scan.titles[0] : undefined);
+
+    // Products/services from scan (or GMB category) enrich the project.
+    const mergedProducts = [
+      ...new Set([...(project.productsServices ?? []), ...(scan.productsServices ?? [])]),
+    ];
+    const industry =
+      project.industry ?? scan.gmb?.category ?? undefined;
+
+    await ctx.db.patch(id, {
+      websiteScan: { ...scan, scannedAt: Date.now() },
+      description,
+      productsServices: mergedProducts.length ? mergedProducts : undefined,
+      industry,
+      // If GMB found a website and none was provided, backfill it.
+      websiteUrl: project.websiteUrl ?? scan.gmb?.website ?? undefined,
     });
   },
 });
