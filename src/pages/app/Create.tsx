@@ -3,7 +3,14 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { Loader2, PenTool, Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  Loader2,
+  PenTool,
+  Plus,
+  Send,
+  Trash2,
+} from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import {
@@ -145,6 +152,7 @@ function ContentForm({
 export default function Create({ projectId }: { projectId: Id<"projects"> }) {
   const pieces = useQuery(api.content.list, { projectId }) ?? [];
   const remove = useMutation(api.content.remove);
+  const update = useMutation(api.content.update);
   const [open, setOpen] = useState(false);
 
   return (
@@ -208,6 +216,51 @@ export default function Create({ projectId }: { projectId: Id<"projects"> }) {
                 {c.surface ?? "unassigned"}
               </Badge>
               <StatusBadge status={c.status} />
+              {c.status === "draft" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await update({ id: c._id, status: "approved" });
+                      toast.success("Brief approved — ready to generate", {
+                        description:
+                          "Approved briefs feed the website builder and campaigns.",
+                      });
+                    } catch (e) {
+                      toast.error("Approve failed", {
+                        description:
+                          e instanceof Error ? e.message : "Try again.",
+                      });
+                    }
+                  }}
+                >
+                  <Check className="size-3.5" /> Approve
+                </Button>
+              )}
+              {c.status === "approved" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await update({
+                        id: c._id,
+                        status: "published",
+                        body: c.body ?? `Draft body for: ${c.title}`,
+                      });
+                      toast.success("Published");
+                    } catch (e) {
+                      toast.error("Publish failed", {
+                        description:
+                          e instanceof Error ? e.message : "Try again.",
+                      });
+                    }
+                  }}
+                >
+                  <Send className="size-3.5" /> Publish
+                </Button>
+              )}
               <ConfirmDelete
                 what={`"${c.title}"`}
                 onConfirm={async () => {

@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { PLAN_MODULES, type Plan } from "./billing";
+import { PLAN_MODULES, DEFAULT_PLAN, type Plan } from "./billing";
 
 /** Returns the signed-in user's id, or null. */
 export async function maybeUser(ctx: QueryCtx | MutationCtx) {
@@ -37,7 +37,7 @@ export async function assertModule(
 ): Promise<Id<"users">> {
   const userId = await requireUser(ctx) as Id<"users">;
   const user = await ctx.db.get(userId);
-  const plan = (user?.plan ?? "free") as Plan;
+  const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
   const mods = PLAN_MODULES[plan] ?? PLAN_MODULES.free;
   if (!mods.includes(moduleName)) {
     throw new Error(

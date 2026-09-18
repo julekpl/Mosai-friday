@@ -65,7 +65,8 @@ export function AppShell({
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const current = projects.find((p) => p._id === projectId) ?? projects[0];
-  const plan = (user?.plan ?? "free") as
+  // TESTING PHASE: default to "scale" so every module is reachable.
+  const plan = (user?.plan ?? "scale") as
     | "free"
     | "starter"
     | "growth"

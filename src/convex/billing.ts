@@ -5,6 +5,11 @@ import { v } from "convex/values";
 export const PLANS = ["free", "starter", "growth", "scale"] as const;
 export type Plan = (typeof PLANS)[number];
 
+/** TESTING PHASE: default plan is "scale" so every module is reachable.
+ *  Switch back to "free" here for launch — the plan switcher in Billing
+ *  still demonstrates gating for every tier. */
+export const DEFAULT_PLAN: Plan = "scale";
+
 /** What each plan unlocks. Single source of truth for entitlements —
  *  module UIs and mutations must call hasModule, never hardcode plan names. */
 export const PLAN_MODULES: Record<Plan, string[]> = {
@@ -28,7 +33,7 @@ export const currentPlan = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
     const user = await ctx.db.get(userId);
-    const plan = (user?.plan ?? "free") as Plan;
+    const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
     return {
       plan,
       status: user?.planStatus ?? "active",

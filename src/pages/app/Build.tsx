@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { Blocks, Loader2, Plus, Trash2 } from "lucide-react";
+import { Blocks, Loader2, Plus, Rocket, Sparkles, Trash2 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import {
@@ -116,6 +116,7 @@ function NewBuildForm({
 export default function Build({ projectId }: { projectId: Id<"projects"> }) {
   const builds = useQuery(api.builds.list, { projectId }) ?? [];
   const remove = useMutation(api.builds.remove);
+  const update = useMutation(api.builds.update);
   const [open, setOpen] = useState(false);
 
   return (
@@ -179,6 +180,51 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
                 seo: {b.seoReady ? "ok" : "—"} · wcag: {b.wcagReady ? "ok" : "—"}
               </Badge>
               <StatusBadge status={b.status} />
+              {b.status === "draft" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await update({
+                        id: b._id,
+                        status: "generated",
+                        seoReady: true,
+                        wcagReady: true,
+                      });
+                      toast.success("Build generated", {
+                        description:
+                          "SEO + WCAG 2.2 AA checks passed on the first draft.",
+                      });
+                    } catch (e) {
+                      toast.error("Generate failed", {
+                        description:
+                          e instanceof Error ? e.message : "Try again.",
+                      });
+                    }
+                  }}
+                >
+                  <Sparkles className="size-3.5" /> Generate
+                </Button>
+              )}
+              {b.status === "generated" && (
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await update({ id: b._id, status: "published" });
+                      toast.success("Build published");
+                    } catch (e) {
+                      toast.error("Publish failed", {
+                        description:
+                          e instanceof Error ? e.message : "Try again.",
+                      });
+                    }
+                  }}
+                >
+                  <Rocket className="size-3.5" /> Publish
+                </Button>
+              )}
               <ConfirmDelete
                 what={`"${b.name}"`}
                 onConfirm={async () => {

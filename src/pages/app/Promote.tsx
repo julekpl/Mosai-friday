@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import {
   CalendarClock,
+  CheckCircle2,
   Loader2,
   Megaphone,
   Plus,
@@ -343,6 +344,15 @@ export default function Promote({ projectId }: { projectId: Id<"projects"> }) {
                       onClick={() => updateCampaign({ id: c._id, status: "running" })}
                     >
                       Resume
+                    </Button>
+                  )}
+                  {c.status === "running" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => updateCampaign({ id: c._id, status: "done" })}
+                    >
+                      <CheckCircle2 className="size-3.5" /> Mark done
                     </Button>
                   )}
                   <StatusBadge status={c.status} />
