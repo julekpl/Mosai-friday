@@ -1,0 +1,264 @@
+/* DO NOT CHANGE */
+@import "tailwindcss";
+@import "tw-animate-css";
+@custom-variant dark (&:is(.dark *));
+
+/* DO NOT CHANGE */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Terminal accent utilities (mapped to runtime vars so .dark follows along) */
+@theme inline {
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-green-soft: var(--terminal-green-soft);
+  --color-terminal-amber: var(--terminal-amber);
+  --color-terminal-amber-soft: var(--terminal-amber-soft);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-red-soft: var(--terminal-red-soft);
+  --color-terminal-blue: var(--terminal-blue);
+  --color-terminal-blue-soft: var(--terminal-blue-soft);
+  --color-terminal-ink-soft: var(--terminal-ink-soft);
+}
+
+/* CHANGE VALUES FOR THEME — light Terminal theme: off-white paper, ink-first,
+   restrained green/amber status accents, hairline borders, small radii. */
+:root {
+  --radius: 0.375rem;
+
+  /* Surfaces */
+  --background: oklch(0.968 0.007 95);        /* warm off-white paper */
+  --foreground: oklch(0.245 0.021 145);       /* ink */
+  --card: oklch(0.985 0.005 95);              /* raised paper */
+  --card-foreground: oklch(0.245 0.021 145);
+  --popover: oklch(0.992 0.004 95);
+  --popover-foreground: oklch(0.245 0.021 145);
+  --primary: oklch(0.27 0.02 145);            /* ink control */
+  --primary-foreground: oklch(0.972 0.01 110);
+  --secondary: oklch(0.945 0.009 110);
+  --secondary-foreground: oklch(0.3 0.022 145);
+  --muted: oklch(0.935 0.011 110);
+  --muted-foreground: oklch(0.475 0.018 145);
+  --accent: oklch(0.93 0.014 130);
+  --accent-foreground: oklch(0.26 0.022 145);
+  --destructive: oklch(0.51 0.19 27);
+  --border: oklch(0.875 0.014 120);           /* hairline */
+  --input: oklch(0.845 0.016 120);
+  --ring: oklch(0.53 0.125 150);              /* terminal green focus */
+
+  /* Terminal status accents (restrained) */
+  --terminal-green: oklch(0.53 0.125 150);    /* go / ok / positive */
+  --terminal-green-soft: oklch(0.94 0.045 150);
+  --terminal-amber: oklch(0.62 0.13 70);      /* attention / pending */
+  --terminal-amber-soft: oklch(0.95 0.05 85);
+  --terminal-red: oklch(0.51 0.19 27);
+  --terminal-red-soft: oklch(0.945 0.035 25);
+  --terminal-blue: oklch(0.52 0.11 245);      /* informational */
+  --terminal-blue-soft: oklch(0.94 0.03 245);
+  --terminal-ink-soft: oklch(0.94 0.012 120);
+
+  /* Grids & pattern tint */
+  --grid-line: oklch(0.3 0.02 145 / 7%);
+
+  /* Charts: green ramp + amber + slate for comparison series */
+  --chart-1: oklch(0.53 0.125 150);
+  --chart-2: oklch(0.66 0.11 155);
+  --chart-3: oklch(0.62 0.13 70);
+  --chart-4: oklch(0.42 0.06 160);
+  --chart-5: oklch(0.55 0.05 250);
+
+  --sidebar: oklch(0.955 0.008 100);
+  --sidebar-foreground: oklch(0.245 0.021 145);
+  --sidebar-primary: oklch(0.27 0.02 145);
+  --sidebar-primary-foreground: oklch(0.972 0.01 110);
+  --sidebar-accent: oklch(0.925 0.014 130);
+  --sidebar-accent-foreground: oklch(0.26 0.022 145);
+  --sidebar-border: oklch(0.875 0.014 120);
+  --sidebar-ring: oklch(0.53 0.125 150);
+}
+
+.dark {
+  --background: oklch(0.215 0.012 140);
+  --foreground: oklch(0.93 0.012 110);
+  --card: oklch(0.25 0.014 140);
+  --card-foreground: oklch(0.93 0.012 110);
+  --popover: oklch(0.255 0.014 140);
+  --popover-foreground: oklch(0.93 0.012 110);
+  --primary: oklch(0.9 0.02 140);
+  --primary-foreground: oklch(0.24 0.02 145);
+  --secondary: oklch(0.3 0.014 140);
+  --secondary-foreground: oklch(0.9 0.012 110);
+  --muted: oklch(0.295 0.014 140);
+  --muted-foreground: oklch(0.72 0.015 120);
+  --accent: oklch(0.32 0.016 140);
+  --accent-foreground: oklch(0.93 0.012 110);
+  --destructive: oklch(0.68 0.17 27);
+  --border: oklch(0.93 0.02 130 / 14%);
+  --input: oklch(0.93 0.02 130 / 20%);
+  --ring: oklch(0.75 0.14 150);
+  --terminal-green: oklch(0.78 0.14 150);
+  --terminal-green-soft: oklch(0.32 0.05 150);
+  --terminal-amber: oklch(0.79 0.13 80);
+  --terminal-amber-soft: oklch(0.33 0.05 80);
+  --terminal-red: oklch(0.7 0.16 25);
+  --terminal-red-soft: oklch(0.32 0.05 25);
+  --terminal-blue: oklch(0.72 0.11 245);
+  --terminal-blue-soft: oklch(0.32 0.04 245);
+  --terminal-ink-soft: oklch(0.31 0.014 140);
+  --grid-line: oklch(0.93 0.02 130 / 6%);
+  --chart-1: oklch(0.72 0.13 152);
+  --chart-2: oklch(0.6 0.1 155);
+  --chart-3: oklch(0.74 0.12 78);
+  --chart-4: oklch(0.55 0.07 160);
+  --chart-5: oklch(0.65 0.06 250);
+  --sidebar: oklch(0.235 0.013 140);
+  --sidebar-foreground: oklch(0.93 0.012 110);
+  --sidebar-primary: oklch(0.9 0.02 140);
+  --sidebar-primary-foreground: oklch(0.24 0.02 145);
+  --sidebar-accent: oklch(0.32 0.016 140);
+  --sidebar-accent-foreground: oklch(0.93 0.012 110);
+  --sidebar-border: oklch(0.93 0.02 130 / 14%);
+  --sidebar-ring: oklch(0.75 0.14 150);
+}
+
+/* Terminal design-system additions: mono-first type scale, shadows, motion.
+   Values are also documented live in the /system component library. */
+@theme {
+  --font-sans: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --text-display: 2.75rem;
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.03em;
+  --text-display--font-weight: 600;
+  --text-h1: 1.875rem;
+  --text-h1--line-height: 1.15;
+  --text-h1--letter-spacing: -0.02em;
+  --text-h1--font-weight: 600;
+  --text-h2: 1.375rem;
+  --text-h2--line-height: 1.25;
+  --text-h2--letter-spacing: -0.01em;
+  --text-h2--font-weight: 600;
+  --text-h3: 1.0625rem;
+  --text-h3--line-height: 1.35;
+  --text-h3--font-weight: 600;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.65;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.5;
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1.45;
+  --text-caption--letter-spacing: 0.02em;
+  --text-metric: 1.75rem;
+  --text-metric--line-height: 1.1;
+  --text-metric--letter-spacing: -0.02em;
+  --text-metric--font-weight: 600;
+
+  --shadow-hairline: 0 0 0 1px var(--border);
+  --shadow-card: 0 1px 2px oklch(0.25 0.02 145 / 6%), 0 0 0 1px var(--border);
+  --shadow-pop: 0 4px 16px -4px oklch(0.25 0.02 145 / 20%), 0 0 0 1px var(--border);
+  --shadow-float: 0 16px 48px -12px oklch(0.25 0.02 145 / 30%), 0 0 0 1px var(--border);
+}
+
+@keyframes caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@utility ease-terminal {
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+@utility bg-dots {
+  background-image: radial-gradient(var(--grid-line) 1px, transparent 1.5px);
+  background-size: 22px 22px;
+}
+@utility bg-scanlines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    oklch(0.25 0.02 145 / 2.5%) 0 1px,
+    transparent 1px 4px
+  );
+}
+@utility animate-caret {
+  animation: caret-blink 1.1s steps(1) infinite;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+  }
+  body {
+    @apply bg-background text-foreground font-mono text-body antialiased;
+  }
+  ::selection {
+    background: var(--terminal-green);
+    color: var(--background);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
