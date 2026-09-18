@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -38,6 +38,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { MosaicMark, moduleTileBg, moduleTileText } from "@/components/mosaic";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -79,9 +80,7 @@ export function AppShell({
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-sidebar lg:flex">
         <div className="flex h-14 items-center gap-2 border-b px-4">
-          <span className="grid size-6 shrink-0 place-items-center rounded-sm bg-primary text-primary-foreground text-caption">
-            M
-          </span>
+          <MosaicMark size={22} interactive />
           <span className="font-mono text-small font-semibold">mosai</span>
           <Badge variant="outline" className="ml-auto font-mono text-caption">
             {plan}
@@ -144,7 +143,7 @@ export function AppShell({
           </Popover>
         </div>
 
-        {/* Module nav */}
+        {/* Module nav — each module wears its mosaic tile colour */}
         <nav className="flex-1 overflow-y-auto p-2">
           <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
             modules
@@ -161,8 +160,13 @@ export function AppShell({
               <>
                 <m.icon
                   className={cn(
-                    "size-4 shrink-0",
-                    locked ? "text-muted-foreground/50" : "text-muted-foreground",
+                    "size-4 shrink-0 transition-transform duration-300 ease-mosaic",
+                    locked
+                      ? "text-muted-foreground/50"
+                      : cn(
+                          moduleTileText(m.to),
+                          "group-hover/nav:scale-110 group-hover/nav:-rotate-6",
+                        ),
                   )}
                 />
                 <span className={cn(locked && "text-muted-foreground/50")}>
@@ -184,12 +188,25 @@ export function AppShell({
                 to={locked ? "/app/billing" : `/app/${current._id}/${m.to}`}
                 className={({ isActive }) =>
                   cn(
-                    "mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small ease-terminal hover:bg-accent",
+                    "group/nav relative mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small ease-terminal hover:bg-accent",
                     isActive && "bg-accent font-medium",
                   )
                 }
               >
-                {inner}
+                {({ isActive }) => (
+                  <Fragment>
+                    {/* Active tile dot + slide-in marker */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute left-0 top-1/2 h-[60%] w-[3px] -translate-y-1/2 rounded-full transition-all duration-300 ease-mosaic",
+                        isActive ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0",
+                        isActive ? moduleTileBg(m.to) : "",
+                      )}
+                    />
+                    {inner}
+                  </Fragment>
+                )}
               </NavLink>
             ) : (
               <div
@@ -243,9 +260,7 @@ export function AppShell({
 
       {/* Mobile top bar */}
       <div className="fixed inset-x-0 top-0 z-40 flex h-12 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur lg:hidden">
-        <span className="grid size-6 place-items-center rounded-sm bg-primary text-primary-foreground text-caption">
-          M
-        </span>
+        <MosaicMark size={20} />
         <span className="font-mono text-small font-semibold">mosai</span>
         <Button asChild size="sm" variant="outline" className="ml-auto h-7">
           <NavLink to={current ? `/app/${current._id}` : "/app/new"}>
@@ -275,8 +290,8 @@ export function ModuleHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="mb-8 flex flex-wrap items-center gap-3">
-      <span className="grid size-10 shrink-0 place-items-center rounded-md border bg-card shadow-card">
+    <header className="animate-mosaic-in mb-8 flex flex-wrap items-center gap-3">
+      <span className="grid size-10 shrink-0 place-items-center rounded-md border bg-card shadow-card transition-transform duration-300 ease-mosaic hover:rotate-6 hover:scale-110">
         <Icon className="size-5 text-terminal-green" />
       </span>
       <div className="min-w-0">

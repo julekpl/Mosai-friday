@@ -39,8 +39,10 @@ const AppIndex = lazy(() => import("./pages/AppIndex.tsx"));
 // Simple loading fallback for route transitions
 function RouteLoading() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-pulse text-muted-foreground">Loading...</div>
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="animate-pulse font-mono text-caption text-muted-foreground">
+        placing tiles…
+      </div>
     </div>
   );
 }

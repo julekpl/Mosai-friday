@@ -26,6 +26,11 @@ import {
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import {
+  MosaicMark,
+  moduleTileBg,
+  moduleTileText,
+} from "@/components/mosaic";
+import {
   DATA_PROVIDERS,
   ModuleEmpty,
   StatusBadge,
@@ -361,7 +366,7 @@ export default function Overview({
   };
 
   return (
-    <div>
+    <div className="animate-mosaic-in">
       <ModuleHeader
         icon={Search}
         title={project?.name ?? "Project"}
@@ -563,16 +568,24 @@ export default function Overview({
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {MODULE_CARDS.map((m) => {
+            {MODULE_CARDS.map((m, i) => {
               const locked = m.tier !== null && !modules.includes(m.to);
               return (
                 <Link
                   key={m.to}
                   to={`/app/${projectId}/${m.to}`}
-                  className="group rounded-md border bg-card p-4 shadow-card ease-terminal transition-all hover:-translate-y-0.5 hover:border-terminal-green/50 hover:shadow-pop"
+                  style={{ animationDelay: `${i * 60}ms` }}
+                  className="group animate-mosaic-in rounded-md border bg-card p-4 shadow-card transition-all duration-300 ease-mosaic hover:-translate-y-1 hover:rotate-[-0.4deg] hover:scale-[1.02] hover:border-terminal-green/50 hover:shadow-pop"
                 >
                   <div className="flex items-center justify-between">
-                    <m.icon className="size-5 text-terminal-green" />
+                    <span
+                      className={cn(
+                        "grid size-9 place-items-center rounded-md transition-transform duration-300 ease-mosaic",
+                        "group-hover:scale-110 group-hover:-rotate-6",
+                      )}
+                    >
+                      <m.icon className={cn("size-5", moduleTileText(m.to))} />
+                    </span>
                     {locked && (
                       <Badge
                         variant="outline"
@@ -582,7 +595,15 @@ export default function Overview({
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-3 font-mono text-small font-medium">{m.name}</p>
+                  <p className="mt-3 flex items-center gap-1.5 font-mono text-small font-medium">
+                    <span
+                      className={cn(
+                        "size-1.5 rounded-full transition-transform duration-300 ease-mosaic group-hover:scale-150",
+                        moduleTileBg(m.to),
+                      )}
+                    />
+                    {m.name}
+                  </p>
                   <p className="mt-1 font-mono text-caption text-muted-foreground">
                     {m.desc}
                   </p>

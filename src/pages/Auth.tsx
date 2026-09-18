@@ -15,7 +15,10 @@ import {
 } from "@/components/ui/input-otp";
 
 import { useAuth } from "@/hooks/use-auth";
-import logo from "@/assets/logo.svg";
+import {
+  FloatingTiles,
+  MosaicMark,
+} from "@/components/mosaic";
 import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -110,25 +113,27 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="relative flex min-h-screen flex-col overflow-hidden">
+      {/* Ambient mosaic backdrop */}
+      <FloatingTiles />
+      <div className="bg-dots pointer-events-none absolute inset-0 opacity-60" />
 
-      
       {/* Auth Content */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex items-center justify-center h-full flex-col">
-        <Card className="min-w-[350px] pb-0 border shadow-md">
+      <div className="relative flex flex-1 items-center justify-center">
+        <div className="animate-mosaic-in flex h-full flex-col items-center justify-center">
+        <Card className="min-w-[350px] border pb-0 shadow-pop">
           {step === "signIn" ? (
             <>
               <CardHeader className="text-center">
               <div className="flex justify-center">
-                    <img
-                      src={logo}
-                      alt="Lock Icon"
-                      width={64}
-                      height={64}
-                      className="rounded-lg mb-4 mt-4 cursor-pointer"
+                    <button
+                      type="button"
+                      aria-label="Back to mosai home"
                       onClick={() => navigate("/")}
-                    />
+                      className="mb-4 mt-4 cursor-pointer transition-transform duration-300 ease-mosaic hover:scale-110 hover:rotate-6 active:scale-95"
+                    >
+                      <MosaicMark size={56} />
+                    </button>
                   </div>
                 <CardTitle className="text-xl">Get Started</CardTitle>
                 <CardDescription>

@@ -94,6 +94,22 @@
   /* Grids & pattern tint */
   --grid-line: oklch(0.3 0.02 145 / 7%);
 
+  /* Mosaic tiles — the joyful palette. 7 modules, 7 tiles. */
+  --tile-teal: oklch(0.62 0.13 190);
+  --tile-teal-soft: oklch(0.94 0.05 190);
+  --tile-coral: oklch(0.66 0.17 40);
+  --tile-coral-soft: oklch(0.95 0.045 40);
+  --tile-violet: oklch(0.58 0.16 295);
+  --tile-violet-soft: oklch(0.94 0.05 295);
+  --tile-sky: oklch(0.65 0.12 240);
+  --tile-sky-soft: oklch(0.94 0.04 240);
+  --tile-rose: oklch(0.66 0.17 5);
+  --tile-rose-soft: oklch(0.95 0.04 5);
+  --tile-lime: oklch(0.7 0.15 125);
+  --tile-lime-soft: oklch(0.95 0.05 125);
+  --tile-amber: var(--terminal-amber);
+  --tile-amber-soft: var(--terminal-amber-soft);
+
   /* Charts: green ramp + amber + slate for comparison series */
   --chart-1: oklch(0.53 0.125 150);
   --chart-2: oklch(0.66 0.11 155);
@@ -140,6 +156,23 @@
   --terminal-blue-soft: oklch(0.32 0.04 245);
   --terminal-ink-soft: oklch(0.31 0.014 140);
   --grid-line: oklch(0.93 0.02 130 / 6%);
+
+  /* Mosaic tiles — dimmer, softer on dark paper */
+  --tile-teal: oklch(0.72 0.11 190);
+  --tile-teal-soft: oklch(0.32 0.04 190);
+  --tile-coral: oklch(0.74 0.14 40);
+  --tile-coral-soft: oklch(0.34 0.05 40);
+  --tile-violet: oklch(0.7 0.13 295);
+  --tile-violet-soft: oklch(0.33 0.05 295);
+  --tile-sky: oklch(0.74 0.1 240);
+  --tile-sky-soft: oklch(0.32 0.04 240);
+  --tile-rose: oklch(0.74 0.14 5);
+  --tile-rose-soft: oklch(0.34 0.04 5);
+  --tile-lime: oklch(0.78 0.13 125);
+  --tile-lime-soft: oklch(0.33 0.05 125);
+  --tile-amber: oklch(0.79 0.13 80);
+  --tile-amber-soft: oklch(0.33 0.05 80);
+
   --chart-1: oklch(0.72 0.13 152);
   --chart-2: oklch(0.6 0.1 155);
   --chart-3: oklch(0.74 0.12 78);
@@ -157,6 +190,24 @@
 
 /* Terminal design-system additions: mono-first type scale, shadows, motion.
    Values are also documented live in the /system component library. */
+@theme inline {
+  /* Mosaic tile utilities (mapped to runtime vars so .dark follows along) */
+  --color-tile-teal: var(--tile-teal);
+  --color-tile-teal-soft: var(--tile-teal-soft);
+  --color-tile-coral: var(--tile-coral);
+  --color-tile-coral-soft: var(--tile-coral-soft);
+  --color-tile-violet: var(--tile-violet);
+  --color-tile-violet-soft: var(--tile-violet-soft);
+  --color-tile-sky: var(--tile-sky);
+  --color-tile-sky-soft: var(--tile-sky-soft);
+  --color-tile-rose: var(--tile-rose);
+  --color-tile-rose-soft: var(--tile-rose-soft);
+  --color-tile-lime: var(--tile-lime);
+  --color-tile-lime-soft: var(--tile-lime-soft);
+  --color-tile-amber: var(--tile-amber);
+  --color-tile-amber-soft: var(--tile-amber-soft);
+}
+
 @theme {
   --font-sans: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
     "Liberation Mono", monospace;
@@ -201,6 +252,108 @@
   50%, 100% { opacity: 0; }
 }
 
+/* ── Mosaic motion library ───────────────────────────────────────────────
+   Joyful, springy, still cheap: transforms/opacity only. */
+
+@keyframes mosaic-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mosaic-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-6deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.08) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes mosaic-float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(0, -7px, 0) rotate(3deg);
+  }
+  50% {
+    transform: translate3d(0, -11px, 0) rotate(-2deg);
+  }
+  75% {
+    transform: translate3d(0, -5px, 0) rotate(2deg);
+  }
+}
+
+@keyframes mosaic-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes mosaic-drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 84px 42px;
+  }
+}
+
+@utility ease-mosaic {
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@utility animate-mosaic-in {
+  animation: mosaic-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@utility animate-mosaic-pop {
+  animation: mosaic-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@utility animate-mosaic-float {
+  animation: mosaic-float 7s ease-in-out infinite;
+}
+
+@utility animate-mosaic-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    oklch(0.99 0.01 110 / 65%) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  animation: mosaic-shimmer 2.6s linear infinite;
+}
+
+@utility animate-mosaic-drift {
+  animation: mosaic-drift 9s linear infinite;
+}
+
+/* Staggered entrance: pair with animate-mosaic-in on children */
+@utility mosaic-stagger > * {
+  animation: mosaic-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
 @utility ease-terminal {
   transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -213,6 +366,16 @@
 @utility bg-dots {
   background-image: radial-gradient(var(--grid-line) 1px, transparent 1.5px);
   background-size: 22px 22px;
+}
+
+@utility bg-mosaic-tiles {
+  /* Faint mosaic tile mosaic in the far background — very low contrast so
+     text stays readable on top. */
+  background-image:
+    linear-gradient(135deg, color-mix(in oklab, var(--tile-teal) 7%, transparent) 0 12px, transparent 12px 25px),
+    linear-gradient(225deg, color-mix(in oklab, var(--tile-coral) 6%, transparent) 0 12px, transparent 12px 25px),
+    linear-gradient(45deg, color-mix(in oklab, var(--tile-violet) 6%, transparent) 0 12px, transparent 12px 25px);
+  background-size: 84px 84px;
 }
 @utility bg-scanlines {
   background-image: repeating-linear-gradient(
@@ -239,6 +402,19 @@
   ::selection {
     background: var(--terminal-green);
     color: var(--background);
+  }
+  /* Joyful mosaic caret across inputs & editable surfaces */
+  ::placeholder {
+    opacity: 0.75;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
   }
   * {
     scrollbar-width: thin;
