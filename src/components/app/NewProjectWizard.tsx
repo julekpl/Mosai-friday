@@ -326,6 +326,14 @@ export function NewProjectWizard() {
     setStep(1);
   };
 
+  const handleContinue = async () => {
+    if (step === 0) {
+      await handleBasicsContinue();
+      return;
+    }
+    setStep(step + 1);
+  };
+
   const handleFinish = async () => {
     if (!name.trim()) return;
     try {
@@ -642,7 +650,7 @@ export function NewProjectWizard() {
           </Button>
         )}
         {step < steps.length - 1 ? (
-          <Button onClick={handleBasicsContinue} disabled={step === 0 && (!name.trim() || isScanning)}>
+          <Button onClick={handleContinue} disabled={step === 0 && (!name.trim() || isScanning)}>
             {isScanning ? (
               <>
                 <Loader2 className="size-4 animate-spin" /> Scanning…
