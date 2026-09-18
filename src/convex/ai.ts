@@ -198,6 +198,101 @@ export const personaChat = action({
 });
 
 /**
+ * Generate a full journey map (stages × lanes + experience scores) for a
+ * persona from project context. Caller persists via journeys.create.
+ */
+export const generateJourneyMap = action({
+  args: {
+    project: projectSnapshotValidator,
+    persona: v.optional(
+      v.object({
+        name: v.string(),
+        role: v.optional(v.string()),
+        goals: v.optional(v.array(v.string())),
+        pains: v.optional(v.array(v.string())),
+        objections: v.optional(v.array(v.string())),
+        channels: v.optional(v.array(v.string())),
+      }),
+    ),
+    scenario: v.optional(v.string()),
+    stageCount: v.optional(v.number()),
+  },
+  handler: async (_ctx, { project, persona, scenario, stageCount }) => {
+    const personaDesc = persona
+      ? [
+          `Persona name: ${persona.name}`,
+          persona.role ? `Role/context: ${persona.role}` : "",
+          persona.goals?.length ? `Goals: ${persona.goals.join("; ")}` : "",
+          persona.pains?.length ? `Pains: ${persona.pains.join("; ")}` : "",
+          persona.objections?.length
+            ? `Objections: ${persona.objections.join("; ")}`
+            : "",
+          persona.channels?.length
+            ? `Channels: ${persona.channels.join(", ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "(no specific persona — use the primary buyer)";
+
+    const lanesHint =
+      "lanes are: Actions, Thoughts, Feelings, Pain points, Opportunities";
+
+    const text = await complete(
+      `You are a CX strategist building a user journey map. Create a journey with ${stageCount ?? 5} stages (e.g. Trigger, Awareness, Consideration, Decision, Post-purchase — adapt to the scenario). For each stage fill all lanes (${lanesHint}) with 1-2 short, concrete, specific items — first-person voice for Actions/Thoughts/Feelings. Also give each stage an experience score 1-10 (10 = delightful). Return ONLY valid JSON shaped as:
+{"name": string, "goal": string, "stages": [{"stage": string, "actions": string, "thoughts": string, "feelings": string, "pains": string, "opportunities": string, "score": number}]}`,
+      [
+        {
+          role: "user",
+          content: `${contextLines(project).join("\n")}\n\nPersona:\n${personaDesc}${scenario ? `\nScenario / goal of the journey: ${scenario}` : ""}`,
+        },
+      ],
+      { temperature: 0.7, maxTokens: 1200 },
+    );
+
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1)
+      throw new Error("AI returned an unreadable response");
+    const raw = JSON.parse(cleaned.slice(start, end + 1)) as {
+      name?: string;
+      goal?: string;
+      stages?: Array<Record<string, unknown>>;
+    };
+
+    const laneKeys = [
+      "actions",
+      "thoughts",
+      "feelings",
+      "pains",
+      "opportunities",
+    ] as const;
+    const stages = (raw.stages ?? [])
+      .filter((s) => typeof s.stage === "string" && s.stage.trim() !== "")
+      .slice(0, 8)
+      .map((s) => ({
+        stage: (s.stage as string).trim(),
+        cells: laneKeys.map((k) => {
+          const v = s[k];
+          return typeof v === "string" ? v.trim() : "";
+        }),
+        score:
+          typeof s.score === "number"
+            ? Math.max(0, Math.min(10, Math.round(s.score)))
+            : undefined,
+      }));
+    if (!stages.length) throw new Error("AI returned no journey stages");
+
+    return {
+      name: raw.name?.trim() || "Customer journey",
+      goal: raw.goal?.trim() || undefined,
+      stages,
+    };
+  },
+});
+
+/**
  * Map a buying journey for a persona: stages with the buyer's core question
  * at each stage, and how the business should answer it. Persona + project
  * snapshots come from the client; caller persists via personas.update.

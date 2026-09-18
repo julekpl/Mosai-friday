@@ -6,6 +6,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/app/AppShell";
 import Overview from "./app/Overview";
 import Understand from "./app/Understand";
+import Journeys from "./app/Journeys";
 import Create from "./app/Create";
 import Build from "./app/Build";
 import Customers from "./app/Customers";
@@ -19,6 +20,7 @@ const MODULES: Record<
   ComponentType<{ projectId: Id<"projects"> }>
 > = {
   understand: Understand,
+  journeys: Journeys,
   create: Create,
   build: Build,
   customers: Customers,

@@ -15,6 +15,7 @@ import {
   MessageSquareText,
   PenTool,
   Plus,
+  Route,
   Search,
   ShoppingBag,
   Sparkles,
@@ -51,6 +52,13 @@ const MODULE_CARDS = [
     icon: Search,
     name: "Understand",
     desc: "Personas, buyer profiles, journeys and evidence",
+    tier: null,
+  },
+  {
+    to: "journeys",
+    icon: Route,
+    name: "Journeys",
+    desc: "Journey maps — stages, lanes and the experience curve",
     tier: null,
   },
   {

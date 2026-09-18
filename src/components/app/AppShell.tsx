@@ -11,6 +11,7 @@ import {
   Megaphone,
   PenTool,
   Plus,
+  Route,
   Search,
   ShoppingBag,
   Sparkles,
@@ -42,6 +43,7 @@ import { cn } from "@/lib/utils";
 
 const modules = [
   { to: "understand", label: "Understand", icon: Search, tier: null },
+  { to: "journeys", label: "Journeys", icon: Route, tier: null },
   { to: "create", label: "Create", icon: PenTool, tier: null },
   { to: "build", label: "Build", icon: Blocks, tier: "starter" },
   { to: "customers", label: "Customers", icon: Users, tier: "starter" },

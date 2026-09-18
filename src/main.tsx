@@ -26,6 +26,7 @@ const AppShellWithProject = lazy(() =>
   import("./pages/App").then((m) => ({ default: m.AppShellWithProject })),
 );
 const Understand = lazy(() => import("./pages/app/Understand.tsx"));
+const Journeys = lazy(() => import("./pages/app/Journeys.tsx"));
 const Create = lazy(() => import("./pages/app/Create.tsx"));
 const Build = lazy(() => import("./pages/app/Build.tsx"));
 const Customers = lazy(() => import("./pages/app/Customers.tsx"));

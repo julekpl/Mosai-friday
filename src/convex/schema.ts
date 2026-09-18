@@ -282,6 +282,35 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
+    // Journey maps — stages × lanes (actions, thoughts, feelings, pains,
+    // opportunities) plus a 0-10 experience score per stage. First-class
+    // artifacts in the Understand module; consumed by Create for research.
+    journeyMaps: defineTable({
+      projectId: v.id("projects"),
+      personaId: v.optional(v.id("personas")),
+      name: v.string(),
+      goal: v.optional(v.string()), // scenario / job-to-be-done
+      // Lane labels are customizable; default lanes are added on creation.
+      lanes: v.optional(v.array(v.string())),
+      stages: v.array(
+        v.object({
+          stage: v.string(),
+          // lane cell contents, parallel to `lanes`
+          cells: v.array(v.string()),
+          // 0-10 experience score, draws the experience curve
+          score: v.optional(v.number()),
+        }),
+      ),
+      source: v.union(
+        v.literal("manual"),
+        v.literal("ai"),
+        v.literal("csv"),
+      ),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
     // Chat history with a persona (persona mode) or about it (analyst mode)
     personaMessages: defineTable({
       projectId: v.id("projects"),

@@ -13,11 +13,20 @@ export const DEFAULT_PLAN: Plan = "scale";
 /** What each plan unlocks. Single source of truth for entitlements —
  *  module UIs and mutations must call hasModule, never hardcode plan names. */
 export const PLAN_MODULES: Record<Plan, string[]> = {
-  free: ["understand", "create"],
-  starter: ["understand", "create", "build", "customers", "promote"],
-  growth: ["understand", "create", "build", "customers", "promote", "sell"],
+  free: ["understand", "journeys", "create"],
+  starter: ["understand", "journeys", "create", "build", "customers", "promote"],
+  growth: [
+    "understand",
+    "journeys",
+    "create",
+    "build",
+    "customers",
+    "promote",
+    "sell",
+  ],
   scale: [
     "understand",
+    "journeys",
     "create",
     "build",
     "customers",

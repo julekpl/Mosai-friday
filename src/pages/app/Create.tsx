@@ -18,6 +18,7 @@ import {
   ModuleEmpty,
   StatusBadge,
 } from "@/components/app/module-kit";
+import { Route as RouteIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,13 +43,42 @@ function ContentForm({
   onDone: () => void;
 }) {
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
+  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
   const create = useMutation(api.content.create);
   const [title, setTitle] = useState("");
   const [topic, setTopic] = useState("");
   const [brief, setBrief] = useState("");
   const [surface, setSurface] = useState<(typeof SURFACES)[number]>("website");
   const [personaId, setPersonaId] = useState<string>("");
+  const [journeyId, setJourneyId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Content research seeded from the selected journey: lowest-score stages
+  // (worst experience) become the strongest content opportunities.
+  const selectedJourney = journeys.find((j) => j._id === journeyId);
+  const journeyResearch = selectedJourney
+    ? [...selectedJourney.stages]
+        .sort((a, b) => (a.score ?? 5) - (b.score ?? 5))
+        .slice(0, 4)
+        .map((s) => ({
+          stage: s.stage,
+          score: s.score,
+          pain: s.cells[3] ?? "",
+          opportunity: s.cells[4] ?? "",
+        }))
+    : [];
+
+  const applyStage = (s: { stage: string; pain: string; opportunity: string }) => {
+    if (!topic) setTopic(`${selectedJourney?.name ?? "journey"} — ${s.stage.toLowerCase()}`);
+    const parts = [
+      s.pain ? `Pain: ${s.pain}` : "",
+      s.opportunity ? `Opportunity: ${s.opportunity}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    setBrief((prev) => (prev ? `${prev}
+${parts}` : parts));
+  };
 
   const handleSave = async () =>
     {if (!title.trim()) return;
@@ -136,6 +166,50 @@ function ContentForm({
           </select>
         </div>
       </div>
+      {/* Journey-based content research */}
+      {journeys.length > 0 && (
+        <div className="grid gap-2 rounded-md border border-dashed p-3">
+          <div className="flex items-center gap-2">
+            <RouteIcon className="size-4 text-terminal-green" />
+            <Label className="font-mono text-caption text-muted-foreground">
+              research from a journey map
+            </Label>
+          </div>
+          <select
+            className="h-9 rounded-md border bg-card px-3 font-mono text-small"
+            value={journeyId}
+            onChange={(e) => setJourneyId(e.target.value)}
+          >
+            <option value="">— pick a journey —</option>
+            {journeys.map((j) => (
+              <option key={j._id} value={j._id}>
+                {j.name} ({j.stages.length} stages)
+              </option>
+            ))}
+          </select>
+          {journeyResearch.length > 0 && (
+            <div className="grid gap-1.5">
+              <p className="font-mono text-caption text-muted-foreground">
+                weakest stages first — click to seed this brief:
+              </p>
+              {journeyResearch.map((s) => (
+                <button
+                  key={s.stage}
+                  type="button"
+                  className="rounded-sm border px-2.5 py-1.5 text-left font-mono text-caption ease-terminal hover:border-terminal-green/50 hover:bg-terminal-green-soft"
+                  onClick={() => applyStage(s)}
+                >
+                  <span className="text-terminal-green">{s.stage}</span>
+                  {typeof s.score === "number" && (
+                    <span className="ml-1 text-muted-foreground">({s.score}/10)</span>
+                  )}
+                  {s.pain && <span className="ml-2 text-muted-foreground">{s.pain}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>
           Cancel

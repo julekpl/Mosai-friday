@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { Link } from "react-router";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
@@ -18,7 +19,6 @@ import {
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import { PersonaChat } from "@/components/app/PersonaChat";
-import { JourneyDialog } from "@/components/app/JourneyDialog";
 import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { Button } from "@/components/ui/button";
 import {
@@ -260,10 +260,9 @@ export default function Understand({
   const [aiOpen, setAiOpen] = useState(false);
   const [editing, setEditing] = useState<Id<"personas"> | undefined>();
   const [chatPersona, setChatPersona] = useState<Id<"personas"> | null>(null);
-  const [journeyPersona, setJourneyPersona] = useState<Id<"personas"> | null>(null);
+
 
   const chatTarget = personas.find((p) => p._id === chatPersona) ?? null;
-  const journeyTarget = personas.find((p) => p._id === journeyPersona) ?? null;
 
   return (
     <div>
@@ -325,34 +324,6 @@ export default function Understand({
               if (id) setChatPersona(id);
             }}
           />
-        </DialogContent>
-      </Dialog>
-
-      {/* Journey mapping dialog */}
-      <Dialog
-        open={journeyPersona !== null}
-        onOpenChange={(o) => {
-          if (!o) setJourneyPersona(null);
-        }}
-      >
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          {journeyTarget && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="font-mono text-h3">
-                  Journey — {journeyTarget.name}
-                </DialogTitle>
-                <DialogDescription className="font-mono text-caption">
-                  Map how this buyer moves from trigger to decision.
-                </DialogDescription>
-              </DialogHeader>
-              <JourneyDialog
-                projectId={projectId}
-                persona={journeyTarget}
-                onDone={() => setJourneyPersona(null)}
-              />
-            </>
-          )}
         </DialogContent>
       </Dialog>
 
@@ -432,9 +403,11 @@ export default function Understand({
                     size="sm"
                     variant="outline"
                     className="h-7"
-                    onClick={() => setJourneyPersona(p._id)}
+                    asChild
                   >
-                    <Route className="size-3.5" /> Journey
+                    <Link to={`/app/${projectId}/journeys`} title="Map a journey in the Journeys module">
+                      <Route className="size-3.5" /> Journey
+                    </Link>
                   </Button>
                   <Button
                     size="icon-sm"
@@ -489,28 +462,6 @@ export default function Understand({
                       >
                         pain: {pain}
                       </Badge>
-                    ))}
-                  </div>
-                </>
-              )}
-              {p.journeyStages && p.journeyStages.length > 0 && (
-                <>
-                  <Separator className="my-3" />
-                  <div className="grid gap-1">
-                    <p className="font-mono text-caption text-muted-foreground">
-                      journey
-                    </p>
-                    {p.journeyStages.map((s, i) => (
-                      <p
-                        key={i}
-                        className="font-mono text-caption"
-                        title={s.answer}
-                      >
-                        <span className="text-terminal-green">
-                          {i + 1}. {s.stage}
-                        </span>
-                        {s.question ? ` — “${s.question}”` : ""}
-                      </p>
                     ))}
                   </div>
                 </>
