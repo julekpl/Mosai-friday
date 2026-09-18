@@ -9,15 +9,14 @@ export type Plan = (typeof PLANS)[number];
  *  module UIs and mutations must call hasModule, never hardcode plan names. */
 export const PLAN_MODULES: Record<Plan, string[]> = {
   free: ["understand", "create"],
-  starter: ["understand", "create", "build", "customers", "promote", "social"],
-  growth: ["understand", "create", "build", "customers", "promote", "social", "sell"],
+  starter: ["understand", "create", "build", "customers", "promote"],
+  growth: ["understand", "create", "build", "customers", "promote", "sell"],
   scale: [
     "understand",
     "create",
     "build",
     "customers",
     "promote",
-    "social",
     "sell",
     "grow",
   ],
@@ -113,6 +112,7 @@ export const deleteAccount = mutation({
         "posts",
         "products",
         "builds",
+        "insights",
       ] as const) {
         const rows = await ctx.db
           .query(table)

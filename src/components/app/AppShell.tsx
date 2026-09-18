@@ -50,6 +50,8 @@ const modules = [
   { to: "grow", label: "Grow", icon: TrendingUp, tier: "scale" },
 ] as const;
 
+const PLAN_ORDER = ["free", "starter", "growth", "scale"] as const;
+
 export function AppShell({
   children,
   projectId,
@@ -145,7 +147,13 @@ export function AppShell({
             modules
           </p>
           {modules.map((m) => {
-            const locked = m.tier !== null && plan === "free";
+            const planRank = PLAN_ORDER.indexOf(
+              plan as (typeof PLAN_ORDER)[number],
+            );
+            const tierRank = m.tier
+              ? PLAN_ORDER.indexOf(m.tier as (typeof PLAN_ORDER)[number])
+              : 0;
+            const locked = planRank < tierRank;
             const inner = (
               <>
                 <m.icon

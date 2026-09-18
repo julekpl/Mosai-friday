@@ -1,6 +1,7 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { NewProjectWizard } from "@/components/app/NewProjectWizard";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -15,6 +16,24 @@ const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const DesignSystem = lazy(() => import("./pages/DesignSystem.tsx"));
+
+// App module pages (lazy, code-split)
+const AppHome = lazy(() => import("./pages/App.tsx"));
+const ModuleRouter = lazy(() =>
+  import("./pages/App").then((m) => ({ default: m.ModuleRouter })),
+);
+const AppShellWithProject = lazy(() =>
+  import("./pages/App").then((m) => ({ default: m.AppShellWithProject })),
+);
+const Understand = lazy(() => import("./pages/app/Understand.tsx"));
+const Create = lazy(() => import("./pages/app/Create.tsx"));
+const Build = lazy(() => import("./pages/app/Build.tsx"));
+const Customers = lazy(() => import("./pages/app/Customers.tsx"));
+const Promote = lazy(() => import("./pages/app/Promote.tsx"));
+const Sell = lazy(() => import("./pages/app/Sell.tsx"));
+const Grow = lazy(() => import("./pages/app/Grow.tsx"));
+const Billing = lazy(() => import("./pages/app/Billing.tsx"));
+const AppIndex = lazy(() => import("./pages/AppIndex.tsx"));
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -124,13 +143,61 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/system" element={<DesignSystem />} />
               <Route
                 path="/auth"
-                element={<AuthPage redirectAfterAuth="/dashboard" />}
+                element={<AuthPage redirectAfterAuth="/app" />}
               />
               <Route
                 path="/dashboard"
                 element={
                   <RequireAuth>
                     <Dashboard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app"
+                element={
+                  <RequireAuth>
+                    <AppIndex />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app/billing"
+                element={
+                  <RequireAuth>
+                    <AppShellWithProject>
+                      <Billing />
+                    </AppShellWithProject>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app/new"
+                element={
+                  <RequireAuth>
+                    <AppShellWithProject>
+                      <NewProjectWizard />
+                    </AppShellWithProject>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app/:projectId"
+                element={
+                  <RequireAuth>
+                    <AppShellWithProject>
+                      <AppHome />
+                    </AppShellWithProject>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/app/:projectId/:module"
+                element={
+                  <RequireAuth>
+                    <AppShellWithProject>
+                      <ModuleRouter />
+                    </AppShellWithProject>
                   </RequireAuth>
                 }
               />

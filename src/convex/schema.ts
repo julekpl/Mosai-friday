@@ -183,6 +183,33 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
+    // Grow module — module-generated insights. definition + source + freshness
+    // are the product: every insight says where its numbers came from.
+    insights: defineTable({
+      projectId: v.id("projects"),
+      kind: v.union(
+        v.literal("seo"),
+        v.literal("geo"),
+        v.literal("content_gap"),
+        v.literal("channel"),
+        v.literal("recommendation"),
+      ),
+      title: v.string(),
+      body: v.optional(v.string()),
+      // data source this insight is derived from — never blended silently
+      source: v.string(), // ga4 | gsc | gads | meta | tiktok | internal | manual
+      // fresh | stale — staleness is honest, not hidden
+      freshness: v.optional(
+        v.union(v.literal("fresh"), v.literal("stale")),
+      ),
+      dataAsOf: v.optional(v.number()),
+      // new | seen | done — dismissed insights stay visible in history
+      status: v.optional(
+        v.union(v.literal("new"), v.literal("seen"), v.literal("done")),
+      ),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
     // Website/app builder artifacts (Build module — surface now, engine later)
     builds: defineTable({
       projectId: v.id("projects"),
