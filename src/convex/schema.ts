@@ -257,7 +257,10 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
-    // Website/app builder artifacts (Build module — surface now, engine later)
+    // Website/app builder artifacts (Build module — strategy-first blueprint
+    // flow: idea → positioning → blueprint → pages → publish). Every build
+    // is grounded in the project's idea, personas and journeys — the same
+    // context the Understand/Create modules produce.
     builds: defineTable({
       projectId: v.id("projects"),
       name: v.string(),
@@ -269,10 +272,60 @@ const schema = defineSchema(
         v.literal("published"),
       ),
       pages: v.optional(v.array(v.string())),
+      // strategy layer — what makes this build uniquely competitive
+      idea: v.optional(v.string()), // the business idea / app idea being built
+      positioning: v.optional(v.string()), // one-line positioning statement
+      goals: v.optional(v.array(v.string())), // business goals this build serves
+      personaIds: v.optional(v.array(v.id("personas"))), // personas the build speaks to
+      journeyMapIds: v.optional(v.array(v.id("journeyMaps"))), // journeys that shape the flow
+      differentiators: v.optional(v.array(v.string())), // why we win vs caffeine.ai/lovable/ploy-style tools
+      blueprint: v.optional(
+        v.object({
+          // the AI-generated build plan (regenerated on demand)
+          summary: v.optional(v.string()),
+          steps: v.optional(
+            v.array(
+              v.object({
+                step: v.string(), // e.g. "positioning", "pages", "content", "seo"
+                title: v.string(),
+                detail: v.string(),
+                // todo | doing | done
+                status: v.optional(
+                  v.union(v.literal("todo"), v.literal("doing"), v.literal("done")),
+                ),
+              }),
+            ),
+          ),
+          generatedAt: v.number(),
+        }),
+      ),
       seoReady: v.optional(v.boolean()),
       wcagReady: v.optional(v.boolean()),
       createdAt: v.number(),
+      updatedAt: v.number(),
     }).index("by_project", ["projectId"]),
+
+    // One page/screen of a build. Strategy-first: every page declares which
+    // persona it speaks to and which journey stage it answers, so the
+    // AI-generated draft is grounded, not generic.
+    buildPages: defineTable({
+      buildId: v.id("builds"),
+      projectId: v.id("projects"),
+      name: v.string(), // page name / route label, e.g. "Pricing"
+      path: v.string(), // e.g. "/pricing"
+      goal: v.optional(v.string()), // what this page must achieve
+      personaId: v.optional(v.id("personas")),
+      journeyStage: v.optional(v.string()),
+      draft: v.optional(v.string()), // AI-generated HTML draft
+      // pending | drafted | approved
+      status: v.optional(
+        v.union(v.literal("pending"), v.literal("drafted"), v.literal("approved")),
+      ),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_build", ["buildId"])
+      .index("by_project", ["projectId"]),
 
     // Files attached to a project (pdfs, figma exports, briefs…) that enrich
     // every downstream module. Bytes live in Convex storage; this is metadata.
