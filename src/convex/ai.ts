@@ -198,6 +198,73 @@ export const personaChat = action({
 });
 
 /**
+ * Map a buying journey for a persona: stages with the buyer's core question
+ * at each stage, and how the business should answer it. Persona + project
+ * snapshots come from the client; caller persists via personas.update.
+ */
+export const generateJourney = action({
+  args: {
+    project: projectSnapshotValidator,
+    persona: v.object({
+      name: v.string(),
+      role: v.optional(v.string()),
+      goals: v.optional(v.array(v.string())),
+      pains: v.optional(v.array(v.string())),
+      objections: v.optional(v.array(v.string())),
+      channels: v.optional(v.array(v.string())),
+      evidence: v.optional(v.string()),
+    }),
+  },
+  handler: async (_ctx, { project, persona }) => {
+    const personaDesc = [
+      `Persona name: ${persona.name}`,
+      persona.role ? `Role/context: ${persona.role}` : "",
+      persona.goals?.length ? `Goals: ${persona.goals.join("; ")}` : "",
+      persona.pains?.length ? `Pains: ${persona.pains.join("; ")}` : "",
+      persona.objections?.length ? `Objections: ${persona.objections.join("; ")}` : "",
+      persona.channels?.length ? `Channels: ${persona.channels.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const text = await complete(
+      `You are a senior marketing strategist. Map the buying journey for this persona against this business. Use 4-5 real journey stages (e.g. trigger/awareness, consideration, evaluation, decision, post-purchase — adapt to the persona). For each stage: the stage name, the question the buyer is really asking at that moment, and a concrete answer/action the business should give (touchpoint, content, proof). Return ONLY valid JSON (no markdown) shaped as:
+{"stages": [{"stage": string, "question": string, "answer": string}]}`,
+      [
+        {
+          role: "user",
+          content: `${contextLines(project).join("\n")}\n\nPersona:\n${personaDesc}`,
+        },
+      ],
+      { temperature: 0.6, maxTokens: 800 },
+    );
+
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("AI returned an unreadable response");
+    const raw = JSON.parse(cleaned.slice(start, end + 1)) as {
+      stages?: Array<{ stage?: string; question?: string; answer?: string }>;
+    };
+    const stages = (raw.stages ?? [])
+      .filter(
+        (s): s is { stage: string; question: string; answer: string } =>
+          typeof s.stage === "string" &&
+          s.stage.trim() !== "" &&
+          typeof s.question === "string",
+      )
+      .slice(0, 6)
+      .map((s) => ({
+        stage: s.stage.trim(),
+        question: s.question.trim(),
+        answer: typeof s.answer === "string" ? s.answer.trim() : undefined,
+      }));
+    if (!stages.length) throw new Error("AI returned no journey stages");
+    return { stages };
+  },
+});
+
+/**
  * Define a marketing communication with AI: core message, rationale,
  * channels and audience. Returns parsed fields; caller persists via
  * communications.create. `influence` describes downstream modules the user
