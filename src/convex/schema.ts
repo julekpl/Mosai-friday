@@ -267,6 +267,51 @@ const schema = defineSchema(
       wcagReady: v.optional(v.boolean()),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
+
+    // Files attached to a project (pdfs, figma exports, briefs…) that enrich
+    // every downstream module. Bytes live in Convex storage; this is metadata.
+    projectFiles: defineTable({
+      projectId: v.id("projects"),
+      name: v.string(),
+      mimeType: v.optional(v.string()),
+      sizeBytes: v.optional(v.number()),
+      storageId: v.id("_storage"),
+      // text extracted for AI context (best-effort)
+      excerpt: v.optional(v.string()),
+      uploadedBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Chat history with a persona (persona mode) or about it (analyst mode)
+    personaMessages: defineTable({
+      projectId: v.id("projects"),
+      personaId: v.id("personas"),
+      mode: v.union(v.literal("persona"), v.literal("analyst")),
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      content: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_project_persona", ["projectId", "personaId"])
+      .index("by_persona", ["personaId"]),
+
+    // Marketing communications defined with AI. May feed downstream modules
+    // (content briefs, campaigns) — optional influence, never forced.
+    communications: defineTable({
+      projectId: v.id("projects"),
+      name: v.string(),
+      message: v.string(), // the core comms message / positioning statement
+      rationale: v.optional(v.string()),
+      channels: v.optional(v.array(v.string())),
+      audience: v.optional(v.string()),
+      // draft | active | archived
+      status: v.union(
+        v.literal("draft"),
+        v.literal("active"),
+        v.literal("archived"),
+      ),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
   },
   {
     schemaValidation: false,

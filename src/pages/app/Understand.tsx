@@ -1,11 +1,23 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { Loader2, Pen, Plus, Search, Trash2, Users } from "lucide-react";
+import {
+  BrainCircuit,
+  Loader2,
+  MessageSquare,
+  Pen,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import { PersonaChat } from "@/components/app/PersonaChat";
+import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -148,6 +160,91 @@ function PersonaForm({
   );
 }
 
+/** AI persona generator: one click builds a persona from project details. */
+function AiPersonaDialog({
+  projectId,
+  onDone,
+}: {
+  projectId: Id<"projects">;
+  onDone: (personaId?: Id<"personas">) => void;
+}) {
+  const { snapshot } = useProjectSnapshot(projectId);
+  const generate = useAction(api.ai.generatePersona);
+  const create = useMutation(api.personas.create);
+
+  const [hint, setHint] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (!snapshot) return;
+    setBusy(true);
+    try {
+      const p = await generate({
+        project: snapshot,
+        hint: hint.trim() || undefined,
+      });
+      const id = await create({
+        projectId,
+        name: p.name,
+        role: p.role,
+        goals: p.goals,
+        pains: p.pains,
+        objections: p.objections,
+        channels: p.channels,
+        evidence: p.evidence,
+      });
+      toast.success(`Persona "${p.name}" created`, {
+        description: "Generated from your project details and files.",
+      });
+      setHint("");
+      onDone(id);
+    } catch (e) {
+      toast.error("Generation failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-4">
+      <p className="font-mono text-caption text-muted-foreground">
+        AI builds a realistic buyer persona from your project details, website
+        scan and attached files.
+      </p>
+      <div className="grid gap-2">
+        <Label htmlFor="ai-hint">Guidance (optional)</Label>
+        <Input
+          id="ai-hint"
+          value={hint}
+          onChange={(e) => setHint(e.target.value)}
+          placeholder="e.g. focus on the B2B office manager segment"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !busy) void run();
+          }}
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={() => onDone()} disabled={busy}>
+          Cancel
+        </Button>
+        <Button onClick={run} disabled={busy || !snapshot}>
+          {busy ? (
+            <>
+              <Loader2 className="size-4 animate-spin" /> Generating…
+            </>
+          ) : (
+            <>
+              <Sparkles className="size-4" /> Generate persona
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Understand({
   projectId,
 }: {
@@ -155,8 +252,14 @@ export default function Understand({
 }) {
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const remove = useMutation(api.personas.remove);
+  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
+
   const [open, setOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [editing, setEditing] = useState<Id<"personas"> | undefined>();
+  const [chatPersona, setChatPersona] = useState<Id<"personas"> | null>(null);
+
+  const chatTarget = personas.find((p) => p._id === chatPersona) ?? null;
 
   return (
     <div>
@@ -165,35 +268,100 @@ export default function Understand({
         title="Understand"
         subtitle="Personas, buyer profiles and journeys — the base every other module uses"
       >
-        <Dialog
-          open={open}
-          onOpenChange={(o) => {
-            setOpen(o);
-            if (!o) setEditing(undefined);
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="size-4" /> New persona
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="font-mono text-h3">
-                {editing ? "Edit persona" : "New persona"}
-              </DialogTitle>
-              <DialogDescription className="font-mono text-caption">
-                Everything here feeds content briefs, campaigns and the builder.
-              </DialogDescription>
-            </DialogHeader>
-            <PersonaForm
-              projectId={projectId}
-              personaId={editing}
-              onDone={() => setOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setAiOpen(true)}>
+            <Sparkles className="size-4" /> AI persona
+          </Button>
+          <Dialog
+            open={open}
+            onOpenChange={(o) => {
+              setOpen(o);
+              if (!o) setEditing(undefined);
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="size-4" /> New persona
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="font-mono text-h3">
+                  {editing ? "Edit persona" : "New persona"}
+                </DialogTitle>
+                <DialogDescription className="font-mono text-caption">
+                  Everything here feeds content briefs, campaigns and the builder.
+                </DialogDescription>
+              </DialogHeader>
+              <PersonaForm
+                projectId={projectId}
+                personaId={editing}
+                onDone={() => setOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </ModuleHeader>
+
+      {/* AI generation dialog */}
+      <Dialog open={aiOpen} onOpenChange={setAiOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-mono text-h3">
+              Generate persona with AI
+            </DialogTitle>
+            <DialogDescription className="font-mono text-caption">
+              Built from this project's details, scan data and attached files.
+            </DialogDescription>
+          </DialogHeader>
+          <AiPersonaDialog
+            projectId={projectId}
+            onDone={(id) => {
+              setAiOpen(false);
+              if (id) setChatPersona(id);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Chat with a persona */}
+      <Dialog
+        open={chatPersona !== null}
+        onOpenChange={(o) => {
+          if (!o) setChatPersona(null);
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          {chatTarget && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-mono text-h3 flex items-center gap-2">
+                  <BrainCircuit className="size-5 text-terminal-green" />
+                  {chatTarget.name}
+                </DialogTitle>
+                <DialogDescription className="font-mono text-caption">
+                  Talk to the persona, or switch to analyst mode for marketing
+                  advice grounded in this persona.
+                </DialogDescription>
+              </DialogHeader>
+              <PersonaChat
+                projectId={projectId}
+                personaId={chatTarget._id}
+                persona={{
+                  name: chatTarget.name,
+                  role: chatTarget.role,
+                  goals: chatTarget.goals,
+                  pains: chatTarget.pains,
+                  objections: chatTarget.objections,
+                  channels: chatTarget.channels,
+                  evidence: chatTarget.evidence,
+                }}
+                snapshot={(snapshot ?? {}) as never}
+              />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {personas.length === 0 ? (
         <div className="rounded-md border border-dashed p-10 text-center">
@@ -202,8 +370,8 @@ export default function Understand({
             No personas yet
           </p>
           <p className="mt-1 font-mono text-caption text-muted-foreground">
-            Create your first persona — it takes about two minutes and powers
-            everything downstream.
+            Create one yourself, or let AI generate one from your project in
+            seconds.
           </p>
         </div>
       ) : (
@@ -220,6 +388,14 @@ export default function Understand({
                   )}
                 </div>
                 <div className="flex shrink-0 gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() => setChatPersona(p._id)}
+                  >
+                    <MessageSquare className="size-3.5" /> Chat
+                  </Button>
                   <Button
                     size="icon-sm"
                     variant="ghost"

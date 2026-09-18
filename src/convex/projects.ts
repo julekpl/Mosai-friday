@@ -142,6 +142,85 @@ export const update = mutation({
   },
 });
 
+/**
+ * Everything in the project, serialized — used by the Overview "download
+ * pack" to produce one markdown file with all important details, personas,
+ * content, communications and attached-file excerpts.
+ */
+export const exportPack = query({
+  args: { id: v.id("projects") },
+  handler: async (ctx, { id }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const project = await ctx.db.get(id);
+    if (!project || project.ownerId !== userId) return null;
+
+    const [personas, content, comms, files] = await Promise.all([
+      ctx.db.query("personas").withIndex("by_project", (q) => q.eq("projectId", id)).collect(),
+      ctx.db.query("contentPieces").withIndex("by_project", (q) => q.eq("projectId", id)).collect(),
+      ctx.db.query("communications").withIndex("by_project", (q) => q.eq("projectId", id)).collect(),
+      ctx.db.query("projectFiles").withIndex("by_project", (q) => q.eq("projectId", id)).collect(),
+    ]);
+
+    const md: string[] = [];
+    md.push(`# ${project.name}`);
+    md.push(`_Exported from MOSAI — ${new Date().toISOString().slice(0, 10)}_\n`);
+    if (project.businessName) md.push(`**Business:** ${project.businessName}`);
+    if (project.industry) md.push(`**Industry:** ${project.industry}`);
+    if (project.websiteUrl) md.push(`**Website:** ${project.websiteUrl}`);
+    if (project.googleBusinessName)
+      md.push(`**Google Business:** ${project.googleBusinessName}`);
+    if (project.description) md.push(`\n${project.description}`);
+    if (project.productsServices?.length)
+      md.push(`\n## Products / services\n${project.productsServices.map((p) => `- ${p}`).join("\n")}`);
+    if (project.goals?.length)
+      md.push(`\n## Goals\n${project.goals.map((g) => `- ${g}`).join("\n")}`);
+    if (project.competitors?.length)
+      md.push(`\n## Competitors\n${project.competitors.map((c) => `- ${c}`).join("\n")}`);
+
+    if (personas.length) {
+      md.push(`\n## Personas`);
+      for (const p of personas) {
+        md.push(`\n### ${p.name}${p.role ? ` — ${p.role}` : ""}`);
+        if (p.goals?.length) md.push(`**Goals:** ${p.goals.join(", ")}`);
+        if (p.pains?.length) md.push(`**Pains:** ${p.pains.join(", ")}`);
+        if (p.objections?.length) md.push(`**Objections:** ${p.objections.join(", ")}`);
+        if (p.channels?.length) md.push(`**Channels:** ${p.channels.join(", ")}`);
+        if (p.evidence) md.push(`_Evidence: ${p.evidence}_`);
+      }
+    }
+
+    if (comms.length) {
+      md.push(`\n## Marketing communications`);
+      for (const c of comms) {
+        md.push(`\n### ${c.name} (${c.status})`);
+        md.push(`> ${c.message}`);
+        if (c.audience) md.push(`**Audience:** ${c.audience}`);
+        if (c.channels?.length) md.push(`**Channels:** ${c.channels.join(", ")}`);
+        if (c.rationale) md.push(`\n${c.rationale}`);
+      }
+    }
+
+    if (content.length) {
+      md.push(`\n## Content`);
+      for (const piece of content) {
+        md.push(`\n### ${piece.title} — ${piece.status}${piece.surface ? ` · ${piece.surface}` : ""}`);
+        if (piece.topic) md.push(`Topic: ${piece.topic}`);
+        if (piece.body) md.push(`\n${piece.body.slice(0, 4000)}`);
+      }
+    }
+
+    if (files.length) {
+      md.push(`\n## Attached files`);
+      for (const f of files) {
+        md.push(`- **${f.name}**${f.excerpt ? ` — ${f.excerpt.slice(0, 200)}` : ""}`);
+      }
+    }
+
+    return { project, personas, content, comms, files, markdown: md.join("\n") };
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {
@@ -159,6 +238,8 @@ export const remove = mutation({
       "products",
       "builds",
       "insights",
+      "projectFiles",
+      "communications",
     ] as const) {
       const rows = await ctx.db
         .query(table)
@@ -166,6 +247,12 @@ export const remove = mutation({
         .collect();
       for (const row of rows) await ctx.db.delete(row._id);
     }
+    // personaMessages uses a compound index (projectId, personaId).
+    const personaMsgs = await ctx.db
+      .query("personaMessages")
+      .withIndex("by_project_persona", (q) => q.eq("projectId", id))
+      .collect();
+    for (const row of personaMsgs) await ctx.db.delete(row._id);
     await ctx.db.delete(id);
   },
 });
