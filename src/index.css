@@ -348,10 +348,14 @@
   animation: mosaic-drift 9s linear infinite;
 }
 
-/* Staggered entrance: pair with animate-mosaic-in on children */
-@utility mosaic-stagger > * {
-  animation: mosaic-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--i, 0) * 70ms);
+/* Staggered entrance: pair with animate-mosaic-in on children.
+   Uses a plain class because Tailwind v4 `@utility` names cannot contain
+   child selectors like `> *`. */
+@layer utilities {
+  .mosaic-stagger > * {
+    animation: mosaic-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
 }
 
 @utility ease-terminal {
