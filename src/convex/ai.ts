@@ -39,6 +39,13 @@ export type ProjectSnapshot = {
   gmbRating?: number;
   gmbReviews?: number;
   fileExcerpts?: string[];
+  // Level-1 context integration (M1-BLUEPRINT §13): active products give
+  // every AI action commerce context. References only — never copied truth.
+  products?: Array<{
+    title: string;
+    price?: string;
+    description?: string;
+  }>;
 };
 
 export const projectSnapshotValidator = v.object({
@@ -54,6 +61,15 @@ export const projectSnapshotValidator = v.object({
   gmbRating: v.optional(v.number()),
   gmbReviews: v.optional(v.number()),
   fileExcerpts: v.optional(v.array(v.string())),
+  products: v.optional(
+    v.array(
+      v.object({
+        title: v.string(),
+        price: v.optional(v.string()),
+        description: v.optional(v.string()),
+      }),
+    ),
+  ),
 });
 
 function contextLines(p: ProjectSnapshot): string[] {
@@ -72,6 +88,14 @@ function contextLines(p: ProjectSnapshot): string[] {
       : "",
     p.fileExcerpts?.length
       ? `Attached files (excerpts):\n${p.fileExcerpts.join("\n")}`
+      : "",
+    p.products?.length
+      ? `Catalog (canonical products):\n${p.products
+          .map(
+            (pr) =>
+              `- ${pr.title}${pr.price ? ` — ${pr.price}` : ""}${pr.description ? `: ${pr.description.slice(0, 120)}` : ""}`,
+          )
+          .join("\n")}`
       : "",
   ].filter(Boolean);
 }

@@ -72,6 +72,9 @@ productVariants: defineTable({
   currency: string,                    // required; project-level default applied on create
   inventoryCount: optional<number>,    // null = inventory not tracked
   availability: "in_stock" | "out_of_stock" | "backorder" | "preorder",
+  availabilityDate: optional<number>,  // REQUIRED when preorder/backorder
+  identifierStatus: "has_identifiers" | "no_identifiers_exist" | "unknown",
+                                       // honest GTIN model (never "missing = error")
   optionValues: optional<{ name: string, value: string }[]>,  // explicit variants only
   // source authority mirrors Product (M2 import; write-back never allowed M1)
   source: "mosai_native" | "external",
@@ -200,9 +203,12 @@ CHECK PRICE            every variant has priceCents > 0
 CHECK AVAILABILITY     every variant has availability
 CHECK INVENTORY        inventoryCount present when tracking enabled
 CHECK SKU              variant.sku present            (severity: info)
-CHECK GTIN             variant.gtin present           (severity: warning;
-                       google may still approve for some categories —
-                       never auto-fix, always user_input_required)
+CHECK IDENTIFIER       variant.gtin / identifierStatus: gtin present → pass;
+                       identifierStatus "no_identifiers_exist" → pass with
+                       feed identifier_exists=no; "unknown" → warning, fixType
+                       user_input ("Does this product have a barcode/GTIN?").
+                       GTIN missing is NEVER an error — Google supports
+                       identifier_exists=no for handmade/custom/vintage goods.
 CHECK FEED-FIELD OK    title length 1..150; description < 5000; image ≥ 250px
 ```
 
@@ -237,13 +243,22 @@ Per projected item (variant-level resolution):
   link          → storefront/product URL (M1: project.websiteUrl + /products/slug;
                    absent websiteUrl → feed issue)
   image_link    → primary media url (variant media > product primary)
-  availability  → availability mapping: in_stock→in_stock, out_of_stock→out_of_stock,
-                  backorder→backorder? NO → "in_stock" with ship delay note (M1
-                  simplification), preorder→preorder
+  availability  → canonical availability maps 1:1 (in_stock, out_of_stock,
+                  preorder, backorder are all valid Google values). preorder/
+                  backorder REQUIRE availability_date in the feed — missing
+                  date is a readiness issue (fixType user_input). Never map
+                  backorder to in_stock; a channel that cannot represent a
+                  state surfaces a channel compatibility issue instead.
   price         → `${(priceCents/100).toFixed(2)} ${currency}`
   brand         → product.brand || project.businessName
   gtin          → variant.gtin (omit if absent — do not fabricate)
   mpn           → variant.sku (mpn fallback policy: use sku)
+  identifier_exists → "no" when identifierStatus = no_identifiers_exist;
+                  omitted otherwise
+  item_group_id → productId for products with explicit variants (shared
+                  across their items); omitted for default-variant products
+  availability_date → variant.availabilityDate when availability is
+                  preorder/backorder
   condition     → "new" (M1)
   product_type  → collections titles joined by " > "
 ```
@@ -261,12 +276,12 @@ Sell module. Actual Merchant Center submission is M2+.
 All AI runs through the existing `ai.ts` action pattern (`"use node"`,
 snapshot-based, no client-visible keys). Per ARCHITECTURE §6:
 
-| Action | Tier | Generates | Scope |
+| Action | Tier | Semantics | Scope |
 |---|---|---|---|
-| `improveDescription` | safe | long description from title/brand/type + project context | missing/weak description only |
-| `generateAltText` | safe | alt text from product context | missing alt only |
-| `generateSeo` | safe | seoTitle + seoDescription → enrichment | absent fields only |
-| `suggestAttributes` | evidence | productType/category suggestion | proposal, never auto-apply |
+| `improveDescription` | safe | **fill missing** (empty field) or **improve** (proposal from existing; no overwrite) | description |
+| `generateAltText` | safe | fill missing | alt text; requires an existing image |
+| `generateSeo` | safe | fill missing | seoTitle + seoDescription → enrichment |
+| `suggestAttributes` | evidence | suggestion with evidence line | productType/category proposal |
 
 **Normative constraints:**
 - Surgical: prompts receive the product's *missing* fields; generation of a
@@ -419,6 +434,13 @@ Time-to-value = first `sell_product_created` minus Sell entry timestamp.
 
 ---
 
+### Feed states (content readiness ≠ publication)
+
+`not_configured → needs_attention → ready` for the projection itself.
+M1 stops at `ready` (downloadable artifact). `connected / published /
+degraded` arrive with Merchant Center integration (M2+). Never label a
+feed "published" because XML can be generated.
+
 ## 16. Acceptance tests
 
 ```text
@@ -433,7 +455,11 @@ AT4  AI improveDescription refuses when description already present (server-side
 AT5  AI output can never contain gtin/sku/price (proposal applied without
      touching variant facts — verify variant row unchanged)
 AT6  feed: default-variant product → exactly one item; explicit-variant
-     product → one item per variant
+     product → one item per variant sharing item_group_id = productId
+AT6b feed: identifierStatus=no_identifiers_exist → identifier_exists=no,
+     no fabricated GTIN; unknown → item flagged, never silently omitted
+AT6c feed: availability backorder without availabilityDate → readiness
+     issue (user_input); backorder is NEVER remapped to in_stock
 AT7  feed: product without websiteUrl on project → feed flagged with issue,
      not silently omitted
 AT8  readiness resolves variant-level: one failing variant → product shows

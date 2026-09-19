@@ -252,11 +252,113 @@ const schema = defineSchema(
       .index("by_project", ["projectId"])
       .index("by_project_platform", ["projectId", "platform"]),
 
+    // ── Sell module (M1 Commerce Brain) — see M1-BLUEPRINT.md ────────────
+
     products: defineTable({
       projectId: v.id("projects"),
+      // identity & lifecycle
       title: v.string(),
+      slug: v.optional(v.string()),
+      description: v.optional(v.string()),
+      // draft | active | archived
+      status: v.optional(
+        v.union(v.literal("draft"), v.literal("active"), v.literal("archived")),
+      ),
+      // source authority (SELL-ARCHITECTURE §3 — present from day one so M2
+      // connectors never need a migration). M1 always writes mosai_native.
+      source: v.optional(
+        v.union(v.literal("mosai_native"), v.literal("external")),
+      ),
+      authority: v.optional(v.string()), // "mosai" | provider key
+      provider: v.optional(v.string()),
+      externalId: v.optional(v.string()),
+      syncState: v.optional(v.string()),
+      lastSyncedAt: v.optional(v.number()),
+      // merchandising facts
+      brand: v.optional(v.string()),
+      productType: v.optional(v.string()),
+      tags: v.optional(v.array(v.string())),
+      collectionIds: v.optional(v.array(v.id("collections"))),
+      // MOSAI enrichment — conceptually separate from commerce facts.
+      // origin records who produced the enrichment (auditability).
+      enrichment: v.optional(
+        v.object({
+          seoTitle: v.optional(v.string()),
+          seoDescription: v.optional(v.string()),
+          buyerObjections: v.optional(v.array(v.string())),
+          contentOpportunities: v.optional(v.array(v.string())),
+          origin: v.optional(v.union(v.literal("ai"), v.literal("user"))),
+          updatedAt: v.optional(v.number()),
+        }),
+      ),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_status", ["projectId", "status"]),
+
+    // Every Product has ≥1 variant (default variant hidden in ordinary UX).
+    // Variants own the purchasable facts: price, sku/gtin, availability.
+    productVariants: defineTable({
+      projectId: v.id("projects"),
+      productId: v.id("products"),
+      isDefault: v.boolean(), // exactly one per product, enforced in mutations
+      title: v.optional(v.string()), // explicit variants only, e.g. "Black / S"
+      sku: v.optional(v.string()),
+      gtin: v.optional(v.string()),
+      // has_identifiers | no_identifiers_exist | unknown — honest identifier
+      // model; GTIN missing is never an error (identifier_exists=no exists)
+      identifierStatus: v.optional(v.string()),
       priceCents: v.optional(v.number()),
-      feedUrl: v.optional(v.string()),
+      compareAtPriceCents: v.optional(v.number()),
+      currency: v.string(),
+      inventoryCount: v.optional(v.number()), // null = not tracked
+      // in_stock | out_of_stock | backorder | preorder — never remapped;
+      // preorder/backorder require availabilityDate for feeds
+      availability: v.optional(v.string()),
+      availabilityDate: v.optional(v.number()),
+      optionValues: v.optional(
+        v.array(v.object({ name: v.string(), value: v.string() })),
+      ),
+      source: v.optional(
+        v.union(v.literal("mosai_native"), v.literal("external")),
+      ),
+      externalId: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_product", ["productId"])
+      .index("by_project", ["projectId"]),
+
+    // media[] model even though M1 UX exposes one image field
+    productMedia: defineTable({
+      projectId: v.id("projects"),
+      productId: v.id("products"),
+      variantId: v.optional(v.id("productVariants")),
+      url: v.string(),
+      alt: v.optional(v.string()),
+      position: v.optional(v.number()), // 0 = primary
+      source: v.optional(
+        v.union(v.literal("mosai_native"), v.literal("external")),
+      ),
+      createdAt: v.number(),
+    }).index("by_product", ["productId"]),
+
+    // Collections reference products; they never own product data
+    collections: defineTable({
+      projectId: v.id("projects"),
+      title: v.string(),
+      description: v.optional(v.string()),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Lightweight analytics for the pre-registered M1 decision-gate signals
+    // (SELL-EXECUTION-PLAN). One row per signal; no PII, no provider data.
+    commerceEvents: defineTable({
+      projectId: v.id("projects"),
+      event: v.string(),
+      // free-form dimension bag (productId, checkId, surface, counts…)
+      meta: v.optional(v.any()),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
