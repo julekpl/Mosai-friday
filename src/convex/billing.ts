@@ -151,6 +151,7 @@ export const deleteAccount = mutation({
         "adsChangeRequests",
         "adsExecutions",
         "adsCredentials",
+        "socialCredentials",
       ] as const) {
         const rows = await ctx.db
           .query(table)

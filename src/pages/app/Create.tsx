@@ -12,6 +12,7 @@ import {
   PenTool,
   Plus,
   Search,
+  Send,
   Sparkles,
   Trash2,
   Wand2,
@@ -977,6 +978,8 @@ function PieceEditor({
     });
   };
 
+  const pushToPromote = useMutation(api.posts.create);
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -1010,6 +1013,30 @@ function PieceEditor({
               Approve
             </Button>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 cursor-pointer font-mono text-caption"
+            onClick={async () => {
+              try {
+                await pushToPromote({
+                  projectId,
+                  contentId: piece._id,
+                  body: (piece.body || piece.title).slice(0, 20000),
+                  channel: "linkedin",
+                });
+                toast.success("Pushed to Promote", {
+                  description: "A LinkedIn draft is waiting in the Promote social queue — adapt it to other platforms with AI variants there.",
+                });
+              } catch (e) {
+                toast.error("Push failed", {
+                  description: e instanceof Error ? e.message : "Try again.",
+                });
+              }
+            }}
+          >
+            <Send className="size-3.5" /> Push to Promote
+          </Button>
         </div>
       </div>
 

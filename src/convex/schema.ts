@@ -209,8 +209,10 @@ const schema = defineSchema(
     posts: defineTable({
       projectId: v.id("projects"),
       contentId: v.optional(v.id("contentPieces")),
-      channel: v.string(), // meta | tiktok | linkedin | x
+      campaignId: v.optional(v.id("campaigns")),
+      channel: v.string(), // facebook | instagram | linkedin | x | tiktok
       body: v.string(),
+      mediaUrl: v.optional(v.string()), // public https URL to an image / video
       scheduledFor: v.optional(v.number()),
       // draft | scheduled | published | failed
       status: v.union(
@@ -219,8 +221,36 @@ const schema = defineSchema(
         v.literal("published"),
         v.literal("failed"),
       ),
+      // who drafted it — AI drafts are never auto-published (copilot | user)
+      origin: v.optional(v.union(v.literal("user"), v.literal("copilot"))),
+      // publish receipt: provider-side reference + error detail + timestamp
+      providerRef: v.optional(v.string()),
+      errorDetail: v.optional(v.string()),
+      publishedAt: v.optional(v.number()),
       createdAt: v.number(),
-    }).index("by_project", ["projectId"]),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_status", ["projectId", "status"])
+      .index("by_status", ["status"]),
+
+    // OAuth tokens for social publishing platforms (Promote module). Mirrors
+    // adsCredentials: tokens live server-side only, never sent to the client.
+    socialCredentials: defineTable({
+      projectId: v.id("projects"),
+      platform: v.string(), // facebook | instagram | linkedin | x | tiktok
+      accessToken: v.string(),
+      refreshToken: v.optional(v.string()),
+      expiresAt: v.optional(v.number()),
+      scope: v.optional(v.string()),
+      // provider-side account to post as (page id, open_id, …)
+      providerAccountId: v.optional(v.string()),
+      accountLabel: v.optional(v.string()),
+      connectedBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_platform", ["projectId", "platform"]),
 
     products: defineTable({
       projectId: v.id("projects"),
