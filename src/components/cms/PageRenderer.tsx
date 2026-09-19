@@ -1,4 +1,10 @@
+import { useEffect, useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { PageDocument } from "@/lib/cms/blocks";
+import { ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 /**
  * Renders a PageDocument against the W1 block registry. This is the same
@@ -165,29 +171,10 @@ function BlockView({
     case "spacer":
       return <div style={{ height: Math.min(Number(props.height ?? 48), 200) }} />;
     case "productGrid": {
-      const cols = Math.min(Math.max(Number(props.columns ?? 3), 1), 4);
-      return (
-        <section className="rounded-md border border-terminal-blue/40 bg-terminal-blue-soft p-4">
-          <p className="font-mono text-caption text-terminal-blue">product grid</p>
-          <p className="mt-1 font-mono text-caption text-muted-foreground">
-            Resolves live products from collection at render time — prices and
-            availability are never stored on the page.
-          </p>
-          <div
-            className="mt-3 grid gap-3"
-            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-          >
-            {Array.from({ length: cols }).map((_, i) => (
-              <div
-                key={i}
-                className="grid h-24 place-items-center rounded-md border border-dashed font-mono text-caption text-muted-foreground"
-              >
-                live product
-              </div>
-            ))}
-          </div>
-        </section>
-      );
+      return <ProductGridBlock
+        collectionId={props.collectionId ? String(props.collectionId) : null}
+        columns={Number(props.columns ?? 3)}
+      />;
     }
     default:
       return (
@@ -196,4 +183,116 @@ function BlockView({
         </div>
       );
   }
+}
+
+/* ── ProductGrid: resolves live Sell data (§50) — never stored on the page ── */
+
+type ResolvedProduct = {
+  productId: string;
+  title: string;
+  priceCents: number | null;
+  currency: string;
+  availability: string | null;
+  imageUrl: string | null;
+  externalUrl: string | null;
+  provider: string | null;
+};
+
+function ProductGridBlock({
+  collectionId,
+  columns,
+}: {
+  collectionId: string | null;
+  columns: number;
+}) {
+  const cols = Math.min(Math.max(columns, 1), 4);
+  const products = useQuery(
+    api.cms.resolveProducts,
+    collectionId
+      ? { collectionId: collectionId as Id<"collections">, limit: 12 }
+      : "skip",
+  ) as ResolvedProduct[] | undefined;
+
+  if (!collectionId) {
+    return (
+      <section className="rounded-md border border-dashed p-6 font-mono text-caption text-muted-foreground">
+        Product grid — no collection selected yet.
+      </section>
+    );
+  }
+  if (products === undefined) {
+    return (
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        {Array.from({ length: cols }).map((_, i) => (
+          <div key={i} className="h-40 animate-pulse rounded-md border bg-muted" />
+        ))}
+      </div>
+    );
+  }
+  if (products.length === 0) {
+    return (
+      <section className="rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-4 font-mono text-caption text-terminal-amber">
+        This collection has no products — sync the catalog or add products in Sell.
+      </section>
+    );
+  }
+  return (
+    <section className="grid gap-3">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        {products.map((p) => (
+          <ProductCard key={p.productId} product={p} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProductCard({ product }: { product: ResolvedProduct }) {
+  const outOfStock = product.availability === "out_of_stock";
+  return (
+    <div className="grid gap-2 rounded-md border bg-card p-3 shadow-card">
+      <div className="grid h-32 place-items-center overflow-hidden rounded border bg-muted">
+        {product.imageUrl ? (
+          <img
+            src={product.imageUrl}
+            alt={product.title}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <span className="font-mono text-caption text-muted-foreground">no image</span>
+        )}
+      </div>
+      <p className="truncate font-mono text-small font-medium">{product.title}</p>
+      <div className="flex items-center gap-2">
+        {product.priceCents != null && (
+          <span className="font-mono text-small">
+            {(product.priceCents / 100).toFixed(2)} {product.currency}
+          </span>
+        )}
+        <span
+          className={cn(
+            "font-mono text-caption",
+            outOfStock ? "text-terminal-red" : "text-terminal-green",
+          )}
+        >
+          {product.availability ? product.availability.replace(/_/g, " ") : ""}
+        </span>
+      </div>
+      {product.externalUrl && (
+        <a
+          href={product.externalUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex items-center gap-1 font-mono text-caption text-terminal-blue hover:underline"
+        >
+          <ExternalLink className="size-3" />
+          {product.provider ? `Buy on ${product.provider}` : "Buy"}
+        </a>
+      )}
+    </div>
+  );
 }

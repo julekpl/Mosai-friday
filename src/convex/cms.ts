@@ -779,6 +779,84 @@ export const deleteAsset = mutation({
   },
 });
 
+/* ── Commerce block resolution (W5) — §50, §137 ─────────────────────────
+ *
+ * ProductGrid stores only a collectionId. At render time the block resolves
+ * live product data from canonical Sell tables — price and availability are
+ * never copied into page content.
+ */
+
+export const resolveCollection = query({
+  args: { id: v.id("collections") },
+  handler: async (ctx, { id }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const col = await ctx.db.get(id);
+    if (!col) return null;
+    const project = await ctx.db.get(col.projectId);
+    if (!project || project.ownerId !== userId) return null;
+    return col;
+  },
+});
+
+export type ResolvedProduct = {
+  productId: Id<"products">;
+  title: string;
+  priceCents: number | null;
+  currency: string;
+  availability: string | null;
+  imageUrl: string | null;
+  externalUrl: string | null;
+  provider: string | null;
+};
+
+/** Live product facts for a productGrid block. Never stored on the page. */
+export const resolveProducts = query({
+  args: { collectionId: v.id("collections"), limit: v.optional(v.number()) },
+  handler: async (ctx, { collectionId, limit }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const col = await ctx.db.get(collectionId);
+    if (!col) return [];
+    const project = await ctx.db.get(col.projectId);
+    if (!project || project.ownerId !== userId) return [];
+
+    const products = await ctx.db
+      .query("products")
+      .withIndex("by_project", (q) => q.eq("projectId", col.projectId))
+      .collect();
+    const members = products
+      .filter((p) => p.collectionIds?.includes(collectionId))
+      .filter((p) => p.status !== "archived")
+      .slice(0, Math.min(limit ?? 12, 48));
+
+    const resolved: ResolvedProduct[] = [];
+    for (const p of members) {
+      const variants = await ctx.db
+        .query("productVariants")
+        .withIndex("by_product", (q) => q.eq("productId", p._id))
+        .collect();
+      const def = variants.find((v) => v.isDefault) ?? variants[0];
+      const media = await ctx.db
+        .query("productMedia")
+        .withIndex("by_product", (q) => q.eq("productId", p._id))
+        .collect();
+      const primary = media.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+      resolved.push({
+        productId: p._id,
+        title: p.title,
+        priceCents: def?.priceCents ?? null,
+        currency: def?.currency ?? "USD",
+        availability: def?.availability ?? null,
+        imageUrl: primary?.url ?? null,
+        externalUrl: p.externalUrl ?? null,
+        provider: p.provider ?? null,
+      });
+    }
+    return resolved;
+  },
+});
+
 /* ── Navigation ────────────────────────────────────────────────────────── */
 
 export const listNavigations = query({

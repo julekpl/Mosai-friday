@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { useParams } from "react-router";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -13,6 +14,7 @@ import {
   Eye,
   Globe,
   History,
+  Loader2,
   Plus,
   Save,
   Trash2,
@@ -42,6 +44,8 @@ import { cn } from "@/lib/utils";
 
 type PageDoc = Doc<"cmsPages">;
 type RevisionDoc = Doc<"pageRevisions">;
+type AssetDoc = Doc<"cmsAssets">;
+type CollectionDoc = Doc<"collections">;
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -84,6 +88,13 @@ export function PageEditor({
     recommendations: string[];
   } | null>(null);
   const [publishing, setPublishing] = useState(false);
+
+  const assets = (useQuery(api.cms.listAssets, {
+    projectId: page.projectId,
+  }) ?? []) as AssetDoc[];
+  const collections = (useQuery(api.collections.list, {
+    projectId: page.projectId,
+  }) ?? []) as CollectionDoc[];
 
   const undoStack = useRef<PageDocument[]>([]);
   const redoStack = useRef<PageDocument[]>([]);
@@ -511,6 +522,8 @@ export function PageEditor({
                 </label>
               </div>
             </div>
+
+            <ShopifySyncCard projectId={page.projectId} />
           </div>
         </div>
       )}
@@ -737,32 +750,12 @@ function BlockFieldInput({
   }
 
   if (field.kind === "assetRef") {
-    return (
-      <div className="grid gap-1">
-        <Label className="font-mono text-caption">
-          {field.label} (asset id)
-        </Label>
-        <Input
-          value={String(value ?? "")}
-          placeholder="paste an asset id from Assets"
-          onChange={(e) => onChange(e.target.value || undefined)}
-        />
-      </div>
-    );
+    return <AssetRefField label={field.label} value={value} onChange={onChange} />;
   }
 
   if (field.kind === "collectionRef") {
     return (
-      <div className="grid gap-1">
-        <Label className="font-mono text-caption">
-          {field.label} (collection id)
-        </Label>
-        <Input
-          value={String(value ?? "")}
-          placeholder="paste a collection id from Sell"
-          onChange={(e) => onChange(e.target.value || undefined)}
-        />
-      </div>
+      <CollectionRefField label={field.label} value={value} onChange={onChange} />
     );
   }
 
@@ -776,6 +769,141 @@ function BlockFieldInput({
         value={String(value ?? "")}
         onChange={(e) => onChange(e.target.value)}
       />
+    </div>
+  );
+}
+
+/* ── Reference pickers: entity references, not raw ids (§87, §88) ──────── */
+
+function useProjectId(): Id<"projects"> | "skip" {
+  const { projectId } = useParams<{ projectId: string }>();
+  return projectId ? (projectId as Id<"projects">) : "skip";
+}
+
+function AssetRefField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const projectId = useProjectId();
+  const assets = (useQuery(
+    api.cms.listAssets,
+    projectId === "skip" ? "skip" : { projectId },
+  ) ?? []) as AssetDoc[];
+  return (
+    <div className="grid gap-1">
+      <Label className="font-mono text-caption">{label}</Label>
+      <select
+        className="h-9 cursor-pointer rounded-md border bg-card px-3 font-mono text-caption"
+        value={String(value ?? "")}
+        onChange={(e) => onChange(e.target.value || undefined)}
+      >
+        <option value="">— choose asset —</option>
+        {assets.map((a) => (
+          <option key={a._id} value={a._id}>
+            {a.filename}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function CollectionRefField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const projectId = useProjectId();
+  const collections = (useQuery(
+    api.collections.list,
+    projectId === "skip" ? "skip" : { projectId },
+  ) ?? []) as CollectionDoc[];
+  return (
+    <div className="grid gap-1">
+      <Label className="font-mono text-caption">{label}</Label>
+      <select
+        className="h-9 cursor-pointer rounded-md border bg-card px-3 font-mono text-caption"
+        value={String(value ?? "")}
+        onChange={(e) => onChange(e.target.value || undefined)}
+      >
+        <option value="">— choose collection —</option>
+        {collections.map((c) => (
+          <option key={c._id} value={c._id}>
+            {c.title}
+            {c.provider ? ` · ${c.provider}` : ""}
+          </option>
+        ))}
+      </select>
+      {collections.length === 0 && (
+        <p className="font-mono text-caption text-muted-foreground">
+          No collections yet — create one in Sell or sync Shopify below.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ── Shopify catalog sync (W5 connector) — capability matrix shown honestly ─ */
+
+function ShopifySyncCard({ projectId }: { projectId: Id<"projects"> }) {
+  const sync = useAction(api.shopifySync.syncCatalog);
+  const [syncing, setSyncing] = useState(false);
+
+  const run = async () => {
+    setSyncing(true);
+    try {
+      const r = await sync({ projectId });
+      toast.success(
+        `Synced ${r.products} products · ${r.collections} collections from Shopify`,
+      );
+    } catch (e) {
+      toast.error("Shopify sync failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border bg-card p-4 shadow-card">
+      <p className="font-mono text-caption text-muted-foreground">commerce source</p>
+      <div className="mt-2 grid gap-1.5 font-mono text-caption">
+        <p className="text-muted-foreground">
+          shopify · read connector (CMS-CONNECTOR-CONTRACT)
+        </p>
+        <p className="text-terminal-green">✓ products, collections, prices, availability</p>
+        <p className="text-muted-foreground">
+          ✗ cart/checkout — added with the W6 checkout handoff
+        </p>
+      </div>
+      <Button
+        size="sm"
+        className="mt-3 w-full"
+        onClick={() => void run()}
+        disabled={syncing}
+      >
+        {syncing ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Globe className="size-3.5" />
+        )}
+        Sync Shopify catalog
+      </Button>
+      <p className="mt-2 font-mono text-caption text-muted-foreground">
+        Requires SHOPIFY_STORE_DOMAIN and SHOPIFY_STOREFRONT_ACCESS_TOKEN in
+        the Keys tab. Provider facts stay authoritative — MOSAI never edits
+        them, only displays them.
+      </p>
     </div>
   );
 }

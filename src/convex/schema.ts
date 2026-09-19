@@ -279,6 +279,9 @@ const schema = defineSchema(
       productType: v.optional(v.string()),
       tags: v.optional(v.array(v.string())),
       collectionIds: v.optional(v.array(v.id("collections"))),
+      // provider-native route for external-checkout handoff (§57, §91) —
+      // e.g. Shopify product URL; never a copied commerce fact
+      externalUrl: v.optional(v.string()),
       // MOSAI enrichment — conceptually separate from commerce facts.
       // origin records who produced the enrichment (auditability).
       enrichment: v.optional(
@@ -345,10 +348,20 @@ const schema = defineSchema(
     }).index("by_product", ["productId"]),
 
     // Collections reference products; they never own product data
+    // External identity fields (W5 connector contract): provider-owned rows
+    // are marked source/authority/provider/externalId — synced, never copied.
     collections: defineTable({
       projectId: v.id("projects"),
       title: v.string(),
       description: v.optional(v.string()),
+      slug: v.optional(v.string()),
+      source: v.optional(
+        v.union(v.literal("mosai_native"), v.literal("external")),
+      ),
+      authority: v.optional(v.string()), // "mosai" | provider key
+      provider: v.optional(v.string()),
+      externalId: v.optional(v.string()),
+      lastSyncedAt: v.optional(v.number()),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
