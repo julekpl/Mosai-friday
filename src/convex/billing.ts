@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 export const PLANS = ["free", "starter", "growth", "scale"] as const;
@@ -67,6 +67,23 @@ export async function assertModule(ctx: MutationCtx, moduleName: string) {
   return userId;
 }
 
+/** Entitlement check callable from actions (which have no ctx.db).
+ *  Throws when the user's plan lacks the module. */
+export const checkModule = internalQuery({
+  args: { userId: v.id("users"), module: v.string() },
+  handler: async (ctx, { userId, module }) => {
+    const user = await ctx.db.get(userId);
+    const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
+    const mods = PLAN_MODULES[plan] ?? PLAN_MODULES.free;
+    if (!mods.includes(module)) {
+      throw new Error(
+        `Your current plan does not include "${module}". Upgrade to unlock it.`,
+      );
+    }
+    return true;
+  },
+});
+
 /** Local plan mirror change. When STRIPE_SECRET_KEY is configured this should
  *  be replaced by a Stripe Checkout + webhook path; until then plans switch
  *  locally so the whole flow is demonstrable end to end. */
@@ -127,6 +144,13 @@ export const deleteAccount = mutation({
         "products",
         "builds",
         "insights",
+        "adsAccounts",
+        "adsCampaigns",
+        "adsMetrics",
+        "adsCopilotMessages",
+        "adsChangeRequests",
+        "adsExecutions",
+        "adsCredentials",
       ] as const) {
         const rows = await ctx.db
           .query(table)

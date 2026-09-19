@@ -462,6 +462,152 @@ const schema = defineSchema(
       createdBy: v.id("users"),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
+
+    // ── Ads module: platform connections, campaigns, metrics, change control ──
+
+    // OAuth access + refresh tokens per (project, platform). Tokens are stored
+    // server-side only; the client never sees them. accessTokens expire and are
+    // refreshed by the sync/execute actions.
+    adsCredentials: defineTable({
+      projectId: v.id("projects"),
+      platform: v.string(), // google | meta | tiktok | chatgpt
+      accessToken: v.string(),
+      refreshToken: v.optional(v.string()),
+      expiresAt: v.optional(v.number()),
+      scope: v.optional(v.string()),
+      accountLabel: v.optional(v.string()),
+      connectedBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_platform", ["projectId", "platform"]),
+
+    // Short-lived CSRF state for the OAuth redirect round-trip.
+    oauthStates: defineTable({
+      state: v.string(),
+      projectId: v.id("projects"),
+      platform: v.string(),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_state", ["state"]),
+
+    // Ad accounts discovered for each connected platform.
+    adsAccounts: defineTable({
+      projectId: v.id("projects"),
+      platform: v.string(),
+      accountId: v.string(), // provider-side id (customer_id / ad_account_id…)
+      name: v.string(),
+      currency: v.optional(v.string()),
+      // selected | not_selected — which accounts are imported
+      status: v.union(v.literal("selected"), v.literal("not_selected")),
+      lastSyncedAt: v.optional(v.number()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_platform", ["projectId", "platform"]),
+
+    // Normalized campaigns imported from the providers.
+    adsCampaigns: defineTable({
+      projectId: v.id("projects"),
+      platform: v.string(),
+      accountId: v.string(),
+      campaignId: v.string(),
+      name: v.string(),
+      status: v.string(), // normalized: ACTIVE | PAUSED | REMOVED | ARCHIVED | UNKNOWN
+      objective: v.optional(v.string()),
+      // daily + lifetime budget, always in the account's minor units (cents)
+      dailyBudgetCents: v.optional(v.number()),
+      lifetimeBudgetCents: v.optional(v.number()),
+      lastSyncedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_platform", ["projectId", "platform"])
+      .index("by_platform_campaign", ["projectId", "platform", "campaignId"]),
+
+    // Aggregated performance per (campaign, day). Source + freshness are part
+    // of the product — numbers never silently blended across platforms.
+    adsMetrics: defineTable({
+      projectId: v.id("projects"),
+      platform: v.string(),
+      campaignId: v.string(),
+      date: v.string(), // YYYY-MM-DD in the account's reporting timezone
+      spendCents: v.number(),
+      impressions: v.number(),
+      clicks: v.number(),
+      conversions: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_campaign_day", ["projectId", "platform", "campaignId", "date"])
+      .index("by_project", ["projectId"]),
+
+    // A proposed external change. Everything the AI or a user wants to do to a
+    // live platform lands here first — nothing executes without approval.
+    adsChangeRequests: defineTable({
+      projectId: v.id("projects"),
+      platform: v.string(),
+      accountId: v.string(),
+      campaignId: v.string(),
+      campaignName: v.string(),
+      // pause | resume | set_daily_budget
+      kind: v.union(
+        v.literal("pause"),
+        v.literal("resume"),
+        v.literal("set_daily_budget"),
+      ),
+      // the numeric payload (budget minor units for set_daily_budget)
+      payload: v.optional(v.number()),
+      beforeValue: v.optional(v.number()),
+      rationale: v.optional(v.string()),
+      // the surface that produced this draft: user | copilot
+      origin: v.union(v.literal("user"), v.literal("copilot")),
+      // draft | approved | executed | rejected | failed
+      status: v.union(
+        v.literal("draft"),
+        v.literal("approved"),
+        v.literal("executed"),
+        v.literal("rejected"),
+        v.literal("failed"),
+      ),
+      idempotencyKey: v.optional(v.string()),
+      requestedBy: v.id("users"),
+      createdAt: v.number(),
+      decidedAt: v.optional(v.number()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_status", ["projectId", "status"]),
+
+    // Immutable execution receipts for approved changes.
+    adsExecutions: defineTable({
+      projectId: v.id("projects"),
+      changeId: v.id("adsChangeRequests"),
+      platform: v.string(),
+      campaignId: v.string(),
+      kind: v.string(),
+      result: v.string(), // success | error
+      providerRef: v.optional(v.string()),
+      errorDetail: v.optional(v.string()),
+      executedBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Copilot chat history (per project). AI calls go through OpenRouter with
+    // the admin-selected model; tokens never leave the server.
+    adsCopilotMessages: defineTable({
+      projectId: v.id("projects"),
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      content: v.string(),
+      // when the assistant suggested a change, the created draft id lands here
+      changeRequestId: v.optional(v.id("adsChangeRequests")),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // App-wide admin settings (single row). Holds the OpenRouter model the
+    // admin selected for the Ads Copilot.
+    appSettings: defineTable({
+      key: v.string(),
+      copilotModel: v.optional(v.string()),
+      updatedAt: v.number(),
+    }).index("by_key", ["key"]),
   },
   {
     schemaValidation: false,
