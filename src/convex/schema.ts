@@ -740,6 +740,166 @@ const schema = defineSchema(
       copilotModel: v.optional(v.string()),
       updatedAt: v.number(),
     }).index("by_key", ["key"]),
+
+    // ── Website / CMS module (W1 foundation) — see WEBSITE-ARCHITECTURE.md ─
+    // Canonical ownership: CMS owns layout/presentation. Products, prices,
+    // availability, contacts and consent are referenced, never copied.
+
+    // One site per project in W1 (domain model stays extensible to many).
+    sites: defineTable({
+      projectId: v.id("projects"),
+      name: v.string(),
+      slug: v.string(),
+      // draft | live | suspended — site status is separate from publication
+      status: v.optional(
+        v.union(v.literal("draft"), v.literal("live"), v.literal("suspended")),
+      ),
+      defaultLocale: v.optional(v.string()),
+      homepageId: v.optional(v.id("cmsPages")),
+      // Site-level SEO defaults (§29): name, title template, social image
+      seoDefaults: v.optional(
+        v.object({
+          siteName: v.optional(v.string()),
+          titleTemplate: v.optional(v.string()),
+          metaDescription: v.optional(v.string()),
+          socialImageUrl: v.optional(v.string()),
+        }),
+      ),
+      // Brand-driven theme tokens (§39-40) — semantic, not raw hex in blocks
+      theme: v.optional(
+        v.object({
+          accent: v.optional(v.string()),
+          radius: v.optional(v.string()),
+          fontScale: v.optional(v.string()),
+        }),
+      ),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Page identity. Content lives in immutable revisions below.
+    cmsPages: defineTable({
+      siteId: v.id("sites"),
+      projectId: v.id("projects"),
+      title: v.string(),
+      slug: v.string(), // normalized, unique within site
+      fullPath: v.string(), // derived: parent path + slug, unique within site
+      parentId: v.optional(v.id("cmsPages")),
+      // standard | homepage | landing | article | product | collection | utility
+      pageType: v.optional(v.string()),
+      // draft | published | archived
+      status: v.union(
+        v.literal("draft"),
+        v.literal("published"),
+        v.literal("archived"),
+      ),
+      publishedRevisionId: v.optional(v.id("pageRevisions")),
+      latestDraftRevisionId: v.optional(v.id("pageRevisions")),
+      // Per-page SEO overrides (§29). Missing fields fall back to site defaults.
+      seo: v.optional(
+        v.object({
+          title: v.optional(v.string()),
+          metaDescription: v.optional(v.string()),
+          noindex: v.optional(v.boolean()),
+          ogImageUrl: v.optional(v.string()),
+        }),
+      ),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_site", ["siteId"])
+      .index("by_project", ["projectId"])
+      .index("by_site_path", ["siteId", "fullPath"]),
+
+    // Immutable revision snapshots. Editing a published page creates a newer
+    // draft; publishing promotes the draft; prior published → superseded.
+    pageRevisions: defineTable({
+      pageId: v.id("cmsPages"),
+      projectId: v.id("projects"),
+      version: v.number(), // monotonically increasing per page
+      // draft | published | superseded
+      state: v.union(
+        v.literal("draft"),
+        v.literal("published"),
+        v.literal("superseded"),
+      ),
+      // structured PageDocument — never canonical HTML
+      document: v.object({
+        schemaVersion: v.number(),
+        blocks: v.array(
+          v.object({
+            id: v.string(),
+            type: v.string(),
+            version: v.number(),
+            props: v.any(),
+          }),
+        ),
+      }),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      publishedAt: v.optional(v.number()),
+    })
+      .index("by_page", ["pageId"])
+      .index("by_project", ["projectId"]),
+
+    // Canonical asset library (§26). W1 stores URL references (uploads to
+    // Convex storage land in W3); deletion is blocked while referenced.
+    cmsAssets: defineTable({
+      projectId: v.id("projects"),
+      type: v.union(
+        v.literal("image"),
+        v.literal("video"),
+        v.literal("document"),
+        v.literal("logo"),
+      ),
+      filename: v.string(),
+      url: v.string(),
+      mimeType: v.optional(v.string()),
+      altText: v.optional(v.string()),
+      title: v.optional(v.string()),
+      source: v.optional(v.string()), // upload | external | content
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Menus (§25). Items reference real pages — validated before publish.
+    cmsNavigations: defineTable({
+      siteId: v.id("sites"),
+      projectId: v.id("projects"),
+      name: v.string(),
+      items: v.array(
+        v.object({
+          id: v.string(),
+          label: v.string(),
+          // page | external | collection
+          type: v.string(),
+          referenceId: v.optional(v.id("cmsPages")),
+          url: v.optional(v.string()),
+          openInNewTab: v.optional(v.boolean()),
+        }),
+      ),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_site", ["siteId"])
+      .index("by_project", ["projectId"]),
+
+    // Redirects (§33). Auto-created when a published path changes; loops are
+    // rejected at write time.
+    cmsRedirects: defineTable({
+      siteId: v.id("sites"),
+      projectId: v.id("projects"),
+      fromPath: v.string(),
+      to: v.string(),
+      statusCode: v.union(v.literal(301), v.literal(302)),
+      // manual | auto_path_change
+      source: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_site_path", ["siteId", "fromPath"])
+      .index("by_project", ["projectId"]),
   },
   {
     schemaValidation: false,

@@ -9,6 +9,7 @@ import {
   Circle,
   CircleDot,
   FileText,
+  Globe,
   Loader2,
   Plus,
   Rocket,
@@ -25,6 +26,7 @@ import {
   StatusBadge,
 } from "@/components/app/module-kit";
 import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
+import { SitePanel } from "@/components/cms/SitePanel";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -419,6 +421,44 @@ function PlanTab({ build }: { build: BuildRow }) {
   );
 }
 
+/* ── Site tab: native CMS (W1 foundation) ─────────────────────────────── */
+
+function SiteTab({ projectId }: { projectId: Id<"projects"> }) {
+  const site = useQuery(api.cms.getSite, { projectId });
+  const createSite = useMutation(api.cms.createSite);
+
+  if (site === undefined) {
+    return (
+      <p className="font-mono text-caption text-muted-foreground">loading site…</p>
+    );
+  }
+  if (site === null) {
+    return (
+      <div className="rounded-md border border-dashed p-10 text-center">
+        <Globe className="mx-auto size-6 text-muted-foreground" />
+        <p className="mt-3 font-mono text-small font-medium">No site yet</p>
+        <p className="mx-auto mt-1 max-w-md font-mono text-caption text-muted-foreground">
+          Create your site to get a homepage, pages, navigation, assets and
+          publishing — with drafts and version history built in.
+        </p>
+        <Button
+          className="mt-4"
+          onClick={() =>
+            void createSite({ projectId, name: "" }).catch((e: unknown) =>
+              toast.error("Create failed", {
+                description: e instanceof Error ? e.message : "Try again.",
+              }),
+            )
+          }
+        >
+          <Sparkles className="size-4" /> Create site
+        </Button>
+      </div>
+    );
+  }
+  return <SitePanel projectId={projectId} site={site} />;
+}
+
 /* ── Pages tab: per-page drafts grounded in persona × journey stage ────── */
 
 function PagesTab({ build }: { build: BuildRow }) {
@@ -718,12 +758,18 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
             <TabsTrigger value="pages" className="font-mono text-caption">
               <FileText className="mr-1.5 size-3.5" /> Pages
             </TabsTrigger>
+            <TabsTrigger value="site" className="font-mono text-caption">
+              <Globe className="mr-1.5 size-3.5" /> Site
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="plan">
             <PlanTab build={selected} />
           </TabsContent>
           <TabsContent value="pages">
             <PagesTab build={selected} />
+          </TabsContent>
+          <TabsContent value="site">
+            <SiteTab projectId={selected.projectId} />
           </TabsContent>
         </Tabs>
       </div>
