@@ -1,14 +1,17 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
+import { internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { userCtx, cascadeDeleteProject } from "./dal";
 
 export const PLANS = ["free", "starter", "growth", "scale"] as const;
 export type Plan = (typeof PLANS)[number];
 
-/** TESTING PHASE: default plan is "scale" so every module is reachable.
- *  Switch back to "free" here for launch — the plan switcher in Billing
- *  still demonstrates gating for every tier. */
-export const DEFAULT_PLAN: Plan = "scale";
+/** Launch posture: new / plan-less users start on "free" — the same fallback
+ *  every read AND write path uses, so the UI can never show a module the
+ *  server would deny. Demo/testing mode: use the plan switcher in Billing.
+ *  (Blueprint review §8.4: the old split — "scale" on reads, "free" on
+ *  writes — rendered modules the server refused.) */
+export const DEFAULT_PLAN: Plan = "free";
 
 /** What each plan unlocks. Single source of truth for entitlements —
  *  module UIs and mutations must call hasModule, never hardcode plan names. */
@@ -57,7 +60,7 @@ export async function assertModule(ctx: MutationCtx, moduleName: string) {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Not signed in");
   const user = await ctx.db.get(userId);
-  const plan = (user?.plan ?? "free") as Plan;
+  const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
   const mods = PLAN_MODULES[plan] ?? PLAN_MODULES.free;
   if (!mods.includes(moduleName)) {
     throw new Error(
@@ -90,17 +93,18 @@ export const checkModule = internalQuery({
 export const changePlan = mutation({
   args: { plan: v.union(...PLANS.map((p) => v.literal(p))) },
   handler: async (ctx, { plan }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
+    const { userId } = await userCtx(ctx);
     await ctx.db.patch(userId, { plan, planStatus: "active" });
   },
 });
 
+/** TODO (review G4): this is an instant switch-off. It must become a
+ *  wind-down — obligations (running campaigns, open orders, scheduled posts)
+ *  resolved or explicitly accepted before the plan actually drops. */
 export const cancelPlan = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
+    const { userId } = await userCtx(ctx);
     await ctx.db.patch(userId, { planStatus: "canceled", plan: "free" });
   },
 });
@@ -108,8 +112,7 @@ export const cancelPlan = mutation({
 export const requestAccountDeletion = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
+    const { userId } = await userCtx(ctx);
     await ctx.db.patch(userId, { deletionRequestedAt: Date.now() });
   },
 });
@@ -117,49 +120,24 @@ export const requestAccountDeletion = mutation({
 export const cancelAccountDeletion = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
+    const { userId } = await userCtx(ctx);
     await ctx.db.patch(userId, { deletionRequestedAt: undefined });
   },
 });
 
-/** Hard delete: projects cascade via projects.remove, then the user record. */
+/** Hard delete: every project goes through the ONE shared cascade, then the
+ *  user record. (Review finding: the old inline list had drifted from
+ *  projects.remove and missed the CMS, variants, media and Build tables.) */
 export const deleteAccount = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
+    const { userId } = await userCtx(ctx);
     const projects = await ctx.db
       .query("projects")
       .withIndex("by_owner", (q) => q.eq("ownerId", userId))
       .collect();
     for (const p of projects) {
-      for (const table of [
-        "personas",
-        "contentPieces",
-        "connections",
-        "contacts",
-        "campaigns",
-        "posts",
-        "products",
-        "builds",
-        "insights",
-        "adsAccounts",
-        "adsCampaigns",
-        "adsMetrics",
-        "adsCopilotMessages",
-        "adsChangeRequests",
-        "adsExecutions",
-        "adsCredentials",
-        "socialCredentials",
-      ] as const) {
-        const rows = await ctx.db
-          .query(table)
-          .withIndex("by_project", (q) => q.eq("projectId", p._id))
-          .collect();
-        for (const row of rows) await ctx.db.delete(row._id);
-      }
-      await ctx.db.delete(p._id);
+      await cascadeDeleteProject(ctx, p._id);
     }
     await ctx.db.delete(userId);
   },

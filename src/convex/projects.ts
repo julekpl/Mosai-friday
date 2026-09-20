@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireUser } from "./guards";
+import { cascadeDeleteProject } from "./dal";
 
 export const list = query({
   args: {},
@@ -227,32 +228,7 @@ export const remove = mutation({
     const userId = await requireUser(ctx);
     const project = await ctx.db.get(id);
     if (!project || project.ownerId !== userId) throw new Error("Not found");
-    // Cascade delete all child entities.
-    for (const table of [
-      "personas",
-      "contentPieces",
-      "connections",
-      "contacts",
-      "campaigns",
-      "posts",
-      "products",
-      "builds",
-      "insights",
-      "projectFiles",
-      "communications",
-    ] as const) {
-      const rows = await ctx.db
-        .query(table)
-        .withIndex("by_project", (q) => q.eq("projectId", id))
-        .collect();
-      for (const row of rows) await ctx.db.delete(row._id);
-    }
-    // personaMessages uses a compound index (projectId, personaId).
-    const personaMsgs = await ctx.db
-      .query("personaMessages")
-      .withIndex("by_project_persona", (q) => q.eq("projectId", id))
-      .collect();
-    for (const row of personaMsgs) await ctx.db.delete(row._id);
-    await ctx.db.delete(id);
+    // One shared cascade (dal.ts) — never maintain a second table list here.
+    await cascadeDeleteProject(ctx, id);
   },
 });

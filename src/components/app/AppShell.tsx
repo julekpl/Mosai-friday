@@ -43,17 +43,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 const modules = [
-  { to: "understand", label: "Understand", icon: Search, tier: null },
-  { to: "journeys", label: "Journeys", icon: Route, tier: null },
-  { to: "create", label: "Create", icon: PenTool, tier: null },
-  { to: "build", label: "Build", icon: Blocks, tier: "starter" },
-  { to: "customers", label: "Customers", icon: Users, tier: "starter" },
-  { to: "promote", label: "Promote", icon: Megaphone, tier: "starter" },
-  { to: "sell", label: "Sell", icon: ShoppingBag, tier: "growth" },
-  { to: "grow", label: "Grow", icon: TrendingUp, tier: "scale" },
+  { to: "understand", label: "Understand", icon: Search },
+  { to: "journeys", label: "Journeys", icon: Route },
+  { to: "create", label: "Create", icon: PenTool },
+  { to: "build", label: "Build", icon: Blocks },
+  { to: "customers", label: "Customers", icon: Users },
+  { to: "promote", label: "Promote", icon: Megaphone },
+  { to: "sell", label: "Sell", icon: ShoppingBag },
+  { to: "grow", label: "Grow", icon: TrendingUp },
 ] as const;
-
-const PLAN_ORDER = ["free", "starter", "growth", "scale"] as const;
 
 export function AppShell({
   children,
@@ -68,12 +66,12 @@ export function AppShell({
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const current = projects.find((p) => p._id === projectId) ?? projects[0];
-  // TESTING PHASE: default to "scale" so every module is reachable.
-  const plan = (user?.plan ?? "scale") as
-    | "free"
-    | "starter"
-    | "growth"
-    | "scale";
+  // Entitlements come from the server (billing.currentPlan → PLAN_MODULES).
+  // The client never hardcodes plan tiers, so the UI cannot show a module
+  // the server would refuse (blueprint: one capability registry).
+  const billing = useQuery(api.billing.currentPlan);
+  const plan = billing?.plan ?? "free";
+  const unlockedModules = billing?.modules;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -149,13 +147,10 @@ export function AppShell({
             modules
           </p>
           {modules.map((m) => {
-            const planRank = PLAN_ORDER.indexOf(
-              plan as (typeof PLAN_ORDER)[number],
-            );
-            const tierRank = m.tier
-              ? PLAN_ORDER.indexOf(m.tier as (typeof PLAN_ORDER)[number])
-              : 0;
-            const locked = planRank < tierRank;
+            // While the entitlement query is loading, render without locks.
+            const locked = unlockedModules
+              ? !unlockedModules.includes(m.to)
+              : false;
             const inner = (
               <>
                 <m.icon
