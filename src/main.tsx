@@ -35,6 +35,7 @@ const Sell = lazy(() => import("./pages/app/Sell.tsx"));
 const Grow = lazy(() => import("./pages/app/Grow.tsx"));
 const Billing = lazy(() => import("./pages/app/Billing.tsx"));
 const AppIndex = lazy(() => import("./pages/AppIndex.tsx"));
+const Storefront = lazy(() => import("./components/storefront/StorefrontApp.tsx"));
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -201,6 +202,14 @@ createRoot(document.getElementById("root")!).render(
                     <AppShellWithProject>
                       <ModuleRouter />
                     </AppShellWithProject>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/shop/:projectId/*"
+                element={
+                  <RequireAuth>
+                    <Storefront />
                   </RequireAuth>
                 }
               />

@@ -14,6 +14,7 @@ import {
   Plus,
   Rocket,
   Settings,
+  ShoppingBag,
   Trash2,
 } from "lucide-react";
 
@@ -716,6 +717,19 @@ function SettingsTab({ site }: { site: SiteDoc }) {
         <p className="flex items-center gap-2 font-mono text-caption text-muted-foreground">
           <Globe className="size-3.5" /> status: {site.status} · custom domains
           arrive with the publishing runtime (W3)
+        </p>
+        <a
+          href={`/shop/${site.projectId}`}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex w-fit items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-caption transition-colors ease-terminal hover:bg-accent"
+        >
+          <ShoppingBag className="size-3.5" /> Open storefront
+          <ExternalLink className="size-3" />
+        </a>
+        <p className="font-mono text-caption text-muted-foreground">
+          /shop serves published pages, the shop listing, collection pages and
+          product pages — with checkout handed off to connected providers.
         </p>
       </div>
       <div className="grid gap-2 rounded-md border bg-card p-4 shadow-card">
