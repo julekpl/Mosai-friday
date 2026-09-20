@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   Check,
   CheckCircle2,
+  CircleAlert,
   Loader2,
   Plus,
   Trash2,
@@ -144,12 +145,12 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
   const connections = useQuery(api.connections.list, { projectId }) ?? [];
   const remove = useMutation(api.insights.remove);
   const update = useMutation(api.insights.update);
-  const connect = useMutation(api.connections.connect);
+  const beginAuthorization = useMutation(api.connections.beginAuthorization);
   const disconnect = useMutation(api.connections.disconnect);
   const [open, setOpen] = useState(false);
 
-  const connectedProviders = new Set(
-    connections.filter((c) => c.status === "connected").map((c) => c.provider),
+  const connectionByProvider = new Map(
+    connections.map((connection) => [connection.provider, connection]),
   );
 
   return (
@@ -183,19 +184,23 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
       {/* Connection status strip */}
       <div className="mb-6 flex flex-wrap gap-2">
         {DATA_PROVIDERS.map((p) => {
-          const isConnected = connectedProviders.has(p.id);
+          const connection = connectionByProvider.get(p.id);
+          const status = connection?.status ?? "available";
+          const isConnected = status === "connected";
+          const isAuthorizing = status === "authorizing";
           return (
             <button
               key={p.id}
+              disabled={isAuthorizing}
               onClick={async () => {
                 try {
                   if (isConnected) {
                     await disconnect({ projectId, provider: p.id });
                     toast.success(`${p.label} disconnected`);
-                  } else {
-                    await connect({ projectId, provider: p.id });
-                    toast.success(`${p.label} connected`, {
-                      description: "OAuth is not wired yet — status recorded locally.",
+                  } else if (!isAuthorizing) {
+                    await beginAuthorization({ projectId, provider: p.id });
+                    toast.success(`${p.label} authorization started`, {
+                      description: "This provider still needs a verified OAuth flow before it can be used.",
                     });
                   }
                 } catch (e) {
@@ -205,20 +210,25 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
                 }
               }}
               className={cn(
-                "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-caption ease-terminal hover:bg-accent",
+                "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-caption ease-terminal hover:bg-accent disabled:cursor-wait disabled:opacity-70",
                 isConnected
                   ? "border-terminal-green/40 bg-terminal-green-soft text-terminal-green"
-                  : "text-muted-foreground",
+                  : isAuthorizing
+                    ? "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber"
+                    : "text-muted-foreground",
               )}
               aria-pressed={isConnected}
-              title={p.detail}
+              title={connection?.detail ?? p.detail}
             >
               {isConnected ? (
                 <CheckCircle2 className="size-3.5" />
+              ) : isAuthorizing ? (
+                <CircleAlert className="size-3.5" />
               ) : (
                 <Plus className="size-3.5" />
               )}
               {p.label}
+              {isAuthorizing && " · authorizing"}
             </button>
           );
         })}

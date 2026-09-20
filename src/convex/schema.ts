@@ -157,12 +157,19 @@ const schema = defineSchema(
     connections: defineTable({
       projectId: v.id("projects"),
       provider: v.string(), // ga4 | gsc | gads | meta | tiktok | posthog | matomo | gtm
+      // Lifecycle is explicit: only a verified provider flow may set
+      // "connected". Generic connection intents must never claim success.
       status: v.union(
+        v.literal("available"),
+        v.literal("authorizing"),
         v.literal("connected"),
+        v.literal("syncing"),
+        v.literal("needs_attention"),
         v.literal("disconnected"),
-        v.literal("error"),
+        v.literal("unsupported"),
       ),
       accountLabel: v.optional(v.string()),
+      providerAccountId: v.optional(v.string()),
       lastSyncedAt: v.optional(v.number()),
       detail: v.optional(v.string()),
     })
