@@ -75,6 +75,9 @@ export default function Billing() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const currentPlan = billing?.plan ?? "free";
+  // Self-serve switching is server-gated and off by default (see billing.ts):
+  // without an explicit flag, the cards are informational only.
+  const selfServe = billing?.selfServePlanChanges ?? false;
 
   const doChange = async (plan: string) => {
     setBusy(plan);
@@ -140,6 +143,13 @@ export default function Billing() {
         )}
       </header>
 
+      {billing && !selfServe && (
+        <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 font-mono text-caption text-muted-foreground">
+          Plan changes are managed server-side. Online checkout is coming —
+          your plan is not changed from this screen.
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PLANS.map((p) => {
           const isCurrent = p.id === currentPlan;
@@ -183,11 +193,11 @@ export default function Billing() {
                   className="mt-4 w-full"
                   size="sm"
                   variant={isCurrent ? "outline" : "default"}
-                  disabled={isCurrent || busy === p.id}
+                  disabled={isCurrent || busy === p.id || !selfServe}
                   onClick={() => doChange(p.id)}
                 >
                   {busy === p.id && <Loader2 className="size-4 animate-spin" />}
-                  {isCurrent ? "Active" : "Switch plan"}
+                  {isCurrent ? "Active" : selfServe ? "Switch plan" : "Managed"}
                 </Button>
               </CardContent>
             </Card>

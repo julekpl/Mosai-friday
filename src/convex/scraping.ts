@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 
 import { normalizeWebsiteUrl } from "../lib/url";
+import { requireActionUser } from "./guards";
 
 /* ── Open-source scraping (cheerio, server-side) ─────────────────────────
  *
@@ -178,7 +179,8 @@ export const scanWebsite = action({
     url: v.string(), // raw user input — any variation
     ignoreRobots: v.optional(v.boolean()),
   },
-  handler: async (_ctx, { url }): Promise<ScanResult> => {
+  handler: async (ctx, { url }): Promise<ScanResult> => {
+    await requireActionUser(ctx);
     const normalized = normalizeWebsiteUrl(url);
     if (!normalized) throw new Error("Could not interpret that website URL");
 
@@ -238,7 +240,8 @@ type GmbLookup = NonNullable<ScanResult["gmb"]> & { source: string };
  */
 export const lookupGoogleBusiness = action({
   args: { name: v.string(), placeId: v.optional(v.string()) },
-  handler: async (_ctx, { name, placeId }): Promise<GmbLookup> => {
+  handler: async (ctx, { name, placeId }): Promise<GmbLookup> => {
+    await requireActionUser(ctx);
     const key = process.env.SERPAPI_KEY;
     if (!key)
       throw new Error(

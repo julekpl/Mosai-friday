@@ -13,6 +13,12 @@ export type Plan = (typeof PLANS)[number];
  *  writes — rendered modules the server refused.) */
 export const DEFAULT_PLAN: Plan = "free";
 
+/** Self-serve plan switching is a local demo stand-in for Stripe Checkout.
+ *  On a public deployment it would let any signed-in user grant themselves the
+ *  top tier for free, so it is OFF unless explicitly enabled. Set
+ *  PLAN_SELF_SERVE=true through the Keys / API keys UI to demo it locally. */
+export const SELF_SERVE_PLAN_CHANGES = process.env.PLAN_SELF_SERVE === "true";
+
 /** What each plan unlocks. Single source of truth for entitlements —
  *  module UIs and mutations must call hasModule, never hardcode plan names. */
 export const PLAN_MODULES: Record<Plan, string[]> = {
@@ -51,6 +57,7 @@ export const currentPlan = query({
       status: user?.planStatus ?? "active",
       modules: PLAN_MODULES[plan] ?? PLAN_MODULES.free,
       stripeCustomerId: user?.stripeCustomerId,
+      selfServePlanChanges: SELF_SERVE_PLAN_CHANGES,
     };
   },
 });
@@ -88,12 +95,20 @@ export const checkModule = internalQuery({
 });
 
 /** Local plan mirror change. When STRIPE_SECRET_KEY is configured this should
- *  be replaced by a Stripe Checkout + webhook path; until then plans switch
- *  locally so the whole flow is demonstrable end to end. */
+ *  be replaced by a Stripe Checkout + webhook path.
+ *
+ *  Locked down by default: a signed-in user must NOT be able to raise their
+ *  own plan (that is the abuse the review flagged). It only works when
+ *  SELF_SERVE_PLAN_CHANGES is explicitly enabled for a local demo. */
 export const changePlan = mutation({
   args: { plan: v.union(...PLANS.map((p) => v.literal(p))) },
   handler: async (ctx, { plan }) => {
     const { userId } = await userCtx(ctx);
+    if (!SELF_SERVE_PLAN_CHANGES) {
+      throw new Error(
+        "Plan changes are managed server-side. Use checkout to upgrade.",
+      );
+    }
     await ctx.db.patch(userId, { plan, planStatus: "active" });
   },
 });

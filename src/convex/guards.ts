@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { PLAN_MODULES, DEFAULT_PLAN, type Plan } from "./billing";
 
@@ -13,6 +13,16 @@ export async function requireUser(ctx: QueryCtx | MutationCtx) {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Not signed in");
   return userId;
+}
+
+/** Sign-in guard for Convex actions. Actions have no `ctx.db`, so this only
+ *  establishes identity — it is the gate every paid AI / scraping action runs
+ *  BEFORE spending a provider call. Pair with `internal.billing.checkModule`
+ *  via `ctx.runQuery` when the action also needs an entitlement check. */
+export async function requireActionUser(ctx: ActionCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Not signed in");
+  return userId as Id<"users">;
 }
 
 /** Loads any project-scoped row and verifies the owning project belongs to

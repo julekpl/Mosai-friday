@@ -7,6 +7,7 @@ import {
   projectSnapshotValidator,
   type ProjectSnapshot,
 } from "./ai";
+import { requireActionUser } from "./guards";
 
 /* ── shared helpers ──────────────────────────────────────────────────── */
 
@@ -101,7 +102,8 @@ export const generateBuildPlan = action({
       }),
     ),
   },
-  handler: async (_ctx, { project, idea, kind, name, personas, journeys }) => {
+  handler: async (ctx, { project, idea, kind, name, personas, journeys }) => {
+    await requireActionUser(ctx);
     const personaLines = personas
       .map(
         (p) =>
@@ -257,7 +259,8 @@ export const generatePageDraft = action({
     ),
     userInstructions: v.optional(v.string()),
   },
-  handler: async (_ctx, { project, build, page, persona, userInstructions }) => {
+  handler: async (ctx, { project, build, page, persona, userInstructions }) => {
+    await requireActionUser(ctx);
     const personaDesc = persona
       ? `Write for persona: ${persona.name}${persona.role ? ` (${persona.role})` : ""}${
           persona.pains?.length ? ` — pains: ${persona.pains.join("; ")}` : ""

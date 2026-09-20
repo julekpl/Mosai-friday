@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { vly } from "../lib/vly-integrations";
 import type { Id } from "./_generated/dataModel";
+import { requireActionUser } from "./guards";
 
 /* ── M1 Sell AI actions — M1-BLUEPRINT §8/§9, SELL-ARCHITECTURE §6 ────────
  *
@@ -75,7 +76,7 @@ export const generateDescription = action({
     }),
   },
   handler: async (ctx, args) => {
-    void ctx;
+    await requireActionUser(ctx);
     void productContextOf;
 
     if (args.mode === "fill_missing") {
@@ -124,7 +125,7 @@ export const generateAltText = action({
     productType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    void ctx;
+    await requireActionUser(ctx);
     if (!args.imageUrl) {
       throw new Error("Alt text requires an existing product image.");
     }
@@ -150,7 +151,7 @@ export const generateSeo = action({
     }),
   },
   handler: async (ctx, args) => {
-    void ctx;
+    await requireActionUser(ctx);
     if (args.currentSeoTitle?.trim() && args.currentSeoDescription?.trim()) {
       throw new Error("SEO fields already filled — nothing to generate.");
     }

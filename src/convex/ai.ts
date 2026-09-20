@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { vly } from "../lib/vly-integrations";
 import type { Id } from "./_generated/dataModel";
+import { requireActionUser } from "./guards";
 
 /* ── Shared helpers ───────────────────────────────────────────────────── */
 
@@ -175,7 +176,8 @@ export const detectContentGaps = action({
       }),
     ),
   },
-  handler: async (_ctx, { project, personas, journeys }) => {
+  handler: async (ctx, { project, personas, journeys }) => {
+    await requireActionUser(ctx);
     const text = await complete(
       `You are a content strategist auditing a business's content coverage. Identify CONTENT GAPS: questions, topics or moments in the customer journey where the business has no good content answering the persona's real need. Ground every gap in the persona's pains/goals and the journey stage (weakest stages = biggest gaps). Return ONLY valid JSON (no markdown) shaped as:
 {"gaps": [{"personaId": string|null, "journeyMapId": string|null, "journeyStage": string|null, "title": string, "description": string, "severity": "low"|"medium"|"high"}]}
@@ -250,7 +252,8 @@ export const suggestTopics = action({
     }),
     researchDigest: v.optional(v.array(v.string())), // condensed research hits
   },
-  handler: async (_ctx, { project, gap, researchDigest }) => {
+  handler: async (ctx, { project, gap, researchDigest }) => {
+    await requireActionUser(ctx);
     const text = await complete(
       `You are a content strategist. For the given content gap, propose 4 concrete, distinct topics to fill it. For each: title (audience-facing, specific), angle (the hook that makes it fresh), contentType — one of landing_page|script|social_post|social_series|blog|email|video_script — and 2-4 keywords. Return ONLY valid JSON shaped as:
 {"topics": [{"title": string, "angle": string, "contentType": string, "keywords": string[]}]}`,
@@ -322,7 +325,8 @@ export const generateContent = action({
     researchDigest: v.optional(v.array(v.string())),
     userInstructions: v.optional(v.string()),
   },
-  handler: async (_ctx, { project, topic, persona, journeyStage, researchDigest, userInstructions }) => {
+  handler: async (ctx, { project, topic, persona, journeyStage, researchDigest, userInstructions }) => {
+    await requireActionUser(ctx);
     const TYPE_GUIDE: Record<string, string> = {
       landing_page:
         "a high-converting landing page: hero headline + subhead, 3 benefit sections each with heading + 2-3 sentences, a social-proof section, and a clear CTA section",
@@ -379,7 +383,8 @@ export const editSelection = action({
     personaName: v.optional(v.string()),
     instruction: v.optional(v.string()),
   },
-  handler: async (_ctx, { op, selectionHtml, surroundingContext, project, personaName, instruction }) => {
+  handler: async (ctx, { op, selectionHtml, surroundingContext, project, personaName, instruction }) => {
+    await requireActionUser(ctx);
     const text = await complete(
       op === "expand"
         ? `You are an expert content editor. The user selected part of a document. Expand the selection: keep its meaning, language and voice, add depth/examples/nuance so it is roughly 2-3x longer. Return ONLY the replacement HTML using only <p>, <ul>, <ol>, <li>, <strong>, <em> tags. No preamble.${personaName ? ` Audience: ${personaName}.` : ""}`
@@ -407,7 +412,8 @@ export const editSelection = action({
  */
 export const generatePersona = action({
   args: { project: projectSnapshotValidator, hint: v.optional(v.string()) },
-  handler: async (_ctx, { project, hint }) => {
+  handler: async (ctx, { project, hint }) => {
+    await requireActionUser(ctx);
     const text = await complete(
       `You are a senior marketing strategist. Given the business context below, invent ONE realistic, specific buyer persona. Be concrete (names, habits, real-world details) and ground every trait in the business context. ${PERSONA_JSON_SHAPE}`,
       [
@@ -452,7 +458,8 @@ export const personaChat = action({
     ),
     message: v.string(),
   },
-  handler: async (_ctx, { mode, project, persona, history, message }) => {
+  handler: async (ctx, { mode, project, persona, history, message }) => {
+    await requireActionUser(ctx);
     const personaDesc = [
       `Persona name: ${persona.name}`,
       persona.role ? `Role/context: ${persona.role}` : "",
@@ -502,7 +509,8 @@ export const generateJourneyMap = action({
     scenario: v.optional(v.string()),
     stageCount: v.optional(v.number()),
   },
-  handler: async (_ctx, { project, persona, scenario, stageCount }) => {
+  handler: async (ctx, { project, persona, scenario, stageCount }) => {
+    await requireActionUser(ctx);
     const personaDesc = persona
       ? [
           `Persona name: ${persona.name}`,
@@ -595,7 +603,8 @@ export const generateJourney = action({
       evidence: v.optional(v.string()),
     }),
   },
-  handler: async (_ctx, { project, persona }) => {
+  handler: async (ctx, { project, persona }) => {
+    await requireActionUser(ctx);
     const personaDesc = [
       `Persona name: ${persona.name}`,
       persona.role ? `Role/context: ${persona.role}` : "",
@@ -657,7 +666,8 @@ export const generateComms = action({
     topic: v.string(),
     influence: v.optional(v.array(v.string())),
   },
-  handler: async (_ctx, { project, personaLines, topic, influence }) => {
+  handler: async (ctx, { project, personaLines, topic, influence }) => {
+    await requireActionUser(ctx);
     const text = await complete(
       `You are a marketing communications director. Define ONE core marketing communication for the given topic: a crisp message (1-2 sentences a real customer would recognize themselves in), the strategic rationale, the best 2-4 channels, and the target audience. Return ONLY valid JSON (no markdown) shaped as:
 {"name": string, "message": string, "rationale": string, "channels": string[], "audience": string}`,
