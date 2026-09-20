@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { PageDocument } from "@/lib/cms/blocks";
 import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 /**
  * Renders a PageDocument against the W1 block registry. This is the same
@@ -65,8 +66,8 @@ function BlockView({
       return (
         <section
           className="prose prose-sm max-w-none"
-          // sanitized structured content, not editing truth
-          dangerouslySetInnerHTML={{ __html: String(props.html ?? "") }}
+          // sanitized via the shared allow-list before injection (T0.7)
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(props.html) }}
         />
       );
     case "image":

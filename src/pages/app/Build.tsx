@@ -43,6 +43,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -675,7 +676,7 @@ function PagesTab({ build }: { build: BuildRow }) {
           </DialogHeader>
           <div
             className="prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: preview ?? "" }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(preview) }}
           />
         </DialogContent>
       </Dialog>
