@@ -3,6 +3,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { sanitizeCmsHtml } from "@/lib/cms/safety";
 import {
   Blocks,
   CheckCircle2,
@@ -12,7 +13,6 @@ import {
   Globe,
   Loader2,
   Plus,
-  Rocket,
   Sparkles,
   Target,
   Trash2,
@@ -27,10 +27,7 @@ import {
 } from "@/components/app/module-kit";
 import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { SitePanel } from "@/components/cms/SitePanel";
-import {
-  BuildIdeaScreen,
-  BuildWorkspace,
-} from "@/components/build/BuildWorkspace";
+import { BuildWorkspace } from "@/components/build/BuildWorkspace";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -47,7 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-const KINDS = ["website", "app"] as const;
+const KINDS = ["website"] as const;
 
 type BuildRow = {
   _id: Id<"builds">;
@@ -223,10 +220,17 @@ function NewBuildForm({
         >
           {KINDS.map((k) => (
             <option key={k} value={k}>
-              {k}
+              Website
             </option>
           ))}
+          <option value="app" disabled>
+            App builder (preview, not available yet)
+          </option>
         </select>
+        <p className="font-mono text-caption text-muted-foreground">
+          Website planning and CMS generation are available. App code, runtime
+          preview and deployment are still in preview.
+        </p>
       </div>
       <div className="grid gap-2">
         <Label htmlFor="nb-idea">The idea</Label>
@@ -234,7 +238,7 @@ function NewBuildForm({
           id="nb-idea"
           value={idea}
           onChange={(e) => setIdea(e.target.value)}
-          placeholder="What is this website/app for? What should it achieve for the business and the customer?"
+          placeholder="What is this website for? What should it achieve for the business and the customer?"
           rows={4}
         />
         <p className="font-mono text-caption text-muted-foreground">
@@ -675,7 +679,7 @@ function PagesTab({ build }: { build: BuildRow }) {
           </DialogHeader>
           <div
             className="prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: preview ?? "" }}
+            dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(preview) }}
           />
         </DialogContent>
       </Dialog>
@@ -688,13 +692,40 @@ function PagesTab({ build }: { build: BuildRow }) {
 export default function Build({ projectId }: { projectId: Id<"projects"> }) {
   const builds = useQuery(api.builds.list, { projectId }) ?? [];
   const remove = useMutation(api.builds.remove);
-  const update = useMutation(api.builds.update);
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"builds"> | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuildRow | null>(null);
   const [managing, setManaging] = useState(false);
 
   const selected = builds.find((b) => b._id === selectedId) ?? null;
+
+  if (selected?.kind === "app") {
+    return (
+      <div>
+        <ModuleHeader
+          icon={Blocks}
+          title={`${selected.name} · app preview`}
+          subtitle="Your app plan is preserved, but code generation, runtime preview and deployment are not available yet"
+        >
+          <Badge variant="outline" className="font-mono text-caption text-terminal-amber">
+            preview
+          </Badge>
+          <Button variant="outline" size="sm" onClick={() => setSelectedId(null)}>
+            ← Back to builds
+          </Button>
+        </ModuleHeader>
+        <div className="rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-5">
+          <h2 className="font-mono text-small font-medium">What is available</h2>
+          <p className="mt-2 max-w-2xl font-mono text-caption text-muted-foreground">
+            MOSAI has saved this build idea and its strategy. A real app builder
+            still needs an isolated code workspace, live runtime, backend setup,
+            Git export, deployment receipts and rollback. This preview does not
+            generate a deployable application.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (selected && managing) {
     // Classic management surface: strategy blueprint + full CMS site panel.
@@ -758,7 +789,7 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
       <ModuleHeader
         icon={Blocks}
         title="Build"
-        subtitle="Strategy-first websites & apps — planned from your idea, personas and journeys before a single line is generated"
+        subtitle="Strategy-first websites grounded in your idea, personas and journeys. App building is shown separately as a preview."
       >
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

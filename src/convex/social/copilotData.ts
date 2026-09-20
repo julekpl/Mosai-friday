@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { projectCtx } from "../dal";
 
 /**
  * Internal data helpers for the social copilot. Kept in a separate file
@@ -7,13 +8,29 @@ import { internalMutation, internalQuery } from "../_generated/server";
  */
 
 export const getPersona = internalQuery({
-  args: { personaId: v.id("personas") },
-  handler: async (ctx, { personaId }) => await ctx.db.get(personaId),
+  args: { projectId: v.id("projects"), personaId: v.id("personas") },
+  handler: async (ctx, { projectId, personaId }) => {
+    await projectCtx(ctx, projectId);
+    const persona = await ctx.db.get(personaId);
+    return persona?.projectId === projectId ? persona : null;
+  },
 });
 
 export const getCampaign = internalQuery({
-  args: { campaignId: v.id("campaigns") },
-  handler: async (ctx, { campaignId }) => await ctx.db.get(campaignId),
+  args: { projectId: v.id("projects"), campaignId: v.id("campaigns") },
+  handler: async (ctx, { projectId, campaignId }) => {
+    await projectCtx(ctx, projectId);
+    const campaign = await ctx.db.get(campaignId);
+    return campaign?.projectId === projectId ? campaign : null;
+  },
+});
+
+export const assertProjectAccess = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await projectCtx(ctx, projectId);
+    return true;
+  },
 });
 
 /** Insert an AI-drafted post variant as an honest, reviewable DRAFT. */
@@ -27,6 +44,7 @@ export const insertCopilotDraft = internalMutation({
     createdBy: v.id("users"),
   },
   handler: async (ctx, args) => {
+    await projectCtx(ctx, args.projectId);
     return await ctx.db.insert("posts", {
       projectId: args.projectId,
       contentId: args.contentId,

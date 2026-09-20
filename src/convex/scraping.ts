@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 
 import { normalizeWebsiteUrl } from "../lib/url";
+import { fetchTextSafely } from "./lib/safeFetch";
 
 /* ── Open-source scraping (cheerio, server-side) ─────────────────────────
  *
@@ -23,19 +24,11 @@ const UA =
   "Mozilla/5.0 (compatible; MosaiBot/1.0; +https://mosai.app/bot)";
 
 async function fetchText(url: string, timeoutMs = 12_000): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { "user-agent": UA, accept: "*/*" },
-      signal: controller.signal,
-      redirect: "follow",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
-  } finally {
-    clearTimeout(timer);
-  }
+  return await fetchTextSafely(url, {
+    timeoutMs,
+    maxBytes: 2_000_000,
+    headers: { "user-agent": UA, accept: "text/html,text/plain,application/xml,text/xml" },
+  });
 }
 
 function extractFromHtml(html: string) {

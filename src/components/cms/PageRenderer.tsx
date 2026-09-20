@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PageDocument } from "@/lib/cms/blocks";
 import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { safeLinkHref, sanitizeCmsHtml } from "@/lib/cms/safety";
 
 /**
  * Renders a PageDocument against the W1 block registry. This is the same
@@ -38,6 +38,7 @@ function BlockView({
   switch (type) {
     case "hero": {
       const align = props.align === "center" ? "text-center mx-auto" : "";
+      const ctaHref = safeLinkHref(props.ctaHref);
       return (
         <section className={`grid gap-3 py-6 ${align}`}>
           {props.eyebrow ? (
@@ -53,10 +54,13 @@ function BlockView({
               {String(props.body)}
             </p>
           ) : null}
-          {props.ctaLabel && props.ctaHref ? (
-            <span className="mt-1 inline-flex w-fit items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+          {props.ctaLabel && ctaHref ? (
+            <a
+              href={ctaHref}
+              className="mt-1 inline-flex w-fit items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
               {String(props.ctaLabel)}
-            </span>
+            </a>
           ) : null}
         </section>
       );
@@ -65,8 +69,7 @@ function BlockView({
       return (
         <section
           className="prose prose-sm max-w-none"
-          // sanitized structured content, not editing truth
-          dangerouslySetInnerHTML={{ __html: String(props.html ?? "") }}
+          dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(props.html) }}
         />
       );
     case "image":
@@ -101,18 +104,25 @@ function BlockView({
           ) : null}
         </blockquote>
       );
-    case "cta":
+    case "cta": {
+      const buttonHref = safeLinkHref(props.buttonHref);
       return (
         <section className="rounded-md border bg-card p-6 shadow-card">
           <h2 className="text-lg font-semibold">{String(props.heading ?? "")}</h2>
           {props.body ? (
             <p className="mt-1 text-sm text-muted-foreground">{String(props.body)}</p>
           ) : null}
-          <span className="mt-3 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-            {String(props.buttonLabel ?? "")}
-          </span>
+          {buttonHref ? (
+            <a
+              href={buttonHref}
+              className="mt-3 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              {String(props.buttonLabel ?? "")}
+            </a>
+          ) : null}
         </section>
       );
+    }
     case "featureGrid": {
       const items = Array.isArray(props.items) ? props.items : [];
       return (

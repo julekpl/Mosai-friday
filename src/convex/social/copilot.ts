@@ -5,8 +5,8 @@ import { action } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { vly } from "../../lib/vly-integrations";
 import { isSocialPlatform, SOCIAL_PLATFORM_META } from "./platforms";
+import { completeText } from "../lib/modelGateway";
 
 /**
  * Social copilot — AI as assistant, never publisher (same house rule as the
@@ -20,8 +20,7 @@ async function complete(
   user: string,
   opts: { temperature?: number; maxTokens?: number } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
-    model: "gpt-4o-mini",
+  return await completeText({
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
@@ -29,10 +28,6 @@ async function complete(
     temperature: opts.temperature ?? 0.7,
     maxTokens: opts.maxTokens ?? 1200,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
 }
 
 /* ── 1. Platform variants: one approved source → drafts per platform ──── */
@@ -47,7 +42,11 @@ export const draftVariants = action({
     platforms: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    await ctx.runQuery(internal.social.copilotData.assertProjectAccess, {
+      projectId: args.projectId,
+    });
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",
@@ -59,12 +58,14 @@ export const draftVariants = action({
 
     // Ground the AI in persona + campaign context (best effort).
     const persona = args.personaId
-      ? ((await ctx.runQuery(internal.social.copilotData.getPersona, {
+        ? ((await ctx.runQuery(internal.social.copilotData.getPersona, {
+          projectId: args.projectId,
           personaId: args.personaId,
         })) as { name: string; role?: string; goals?: string[]; pains?: string[] } | null)
       : null;
     const campaign = args.campaignId
-      ? ((await ctx.runQuery(internal.social.copilotData.getCampaign, {
+        ? ((await ctx.runQuery(internal.social.copilotData.getCampaign, {
+          projectId: args.projectId,
           campaignId: args.campaignId,
         })) as { name: string; channel: string } | null)
       : null;
@@ -131,7 +132,11 @@ export const suggestSchedule = action({
     body: v.string(),
   },
   handler: async (ctx, { projectId, platform, body }) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    await ctx.runQuery(internal.social.copilotData.assertProjectAccess, {
+      projectId,
+    });
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",
