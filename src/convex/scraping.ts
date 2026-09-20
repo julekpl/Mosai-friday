@@ -6,6 +6,7 @@ import { action } from "./_generated/server";
 
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
+import { safeFetch } from "./lib/safeFetch";
 
 /* ── Open-source scraping (cheerio, server-side) ─────────────────────────
  *
@@ -24,19 +25,14 @@ const UA =
   "Mozilla/5.0 (compatible; MosaiBot/1.0; +https://mosai.app/bot)";
 
 async function fetchText(url: string, timeoutMs = 12_000): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { "user-agent": UA, accept: "*/*" },
-      signal: controller.signal,
-      redirect: "follow",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
-  } finally {
-    clearTimeout(timer);
-  }
+  // SSRF-guarded: HTTPS only, public hosts only, redirects re-validated,
+  // bounded size and time. See lib/safeFetch.ts.
+  const res = await safeFetch(url, {
+    timeoutMs,
+    headers: { "user-agent": UA },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text;
 }
 
 function extractFromHtml(html: string) {
