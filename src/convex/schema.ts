@@ -472,6 +472,53 @@ const schema = defineSchema(
       .index("by_build", ["buildId"])
       .index("by_project", ["projectId"]),
 
+    // ── Build workspace (Lovable/Caffeine-style chat builder) ────────────
+    // Chat history per build. Plan-mode messages shape strategy; build-mode
+    // messages produce PageDocument edits. AI never publishes (§174.12).
+    buildMessages: defineTable({
+      buildId: v.id("builds"),
+      projectId: v.id("projects"),
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      content: v.string(),
+      // plan | build — which editor mode produced/consumed this message
+      mode: v.optional(v.union(v.literal("plan"), v.literal("build"))),
+      // optional structured suggestions attached to an assistant reply
+      suggestions: v.optional(
+        v.array(
+          v.object({
+            name: v.string(),
+            goal: v.optional(v.string()),
+          }),
+        ),
+      ),
+      // pages touched by a build-mode edit (labels only, for the chat chip)
+      changedPaths: v.optional(v.array(v.string())),
+      createdAt: v.number(),
+    }).index("by_build", ["buildId"]),
+
+    // Version history (Lovable "versions"): immutable snapshots of every
+    // page document at a point in time. Publish marks the published version;
+    // restore copies a snapshot back into fresh draft revisions.
+    buildVersions: defineTable({
+      buildId: v.id("builds"),
+      projectId: v.id("projects"),
+      version: v.number(), // monotonically increasing per build
+      label: v.string(), // short human label (prompt snippet)
+      summary: v.optional(v.string()),
+      pages: v.array(
+        v.object({
+          pageId: v.id("cmsPages"),
+          title: v.string(),
+          slug: v.string(),
+          fullPath: v.string(),
+          // the page HTML draft at snapshot time — restored verbatim
+          draft: v.string(),
+        }),
+      ),
+      isPublished: v.optional(v.boolean()),
+      createdAt: v.number(),
+    }).index("by_build", ["buildId"]),
+
     // Files attached to a project (pdfs, figma exports, briefs…) that enrich
     // every downstream module. Bytes live in Convex storage; this is metadata.
     projectFiles: defineTable({

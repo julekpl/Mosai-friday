@@ -7,10 +7,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  ExternalLink,
   FolderPlus,
   Image as ImageIcon,
   Loader2,
   Plus,
+  RefreshCw,
   ShoppingBag,
   Sparkles,
   Trash2,
@@ -999,6 +1001,135 @@ function FeedTab({ projectId }: { projectId: Id<"projects"> }) {
   );
 }
 
+/* ── Storefront tab: W5 live preview of the public shop ────────────────── */
+
+function StorefrontTab({ projectId }: { projectId: Id<"projects"> }) {
+  const shopProducts = useQuery(api.storefront.listShopProducts, {
+    projectId,
+    search: "",
+    availability: "all",
+    sort: "featured",
+  });
+  const shopCollections = useQuery(api.storefront.listShopCollections, { projectId });
+  const site = useQuery(api.cms.getSite, { projectId });
+  const sync = useAction(api.shopifySync.syncCatalog);
+  const [syncing, setSyncing] = useState(false);
+
+  const productCount = shopProducts?.length ?? 0;
+  const inStock = shopProducts?.filter((p) => p.available).length ?? 0;
+  const externalCount =
+    shopProducts?.filter((p) => p.source === "external").length ?? 0;
+  const hasKeys =
+    typeof import.meta.env?.VITE_SHOPIFY_STORE_DOMAIN === "string" &&
+    (import.meta.env as Record<string, string | undefined>).VITE_SHOPIFY_STORE_DOMAIN !== "";
+
+  const runSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await sync({ projectId });
+      toast.success(
+        `Synced ${res.products} products, ${res.collections} collections`,
+        { description: res.skipped ? `Skipped: ${res.skipped}` : undefined },
+      );
+    } catch (e) {
+      toast.error("Sync failed", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-4">
+      {/* health strip */}
+      <div className="grid gap-3 sm:grid-cols-4">
+        {[
+          { label: "products", value: productCount },
+          { label: "in stock", value: inStock },
+          { label: "collections", value: shopCollections?.length ?? 0 },
+          { label: "from shopify", value: externalCount },
+        ].map((s) => (
+          <div key={s.label} className="rounded-md border bg-card p-3 shadow-card">
+            <p className="font-mono text-h2 font-semibold">{s.value}</p>
+            <p className="font-mono text-caption text-muted-foreground">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* actions */}
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-card p-4 shadow-card">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-small font-medium">Storefront</p>
+          <p className="font-mono text-caption text-muted-foreground">
+            {site
+              ? "Your published site serves the shop — browse, product pages and checkout handoff."
+              : "Create a site in Build first — the storefront renders it."}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => void runSync()}
+          disabled={syncing}
+        >
+          {syncing ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3.5" />
+          )}
+          Sync Shopify
+        </Button>
+        {site && (
+          <Button asChild>
+            <a href={`/shop/${projectId}`} target="_blank" rel="noreferrer">
+              <ExternalLink className="size-3.5" /> Open storefront
+            </a>
+          </Button>
+        )}
+      </div>
+
+      {/* capability matrix — honest, per CMS-CONNECTOR-CONTRACT.md */}
+      <div className="rounded-md border bg-card p-4 shadow-card">
+        <p className="font-mono text-caption text-muted-foreground">
+          connector capability — shopify (read mode)
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[
+            { label: "browse", ok: true },
+            { label: "product pages", ok: true },
+            { label: "checkout via shopify", ok: true },
+            { label: "native orders", ok: false },
+            { label: "refunds", ok: false },
+          ].map((c) => (
+            <Badge
+              key={c.label}
+              variant="outline"
+              className={cn(
+                "font-mono text-caption",
+                c.ok ? "text-terminal-green" : "text-muted-foreground",
+              )}
+            >
+              {c.ok ? "✓" : "✗"} {c.label}
+            </Badge>
+          ))}
+        </div>
+        {!hasKeys && (
+          <p className="mt-3 rounded-md border border-terminal-amber/40 bg-terminal-amber-soft px-3 py-2 font-mono text-caption text-terminal-amber">
+            Shopify not connected — add SHOPIFY_STORE_DOMAIN and
+            SHOPIFY_STOREFRONT_ACCESS_TOKEN in the Keys tab, then sync.
+          </p>
+        )}
+        {productCount === 0 && (
+          <p className="mt-3 font-mono text-caption text-muted-foreground">
+            No products visible yet — sync Shopify or activate products on the
+            Products tab.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Page ──────────────────────────────────────────────────────────────── */
 
 export default function Sell({ projectId }: { projectId: Id<"projects"> }) {
@@ -1021,6 +1152,9 @@ export default function Sell({ projectId }: { projectId: Id<"projects"> }) {
           <TabsTrigger value="collections" className="cursor-pointer">
             Collections
           </TabsTrigger>
+          <TabsTrigger value="storefront" className="cursor-pointer">
+            Storefront
+          </TabsTrigger>
           <TabsTrigger value="feed" className="cursor-pointer">
             Feed
           </TabsTrigger>
@@ -1030,6 +1164,9 @@ export default function Sell({ projectId }: { projectId: Id<"projects"> }) {
         </TabsContent>
         <TabsContent value="collections" className="mt-4">
           <CollectionsTab projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="storefront" className="mt-4">
+          <StorefrontTab projectId={projectId} />
         </TabsContent>
         <TabsContent value="feed" className="mt-4">
           <FeedTab projectId={projectId} />

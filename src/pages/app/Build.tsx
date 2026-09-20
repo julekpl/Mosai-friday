@@ -27,6 +27,10 @@ import {
 } from "@/components/app/module-kit";
 import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { SitePanel } from "@/components/cms/SitePanel";
+import {
+  BuildIdeaScreen,
+  BuildWorkspace,
+} from "@/components/build/BuildWorkspace";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -688,68 +692,24 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"builds"> | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuildRow | null>(null);
+  const [managing, setManaging] = useState(false);
 
   const selected = builds.find((b) => b._id === selectedId) ?? null;
 
-  if (selected) {
+  if (selected && managing) {
+    // Classic management surface: strategy blueprint + full CMS site panel.
     return (
       <div>
         <ModuleHeader
-          icon={Blocks}
-          title={selected.name}
-          subtitle={`${selected.kind} · strategy-first build plan`}
+          icon={Globe}
+          title={`${selected.name} · manage`}
+          subtitle="Blueprint, personas-grounded page plans and the full CMS surface"
         >
           <StatusBadge status={selected.status} />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedId(null)}
-          >
-            ← All builds
+          <Button variant="outline" size="sm" onClick={() => setManaging(false)}>
+            ← Back to workspace
           </Button>
-          {selected.status === "draft" && (
-            <Button
-              size="sm"
-              onClick={async () => {
-                try {
-                  await update({
-                    id: selected._id,
-                    status: "generated",
-                    seoReady: true,
-                    wcagReady: true,
-                  });
-                  toast.success("Build generated", {
-                    description: "SEO + WCAG 2.2 AA checks passed.",
-                  });
-                } catch (e) {
-                  toast.error("Generate failed", {
-                    description: e instanceof Error ? e.message : "Try again.",
-                  });
-                }
-              }}
-            >
-              <Sparkles className="size-3.5" /> Generate
-            </Button>
-          )}
-          {selected.status === "generated" && (
-            <Button
-              size="sm"
-              onClick={async () => {
-                try {
-                  await update({ id: selected._id, status: "published" });
-                  toast.success("Build published");
-                } catch (e) {
-                  toast.error("Publish failed", {
-                    description: e instanceof Error ? e.message : "Try again.",
-                  });
-                }
-              }}
-            >
-              <Rocket className="size-3.5" /> Publish
-            </Button>
-          )}
         </ModuleHeader>
-
         <Tabs defaultValue="plan" className="gap-4">
           <TabsList>
             <TabsTrigger value="plan" className="font-mono text-caption">
@@ -773,6 +733,23 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
           </TabsContent>
         </Tabs>
       </div>
+    );
+  }
+
+  if (selected) {
+    // Lovable/Caffeine-style workspace: chat left, live preview right.
+    return (
+      <BuildWorkspace
+        projectId={projectId}
+        build={{
+          _id: selected._id,
+          name: selected.name,
+          status: selected.status,
+          idea: selected.idea,
+        }}
+        onBack={() => setSelectedId(null)}
+        onManage={() => setManaging(true)}
+      />
     );
   }
 
