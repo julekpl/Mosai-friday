@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { vly } from "../lib/vly-integrations";
+import { completeText } from "./lib/modelGateway";
 import {
   projectSnapshotValidator,
   type ProjectSnapshot,
@@ -15,8 +15,7 @@ async function complete(
   user: string,
   opts: { temperature?: number; maxTokens?: number } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
-    model: "gpt-4o-mini",
+  return await completeText({
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
@@ -24,10 +23,6 @@ async function complete(
     temperature: opts.temperature ?? 0.7,
     maxTokens: opts.maxTokens ?? 1200,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
 }
 
 function parseJson<T>(text: string): T {

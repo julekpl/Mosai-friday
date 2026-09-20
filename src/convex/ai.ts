@@ -2,8 +2,8 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { vly } from "../lib/vly-integrations";
 import type { Id } from "./_generated/dataModel";
+import { completeText } from "./lib/modelGateway";
 
 /* ── Shared helpers ───────────────────────────────────────────────────── */
 
@@ -12,16 +12,11 @@ async function complete(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   opts: { temperature?: number; maxTokens?: number } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
-    model: "gpt-4o-mini",
+  return await completeText({
     messages: [{ role: "system" as const, content: system }, ...messages],
     temperature: opts.temperature ?? 0.7,
     maxTokens: opts.maxTokens ?? 900,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
 }
 
 /** Serializable project snapshot the client passes in (already fetched via
@@ -387,7 +382,7 @@ export const editSelection = action({
       [
         {
           role: "user",
-          content: `${contextLines(project).join("\n")}\n\nDocument context around the selection:\n${(surroundingContext ?? "(start of document)").slice(-1500)}\n\nSelected text:\n${selectionHtml}`,
+          content: `${contextLines(project).join("\n")}\n\nDocument context around the selection:\n${(surroundingContext ?? "(start of document)").slice(-1500)}\n\nSelected text:\n${selectionHtml}${instruction ? `\n\nAdditional instruction:\n${instruction}` : ""}`,
         },
       ],
       { temperature: op === "expand" ? 0.8 : 0.6, maxTokens: 1200 },

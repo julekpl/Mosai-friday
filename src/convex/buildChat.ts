@@ -5,8 +5,8 @@ import { action, type ActionCtx } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { vly } from "../lib/vly-integrations";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
+import { completeText } from "./lib/modelGateway";
 
 /* ── Build workspace brain (Lovable/Caffeine-style chat builder) ──────────
  *
@@ -26,8 +26,7 @@ async function complete(
   user: string,
   opts: { temperature?: number; maxTokens?: number } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
-    model: "gpt-4o-mini",
+  return await completeText({
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
@@ -35,10 +34,6 @@ async function complete(
     temperature: opts.temperature ?? 0.7,
     maxTokens: opts.maxTokens ?? 1600,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
 }
 
 function parseJson<T>(text: string): T {
@@ -49,8 +44,6 @@ function parseJson<T>(text: string): T {
     throw new Error("AI returned an unreadable response");
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
-
-type PlanOrBuild = "plan" | "build";
 
 async function requireOwnedBuild(
   ctx: ActionCtx,
