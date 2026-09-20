@@ -412,7 +412,12 @@ Return ONLY valid JSON:
     if (!newBlocks.length)
       throw new Error("AI returned no blocks — try rephrasing.");
 
-    // snapshot BEFORE applying, then write
+    // write the edit first, then snapshot — a version always captures the
+    // state it is labeled with (same order as generateSite)
+    await ctx.runMutation(internal.buildInternals.saveDraftInternal, {
+      pageId: target._id,
+      document: { schemaVersion: 1, blocks: newBlocks } as PageDocument,
+    });
     const snapshotPages = (await ctx.runQuery(
       internal.buildInternals.collectSnapshot,
       { projectId: build.projectId },
@@ -431,10 +436,6 @@ Return ONLY valid JSON:
         versionLabel: message.slice(0, 80) || "Chat edit",
       },
     )) as number;
-    await ctx.runMutation(internal.buildInternals.saveDraftInternal, {
-      pageId: target._id,
-      document: { schemaVersion: 1, blocks: newBlocks } as PageDocument,
-    });
 
     const summary =
       parsed.summary?.trim() ||

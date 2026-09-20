@@ -1016,12 +1016,11 @@ function StorefrontTab({ projectId }: { projectId: Id<"projects"> }) {
   const [syncing, setSyncing] = useState(false);
 
   const productCount = shopProducts?.length ?? 0;
-  const inStock = shopProducts?.filter((p) => p.available).length ?? 0;
+  const inStock =
+    shopProducts?.filter((p) => p.availability !== "out_of_stock").length ?? 0;
   const externalCount =
-    shopProducts?.filter((p) => p.source === "external").length ?? 0;
-  const hasKeys =
-    typeof import.meta.env?.VITE_SHOPIFY_STORE_DOMAIN === "string" &&
-    (import.meta.env as Record<string, string | undefined>).VITE_SHOPIFY_STORE_DOMAIN !== "";
+    shopProducts?.filter((p) => p.provider != null).length ?? 0;
+  const hasSyncedBefore = externalCount > 0;
 
   const runSync = async () => {
     setSyncing(true);
@@ -1029,7 +1028,6 @@ function StorefrontTab({ projectId }: { projectId: Id<"projects"> }) {
       const res = await sync({ projectId });
       toast.success(
         `Synced ${res.products} products, ${res.collections} collections`,
-        { description: res.skipped ? `Skipped: ${res.skipped}` : undefined },
       );
     } catch (e) {
       toast.error("Sync failed", {
@@ -1113,9 +1111,9 @@ function StorefrontTab({ projectId }: { projectId: Id<"projects"> }) {
             </Badge>
           ))}
         </div>
-        {!hasKeys && (
+        {!hasSyncedBefore && (
           <p className="mt-3 rounded-md border border-terminal-amber/40 bg-terminal-amber-soft px-3 py-2 font-mono text-caption text-terminal-amber">
-            Shopify not connected — add SHOPIFY_STORE_DOMAIN and
+            No external products yet — add SHOPIFY_STORE_DOMAIN and
             SHOPIFY_STOREFRONT_ACCESS_TOKEN in the Keys tab, then sync.
           </p>
         )}
