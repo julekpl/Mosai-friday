@@ -339,6 +339,17 @@ function VersionsMenu({
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState<Id<"buildVersions"> | null>(null);
 
+  // The backdrop below closes the menu on pointer click; keyboard users close
+  // it with Escape, so the click target never needs to be focusable itself.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   return (
     <div className="relative">
       <Button
@@ -352,6 +363,9 @@ function VersionsMenu({
       </Button>
       {open && (
         <>
+          {/* Decorative, pointer-only click-away layer: `aria-hidden` keeps it
+              out of the accessibility tree, and Escape closes it for keyboard
+              users (see the effect above). */}
           <div
             className="fixed inset-0 z-40"
             onClick={() => setOpen(false)}

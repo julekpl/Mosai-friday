@@ -19,7 +19,11 @@ export default function AppIndex() {
   }, [isLoading, projects, navigate]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="flex min-h-screen items-center justify-center"
+    >
       <Loader2 className="size-6 animate-spin text-muted-foreground" />
     </main>
   );

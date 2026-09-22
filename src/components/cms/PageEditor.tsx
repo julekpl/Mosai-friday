@@ -360,26 +360,34 @@ export function PageEditor({
                 <div
                   key={b.id}
                   className={cn(
-                    "cursor-pointer rounded-md border bg-card p-3 shadow-card transition-colors ease-terminal hover:bg-accent",
+                    "rounded-md border bg-card p-3 shadow-card transition-colors ease-terminal",
                     selectedId === b.id && "border-terminal-green/60",
                   )}
-                  onClick={() => setSelectedId(b.id)}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-caption text-muted-foreground">
-                      {String(i + 1).padStart(2, "0")}
-                    </span>
-                    <p className="font-mono text-small font-medium">
-                      {def?.label ?? b.type}
-                    </p>
-                    {def?.commerce && (
-                      <Badge
-                        variant="outline"
-                        className="font-mono text-caption text-terminal-blue"
-                      >
-                        live data
-                      </Badge>
-                    )}
+                    {/* Selection is a real button, not a click handler on the
+                        card div, so it is reachable and operable by keyboard. */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(b.id)}
+                      aria-pressed={selectedId === b.id}
+                      className="flex min-w-0 cursor-pointer items-center gap-2 rounded-sm text-left transition-colors ease-terminal hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                    >
+                      <span className="font-mono text-caption text-muted-foreground">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span className="font-mono text-small font-medium">
+                        {def?.label ?? b.type}
+                      </span>
+                      {def?.commerce && (
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-caption text-terminal-blue"
+                        >
+                          live data
+                        </Badge>
+                      )}
+                    </button>
                     <div className="ml-auto flex items-center gap-0.5">
                       <Button
                         size="icon-sm"

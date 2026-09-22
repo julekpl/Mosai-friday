@@ -17,6 +17,7 @@ import {
   Reveal,
   moduleTileText,
 } from "@/components/mosaic";
+import { SkipLink } from "@/components/SkipLink";
 import { cn } from "@/lib/utils";
 
 const modules = [
@@ -91,6 +92,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen overflow-x-clip bg-background">
+      <SkipLink />
       {/* Top bar */}
       <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 sm:px-6">
@@ -117,6 +119,7 @@ export default function Landing() {
         </div>
       </header>
 
+      <main id="main-content" tabIndex={-1}>
       {/* Hero */}
       <section className="relative overflow-hidden border-b bg-grid">
         <FloatingTiles />
@@ -296,6 +299,7 @@ export default function Landing() {
           </Reveal>
         </div>
       </section>
+      </main>
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-8 font-mono text-caption text-muted-foreground sm:flex-row sm:items-center sm:px-6">

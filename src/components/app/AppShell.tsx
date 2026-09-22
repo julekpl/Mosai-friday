@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { MosaicMark, moduleTileBg, moduleTileText } from "@/components/mosaic";
+import { SkipLink } from "@/components/SkipLink";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
+      <SkipLink />
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-sidebar lg:flex">
         <div className="flex h-14 items-center gap-2 border-b px-4">
@@ -265,7 +267,7 @@ export function AppShell({
       <div className="h-12 lg:hidden" />
 
       {/* Content */}
-      <main className="min-w-0 flex-1">
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">{children}</div>
       </main>
     </div>

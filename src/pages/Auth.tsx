@@ -8,11 +8,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
+import { SkipLink } from "@/components/SkipLink";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -20,12 +22,15 @@ import {
   MosaicMark,
 } from "@/components/mosaic";
 import { ArrowRight, Loader2, Mail } from "lucide-react";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 interface AuthProps {
   redirectAfterAuth?: string;
 }
+
+/** Seconds the resend control stays disabled after a code is sent. */
+const RESEND_SECONDS = 30;
 
 function resolveRedirectAfterAuth(
   returnTo: string | null,
@@ -45,65 +50,155 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     searchParams.get("returnTo"),
     redirectAfterAuth,
   );
+
   const [step, setStep] = useState<"signIn" | { email: string }>("signIn");
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Announced through a polite live region so screen-reader users hear the
+  // async progress that sighted users read from the button label.
+  const [status, setStatus] = useState("");
+  const [resendIn, setResendIn] = useState(0);
+  const [emailFocusToken, setEmailFocusToken] = useState(0);
+
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const otpInputRef = useRef<HTMLInputElement>(null);
+
+  const onCodeStep = step !== "signIn";
+  const email = typeof step === "string" ? "" : step.email;
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
-  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+
+  // When the code screen appears, move focus into the code field so a keyboard
+  // user lands where the next action is. Returning to the email step asks for
+  // focus explicitly through `emailFocusToken`.
+  useEffect(() => {
+    if (onCodeStep) otpInputRef.current?.focus();
+  }, [onCodeStep]);
+
+  useEffect(() => {
+    if (emailFocusToken === 0) return;
+    emailInputRef.current?.focus();
+  }, [emailFocusToken]);
+
+  // Resend countdown: one timeout per tick rather than a drifting interval.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
+
+  const sendCode = async (emailValue: string) => {
+    const formData = new FormData();
+    formData.set("email", emailValue);
+    await signIn("email-otp", formData);
+  };
+
+  const handleEmailSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
+    if (isLoading) return;
+    const emailValue = String(
+      new FormData(event.currentTarget).get("email") ?? "",
+    ).trim();
     setIsLoading(true);
     setError(null);
+    setStatus("Sending your sign-in code…");
     try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-      setStep({ email: formData.get("email") as string });
+      await sendCode(emailValue);
+      setStep({ email: emailValue });
+      setOtp("");
+      setResendIn(RESEND_SECONDS);
+      setStatus(`Code sent to ${emailValue}. Enter the 6-digit code.`);
       setIsLoading(false);
-    } catch (error) {
-      console.error("Email sign-in error:", error);
+    } catch (err) {
       setError(
-        error instanceof Error
-          ? error.message
+        err instanceof Error
+          ? err.message
           : "Failed to send verification code. Please try again.",
       );
+      setStatus("Could not send the code.");
+      setIsLoading(false);
+      emailInputRef.current?.focus();
+    }
+  };
+
+  const handleOtpSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    if (isLoading || otp.length !== 6) return;
+    setIsLoading(true);
+    setError(null);
+    setStatus("Verifying your code…");
+    try {
+      const formData = new FormData();
+      formData.set("email", email);
+      formData.set("code", otp);
+      await signIn("email-otp", formData);
+      navigate(redirect);
+    } catch {
+      setError("The verification code you entered is incorrect.");
+      setStatus("That code was incorrect. Check your email and try again.");
+      setIsLoading(false);
+      setOtp("");
+      otpInputRef.current?.focus();
+    }
+  };
+
+  const handleResend = async () => {
+    if (isLoading || resendIn > 0) return;
+    setIsLoading(true);
+    setError(null);
+    setStatus("Resending your code…");
+    try {
+      await sendCode(email);
+      setOtp("");
+      setResendIn(RESEND_SECONDS);
+      setStatus(`A new code was sent to ${email}.`);
+      setIsLoading(false);
+      otpInputRef.current?.focus();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to resend the code. Please try again.",
+      );
+      setStatus("Could not resend the code.");
       setIsLoading(false);
     }
   };
 
-  const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsLoading(true);
+  const handleUseDifferentEmail = () => {
+    setStep("signIn");
     setError(null);
-    try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-
-      console.log("signed in");
-
-      navigate(redirect);
-    } catch (error) {
-      console.error("OTP verification error:", error);
-
-      setError("The verification code you entered is incorrect.");
-      setIsLoading(false);
-
-      setOtp("");
-    }
+    setResendIn(0);
+    setEmailFocusToken((n) => n + 1);
   };
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden">
+      <SkipLink />
+      {/* Async progress for screen readers; visually hidden. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {status}
+      </p>
+
       {/* Ambient mosaic backdrop */}
       <FloatingTiles />
       <div className="bg-dots pointer-events-none absolute inset-0 opacity-60" />
 
       {/* Auth Content */}
-      <div className="relative flex flex-1 items-center justify-center">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative flex flex-1 items-center justify-center"
+      >
         <div className="animate-mosaic-in flex h-full flex-col items-center justify-center">
         <Card className="min-w-[350px] border pb-0 shadow-pop">
           {step === "signIn" ? (
@@ -124,18 +219,30 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   Enter your email to log in or sign up
                 </CardDescription>
               </CardHeader>
-              <form onSubmit={handleEmailSubmit}>
+              <form onSubmit={handleEmailSubmit} aria-busy={isLoading}>
                 <CardContent>
-                  
+
                   <div className="relative flex items-center gap-2">
                     <div className="relative flex-1">
-                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Label htmlFor="auth-email" className="sr-only">
+                        Email address
+                      </Label>
+                      <Mail
+                        aria-hidden
+                        className="absolute left-3 top-3 h-4 w-4 text-muted-foreground"
+                      />
                       <Input
+                        id="auth-email"
+                        ref={emailInputRef}
                         name="email"
                         placeholder="name@example.com"
                         type="email"
+                        autoComplete="email"
+                        inputMode="email"
                         className="pl-9"
                         disabled={isLoading}
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby={error ? "auth-error" : undefined}
                         required
                       />
                     </div>
@@ -143,19 +250,29 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       type="submit"
                       variant="outline"
                       size="icon"
+                      aria-label="Send sign-in code"
                       disabled={isLoading}
                     >
                       {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2
+                          aria-hidden
+                          className="h-4 w-4 animate-spin"
+                        />
                       ) : (
-                        <ArrowRight className="h-4 w-4" />
+                        <ArrowRight aria-hidden className="h-4 w-4" />
                       )}
                     </Button>
                   </div>
                   {error && (
-                    <p className="mt-2 text-sm text-red-500">{error}</p>
+                    <p
+                      id="auth-error"
+                      role="alert"
+                      className="mt-2 text-sm text-red-500"
+                    >
+                      {error}
+                    </p>
                   )}
-                  
+
                 </CardContent>
               </form>
             </>
@@ -164,20 +281,26 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               <CardHeader className="text-center mt-4">
                 <CardTitle>Check your email</CardTitle>
                 <CardDescription>
-                  We've sent a code to {step.email}
+                  We've sent a code to {email}
                 </CardDescription>
               </CardHeader>
-              <form onSubmit={handleOtpSubmit}>
+              <form onSubmit={handleOtpSubmit} aria-busy={isLoading}>
                 <CardContent className="pb-4">
-                  <input type="hidden" name="email" value={step.email} />
+                  <input type="hidden" name="email" value={email} />
                   <input type="hidden" name="code" value={otp} />
 
                   <div className="flex justify-center">
                     <InputOTP
+                      ref={otpInputRef}
                       value={otp}
                       onChange={setOtp}
                       maxLength={6}
                       disabled={isLoading}
+                      autoComplete="one-time-code"
+                      inputMode="numeric"
+                      aria-label="Verification code"
+                      aria-invalid={error ? true : undefined}
+                      aria-describedby={error ? "auth-error" : undefined}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && otp.length === 6 && !isLoading) {
                           // Find the closest form and submit it
@@ -196,18 +319,26 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     </InputOTP>
                   </div>
                   {error && (
-                    <p className="mt-2 text-sm text-red-500 text-center">
+                    <p
+                      id="auth-error"
+                      role="alert"
+                      className="mt-2 text-sm text-red-500 text-center"
+                    >
                       {error}
                     </p>
                   )}
                   <p className="text-sm text-muted-foreground text-center mt-4">
                     Didn't receive a code?{" "}
                     <Button
+                      type="button"
                       variant="link"
                       className="p-0 h-auto"
-                      onClick={() => setStep("signIn")}
+                      onClick={handleResend}
+                      disabled={isLoading || resendIn > 0}
                     >
-                      Try again
+                      {resendIn > 0
+                        ? `Resend code in ${resendIn}s`
+                        : "Resend code"}
                     </Button>
                   </p>
                 </CardContent>
@@ -219,20 +350,23 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   >
                     {isLoading ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2
+                          aria-hidden
+                          className="mr-2 h-4 w-4 animate-spin"
+                        />
                         Verifying...
                       </>
                     ) : (
                       <>
                         Verify code
-                        <ArrowRight className="ml-2 h-4 w-4" />
+                        <ArrowRight aria-hidden className="ml-2 h-4 w-4" />
                       </>
                     )}
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setStep("signIn")}
+                    onClick={handleUseDifferentEmail}
                     disabled={isLoading}
                     className="w-full"
                   >
@@ -256,7 +390,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           </div>
         </Card>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

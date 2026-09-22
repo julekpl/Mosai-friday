@@ -7,12 +7,15 @@ import { cn } from "@/lib/utils"
 function InputOTP({
   className,
   containerClassName,
+  ref,
   ...props
 }: React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string
+  ref?: React.Ref<HTMLInputElement>
 }) {
   return (
     <OTPInput
+      ref={ref}
       data-slot="input-otp"
       containerClassName={cn(
         "flex items-center gap-2 has-disabled:opacity-50",
