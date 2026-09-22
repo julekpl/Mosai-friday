@@ -27,6 +27,15 @@ reports no findings at any level (was 1 critical + 4 high on this tree, from
 `@vly-ai/integrations`); the pack's `react-router`/`hono` list was stale and
 neither is flagged. The staged dependency-audit CI leg is now a hard failure.
 §1 and §3 reflect it.
+**Updated the same day by T1.7:** R1–R12 are now **real automated tests** and run
+in CI — 33 unit tests plus 3 browser tests across
+`tests/unit/{phase0-regressions,safe-fetch,deletion-completeness,secret-scan,platform-detach}.test.ts`
+and `tests/e2e/{sanitized-html,no-platform-calls}.spec.ts`. Every one was
+demonstrated failing against the pre-fix code (the plant/observe table is in the
+ticket). R4 is the one exception and stays **blocked** on T0.4. Writing R10 found
+and fixed a real defect: `cascadeDeleteProject` asked `buildVersions` for a
+`by_project` index the schema never declared, so **every** project deletion threw.
+§1, §2 (R1–R12) and §3 reflect it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -36,13 +45,15 @@ level 5 — a ticket still wins on scope — but it is the ground truth about *s
 
 ## 1. Headline
 
-Phase 0 (stop the exposure) is **substantially complete in code**. Phase 1 (make
-the repository buildable and testable) is **under way**: T1.1–T1.6 are done — bun
-is authoritative, codegen is committed and guarded, `tsc` and lint are green, the
-repository has a test runner and CI, and the dependency audit is clean (no
-critical, high, moderate or low findings). T1.7–T1.8 (the R1–R12 regression suite
-and the accessibility quick fixes) remain. The remaining Phase 0
-items all need an owner action (key rotation, choosing an email provider) or a
+Phase 0 (stop the exposure) is **substantially complete in code and now in
+tests**. Phase 1 (make the repository buildable and testable) is **nearly done**:
+T1.1–T1.7 are done — bun is authoritative, codegen is committed and guarded,
+`tsc` and lint are green, the repository has a test runner and CI, the dependency
+audit is clean (no critical, high, moderate or low findings), and the R1–R12
+Phase 0 controls have an automated regression suite that runs in CI. Only T1.8
+(the accessibility quick fixes) remains. **R4 is the one test still red** — it is
+marked `blocked` on T0.4, not weakened or deleted. The remaining Phase 0 items
+all need an owner action (key rotation, choosing an email provider) or a
 decision, not code.
 
 `bun tsc -b --noEmit` is **clean** here. The pack's claim that a clean checkout
@@ -81,22 +92,24 @@ clone typechecks from the committed bindings with no Convex credentials.
 
 | Regression | Assertion | Status |
 |---|---|---|
-| R1 | No anonymous provider; a new user has Base access only; leftover anonymous accounts are rejected | ✅ code in place, **no automated test yet** |
-| R2 | `changePlan` from a client is rejected | ✅ code in place, no test |
-| R3 | AI/scraping actions reject unauthenticated callers | ✅ code in place, no test |
-| R4 | AI actions load context server-side | ❌ **not done** (T0.4 remainder) |
-| R5 | `safeFetch` blocks loopback/private/metadata/non-HTTPS/redirect-to-private | ✅ code in place, no test |
-| R6 | Cross-tenant write blocked (`collections.create`) | ✅ code in place, no test |
-| R7 | `<script>`, `onerror=`, `javascript:` never execute | ✅ render sinks covered; server-side save not |
-| R8 | Fake connection refused | ✅ code in place |
-| R9 | Shopify sync cannot read a deployment-wide store | ✅ code in place |
-| R10 | Deletion completeness (generated from the schema) | ❌ not done — `dal.cascadeDeleteProject` is now the single cascade (33 tables + children) called by both `projects.remove` and `billing.deleteAccount`, but there is **no test** and `oauthStates` is deliberately not deleted |
-| R11 | Secret scan fails on a planted secret; history clean | 🟡 **CI added (T1.5):** gitleaks runs over history and the working tree in the `security` job, and `bun run scan:secrets` reuses the rules locally; both were proven to fail on a planted dummy secret. History still not purged (owner action). |
-| R12 | No request to platform domains with platform vars unset | ❌ **not done** |
+| R1 | No anonymous provider; a new user has Base access only; leftover anonymous accounts are rejected | ✅ **tested (T1.7)** — `phase0-regressions.test.ts`: signing in as `anonymous` rejects, a fresh account's modules equal `PLAN_MODULES.free`, and an `isAnonymous: true` row is refused by `requireUser` |
+| R2 | `changePlan` from a client is rejected | ✅ **tested (T1.7)** — `changePlan` rejects and the stored plan is unchanged; `selfServePlanChanges` is false |
+| R3 | AI/scraping actions reject unauthenticated callers | ✅ **tested (T1.7)** — all 17 listed actions reject an unauthenticated caller with "Not signed in" (valid args, so the rejection is the sign-in guard, not the validator) |
+| R4 | AI actions load context server-side | ⛔ **blocked on T0.4** — test written and kept red (`it.fails`) in `phase0-regressions.test.ts`; it turns into a hard failure the moment the client snapshot argument is replaced by a server-loaded `projectId`, which is the reminder to promote it |
+| R5 | `safeFetch` blocks loopback/private/metadata/non-HTTPS/redirect-to-private | ✅ **tested (T1.7)** — `safe-fetch.test.ts` (14 cases, hermetic): non-HTTPS, localhost/`.local`/`.internal`, loopback, 10/8, 172.16/12, 192.168/16, CGNAT, link-local/metadata, `::1`, `fc00::`, `::ffff:127.0.0.1`, a redirect to a private address and an http-downgrade redirect are all refused; a public address succeeds |
+| R6 | Cross-tenant write blocked (`collections.create`) | ✅ **tested (T1.7)** — user B's `collections.create` on user A's project throws "Not found" and writes nothing, while A (same plan) succeeds |
+| R7 | `<script>`, `onerror=`, `javascript:` never execute | ✅ **tested (T1.7)** — `sanitized-html.spec.ts` mounts the real `PageRenderer` in Chromium with six payloads (script, `onerror`, `onload`, `javascript:`, iframe, `onclick`): nothing executes, with a control proving the probes *do* fire when unsanitized; a scan also fails the build if a new `dangerouslySetInnerHTML` sink is not wrapped in `sanitizeHtml`. ⚠️ **still open:** sanitize on *save* (server side) and the CSP — T0.7 remainder |
+| R8 | Fake connection refused | ✅ **tested (T1.7)** — the connection module's public mutations are exactly `beginAuthorization`/`disconnect`; the only writers of a success state are the `internalMutation`s `markVerified`/`markNeedsAttention`, and `beginAuthorization` yields `authorizing` |
+| R9 | Shopify sync cannot read a deployment-wide store | ✅ **tested (T1.7)** — `syncCatalog` refuses an unauthenticated caller, a non-owner ("Not found") and the owner ("needs per-project credentials"), creating no products or collections |
+| R10 | Deletion completeness (generated from the schema) | ✅ **tested (T1.7)** — `deletion-completeness.test.ts` derives the table list from `schema.ts` (every table with a `projectId` field, plus `contentDocs`), seeds a row in all 37 and proves `projects.remove` leaves none and deletes the storage blob. `oauthStates` is the sole exemption, asserted to have no `by_project` index. **Writing it found a real defect:** the cascade asked `buildVersions` for a `by_project` index the schema never declared, so *every* project deletion threw; `dal.ts` now reaches `buildVersions` through its parent `build` (the same pattern as `buildMessages`) |
+| R11 | Secret scan fails on a planted secret; history clean | ✅ **tested (T1.7)** — `secret-scan.test.ts` runs the shipped scanner in a throwaway directory: it exits 1 on a planted dummy key (and never echoes the value), exits 0 on a clean tree, and refuses a no-op scan. CI (T1.5) still runs gitleaks over history and the working tree in the `security` job. History still not purged (owner action). |
+| R12 | No request to platform domains with platform vars unset | ✅ **tested (T1.7)** — `no-platform-calls.spec.ts` intercepts the network layer on `/`, `/auth`, `/system` and a 404 and fails if any request reaches a `freebuff.*`/`vly.*` host; `platform-detach.test.ts` asserts the live auth config trusts only this deployment's OIDC discovery (no `customJwt`, no platform issuer), so a platform-signed token cannot authenticate. ⚠️ **still open:** the server-side AI gateway is still the platform SDK — T2.9 (`ModelGateway`) |
 
-**Verdict on G-P0:** the *code* holes are closed (except R4/R10-cascade-finalization/R12).
-The *proof* gap is now closing: T1.5 (22 Sep 2026) added the test runner and CI,
-and T1.7 writes R1–R12 against them.
+**Verdict on G-P0:** the *code* holes are closed (except R4's remainder and the
+T0.7/T0.8 server-side items noted above). The *proof* gap is **closed**: T1.5
+(22 Sep 2026) added the test runner and CI, and T1.7 (22 Sep 2026) wrote R1–R12
+against them — eleven green guards, plus R4 which is deliberately red and marked
+`blocked` on T0.4 rather than deleted or weakened.
 
 ---
 
@@ -109,7 +122,7 @@ and T1.7 writes R1–R12 against them.
 | Typecheck | **T1.3 (22 Sep 2026): 0 errors.** `bun tsc -b --noEmit` → exit 0 with codegen present, re-verified with the incremental cache wiped (`rm -rf node_modules/.tmp`) and with `--force`, and per project (`tsconfig.app.json`, `tsconfig.node.json`) → all exit 0, 0 errors. A planted `TS2322` was reported by `tsc`, proving the check reads `src/`. No `@ts-ignore`/`@ts-expect-error` anywhere; `as any` count unchanged (4, incl. the accepted `dal.ts` handle). |
 | Convex codegen | **Committed (T1.2, 22 Sep 2026).** `src/convex/_generated` is no longer git-ignored; `convex codegen` output is deterministic (regenerating leaves the 5 files byte-identical). `bun run check:codegen` regenerates with `convex codegen` and fails on drift (`git diff --exit-code`); `bun run codegen` regenerates by hand. `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
 | Lint | **0 errors / 25 warnings (T1.4, 22 Sep 2026).** Baseline re-measured on the current tree at **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`), so the pack's 79/25 was stale. All 82 errors fixed without adding a suppression or weakening `eslint.config.js`; source `eslint-disable` directives went **2 → 1** (only the documented `dal.ts` cascade handle remains). The 25 warnings are 21 Fast-Refresh `only-export-components` in shared modules and 4 generated-file headers — recorded and justified in `docs/tickets/T1.4-zero-lint-errors.md`. `bun run lint` exits 0. |
-| Tests / test runner / CI | **Added (T1.5, 22 Sep 2026).** Unit: `vitest.config.ts` + `src/convex/test.setup.ts` + `tests/unit/` (Vitest 5, `convex-test`, `@edge-runtime/vm`). Browser: `playwright.config.ts` + `tests/e2e/` (Playwright + `@axe-core/playwright`). Scripts: `test`, `test:unit`, `test:e2e`, `test:a11y`, `scan:secrets`, `check`. CI: `.github/workflows/ci.yml`, one job per concern (install · codegen · typecheck · lint · unit · security · e2e · a11y). Green on this tree: `bun run check` exit 0; `bun run test:e2e` 4 passed; `bun run test:a11y` 2 passed. **R1–R12 are still T1.7** — T1.5 only adds the harness. |
+| Tests / test runner / CI | **Added (T1.5, 22 Sep 2026).** Unit: `vitest.config.ts` + `src/convex/test.setup.ts` + `tests/unit/` (Vitest 5, `convex-test`, `@edge-runtime/vm`). Browser: `playwright.config.ts` + `tests/e2e/` (Playwright + `@axe-core/playwright`). Scripts: `test`, `test:unit`, `test:e2e`, `test:a11y`, `scan:secrets`, `check`. CI: `.github/workflows/ci.yml`, one job per concern (install · codegen · typecheck · lint · unit · security · e2e · a11y). Green on this tree: `bun run check` exit 0; `bun run test:e2e` 10 passed (T1.7); `bun run test:a11y` 2 passed. **R1–R12 land in T1.7 (done 22 Sep 2026):** `tests/unit/{phase0-regressions,safe-fetch,deletion-completeness,secret-scan,platform-detach}.test.ts` (33 unit tests) and `tests/e2e/{sanitized-html,no-platform-calls}.spec.ts` (3 browser tests). `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
 | Secret scanning | **Wired (T1.5, 22 Sep 2026).** `scripts/scan-secrets.mjs` reads the custom rules from `.gitleaks.toml` and runs inside `bun run check`, so a planted secret fails locally; the CI `security` job also runs gitleaks over full history and the working tree, plus `bun audit --audit-level=high` (now a hard failure, T1.6) and `audit:functions`. The T1.5 ticket quoted a literal dummy `x-api-key` value in its proof table, which the `vly-email-otp-key` rule correctly matched — the doc line was redacted in T1.6 rather than allow-listing `docs/tickets/`. Still open: pre-commit hook and the history purge (owner). |
 | Dependency audit | **Clean (T1.6, 22 Sep 2026).** `bun audit` (and `--audit-level=high`) → **"No vulnerabilities found"**; was 1 critical + 4 high + 8 moderate + 2 low. Fixed: `@convex-dev/auth` 0.0.90 → **0.0.94** (moves the `@auth/core` peer to `^0.41.1`) with `@auth/core` pinned at **0.41.3** (GHSA-7rqj-j65f-68wh critical + GHSA-xmf8-cvqr-rfgj high + GHSA-x445-f3h2-j279 moderate), and a root `overrides` entry forcing `undici` to `^7.19.0`, which removes the vulnerable nested `undici@5.29.0` under `@ai-sdk/provider-utils` (GHSA-vrm6-8vpv-qv8q / GHSA-v9p9-hfj2-hcw8 / GHSA-vxpw-j846-p89q high + moderates/lows) and de-duplicates the tree to one `undici@7.29.1`. The pack's `react-router` (7.18.4) and `hono` (4.13.8) findings are stale — neither is flagged. Rationale, the no-in-range-fix analysis and the override's compensating control are in `docs/tickets/T1.6-vulnerable-dependencies.md`. |
 | Node/bun engines | **Pinned (T1.1):** `engines.node >= 22.12.0`, `engines.bun >= 1.3.0`, `.nvmrc` = `22`. |

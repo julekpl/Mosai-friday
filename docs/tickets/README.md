@@ -33,7 +33,7 @@ check — not when the code merely looks finished (`AGENTS.md` §6).
 | Phase | Tickets | Files | Gate |
 |---|---|---|---|
 | 0 | T0.1–T0.10 | 🔒 closed (code); four owner actions outstanding | G-P0 |
-| 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2 ✅ done · T1.3 ✅ done · T1.4 ✅ done · T1.5 ✅ done · T1.6 ✅ done · T1.7–T1.8 not started | G-P1 |
+| 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2 ✅ done · T1.3 ✅ done · T1.4 ✅ done · T1.5 ✅ done · T1.6 ✅ done · T1.7 ✅ done · T1.8 not started | G-P1 |
 | 2 | T2.1–T2.16 | create when reached | G-P2 |
 | 3 | E3.1–E3.10 | create when reached | per add-on |
 
@@ -57,4 +57,14 @@ Tracked here because they block G-P0 and only the owner can close them:
 | T0.4 | Replace the client-supplied `projectSnapshotValidator` with server-loaded context (`projectId` + internal ownership query), and add per-user rate limits. |
 | T0.7 | Sanitize on save (server side, needs an isomorphic sanitizer) and add the content-security policy. |
 | T0.8 | `EmailGateway` + toolbar removal (blocked on the owner decision above). |
-| T1.7 | Write R1–R12 as real tests — the code is in place, the proof is not. |
+| T1.7 | ✅ done (22 Sep 2026) — R1–R12 are real tests and run in CI (33 unit + 3 browser). **R4 remains `blocked` on T0.4** and is kept red in the suite (`it.fails`) rather than deleted or weakened. Writing R10 also fixed a real defect in `dal.cascadeDeleteProject` (`buildVersions` had no `by_project` index, so every project deletion threw). |
+
+## Blocked tests (the code, not the test, is missing)
+
+A test is listed here when it is written but cannot pass yet. It is never deleted
+or weakened: it stays in the suite as an expected failure so the gap is visible
+and closes loudly.
+
+| Test | Blocked on | Where it lives |
+|---|---|---|
+| **R4** — AI actions load context server-side | T0.4's remainder: replace the client-supplied `projectSnapshotValidator` with a server-loaded `projectId`. | `tests/unit/phase0-regressions.test.ts` (`it.fails`, with a `BLOCKED(T0.4)` comment) |

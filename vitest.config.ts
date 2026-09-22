@@ -8,6 +8,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The platform's integrations SDK reads `document` at import time and
+      // cannot load under `edge-runtime`. Tests replace it with a hermetic stub
+      // so the Convex modules (ai.ts, sellAI.ts, social/copilot.ts, …) load and
+      // the regression suite can run offline. See tests/unit/stubs/.
+      "@vly-ai/integrations": path.resolve(
+        __dirname,
+        "./tests/unit/stubs/vly-integrations.ts",
+      ),
     },
   },
   test: {

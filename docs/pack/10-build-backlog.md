@@ -143,9 +143,10 @@ migration · Security and privacy · Verification · Proof.*
 **Gate G-P0:** R1–R9 and R11 pass; the owner confirms secrets are rotated; no
 unauthenticated public function remains except the allow-list.
 
-**Current standing:** every code hole except R4, R7-server-side, R10-test and R12
-is closed. **No R-test exists yet** because there is no test runner — that is
-Phase 1, and it is what turns "code in place" into "proven".
+**Current standing:** every code hole except R4, R7-server-side and the T0.8
+server-side items is closed, and R1–R12 now have an automated suite (T1.5 added
+the runner; T1.7 wrote the tests) that runs in CI. R4 is the one test still red —
+it is marked `blocked` on T0.4, not deleted.
 
 ---
 
@@ -194,11 +195,14 @@ Phase 1, and it is what turns "code in place" into "proven".
   upgrade to fixed versions, then run the smoke journeys.
 - **Acceptance:** production audit reports no high findings.
 
-### T1.7 — Complete the Phase 0 regression suite `[N]` S
+### T1.7 — Complete the Phase 0 regression suite `[N]` S — ✅ done (22 Sep 2026)
 - **Do:** write R1–R12 and run them in CI (R10 deletion completeness generated from
   the schema; R12 platform-call assertion). Each one must fail against the
   pre-fix code.
-- **Acceptance:** all twelve run in CI and pass.
+- **Acceptance:** all twelve run in CI and pass. **Done:** 33 unit + 3 browser
+  tests; R4 is `blocked` on T0.4 and kept red (`it.fails`). Writing R10 found and
+  fixed a real cascade defect (`buildVersions`). See
+  `docs/tickets/T1.7-phase0-regression-suite.md`.
 
 ### T1.8 — Accessibility quick fixes `[R]` S
 - **Files:** `src/pages/Auth.tsx` (OTP `autoComplete="one-time-code"`, alert role

@@ -70,7 +70,6 @@ const PROJECT_TABLES = [
   "adsCredentials",
   "projectFiles",
   "buildPages",
-  "buildVersions",
   "builds",
   "productVariants",
   "products",
@@ -89,10 +88,10 @@ const PROJECT_TABLES = [
  * Deletes every row that hangs off a project, then the project itself.
  *
  * Tables without a `by_project` index are cleaned via their parent:
- * contentDocs → piece, buildMessages → build, productMedia → product,
- * personaMessages → compound (projectId, personaId) index. `oauthStates`
- * rows are short-lived CSRF state with no project index — they expire on
- * their own; not deleted here (known, accepted gap).
+ * contentDocs → piece, buildMessages → build, buildVersions → build,
+ * productMedia → product, personaMessages → compound (projectId, personaId)
+ * index. `oauthStates` rows are short-lived CSRF state with no project index —
+ * they expire on their own; not deleted here (known, accepted gap).
  *
  * The queries inside are deliberately loosely typed (local `any` handle):
  * this list must be able to name any table in schema.ts, including ones
@@ -136,6 +135,17 @@ export async function cascadeDeleteProject(
       .withIndex("by_build", (q: IndexQuery) => q.eq("buildId", build._id))
       .collect()) {
       await del(msg._id);
+    }
+    // `buildVersions` is project-scoped but declares only `by_build` — reaching
+    // it through the parent build is the same pattern as `buildMessages`.
+    // (Deleting a project used to throw here: the cascade asked for a
+    // `by_project` index that the schema never declared. Found by the T1.7
+    // deletion-completeness regression.)
+    for (const version of await db
+      .query("buildVersions")
+      .withIndex("by_build", (q: IndexQuery) => q.eq("buildId", build._id))
+      .collect()) {
+      await del(version._id);
     }
   }
   for (const product of await byProject("products")) {
