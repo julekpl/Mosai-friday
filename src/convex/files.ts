@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { mutation } from "./_generated/server";
 import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 
@@ -46,11 +46,18 @@ export const attach = orgMutation({
   },
 });
 
-/** Read URL for previewing / downloading an attached file. */
-export const getFileUrl = query({
+/** Read URL for previewing / downloading an attached file. The storage id is
+ *  resolved through the projectFile that references it and authorized against
+ *  that file's project, so a foreign caller cannot mint a URL for someone
+ *  else's blob by guessing a storage id. */
+export const getFileUrl = orgQuery({
   args: { storageId: v.id("_storage") },
-  handler: async (ctx, { storageId }) => {
-    await getAuthUserId(ctx);
+  handler: async (ctx, { storageId }, access) => {
+    const file = await ctx.db
+      .query("projectFiles")
+      .filter((q) => q.eq(q.field("storageId"), storageId))
+      .first();
+    if (!file || !(await access.ownedRow(file))) throw new Error("Not found");
     return await ctx.storage.getUrl(storageId);
   },
 });
