@@ -40,7 +40,15 @@ export const emailOtp = Email({
         },
       );
     } catch (error) {
-      throw new Error(JSON.stringify(error));
+      // Never stringify the raw error: an axios error carries `config.headers`,
+      // which would serialize the x-api-key into logs or client responses.
+      // Surface only a status, never the request or its credentials.
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      throw new Error(
+        status
+          ? `OTP email service failed with status ${status}.`
+          : "OTP email service is unreachable. Try again shortly.",
+      );
     }
   },
 });
