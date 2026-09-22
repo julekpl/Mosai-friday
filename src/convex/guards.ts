@@ -12,6 +12,10 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import { roleCan, type OrgCapability, type OrgRole } from "./lib/roles";
 import {
+  isPlatformAdminEmail,
+  normalizeEmail,
+} from "./lib/platformAdmin";
+import {
   DEFAULT_PLAN,
   MODULE_BY_ID,
   capabilityKey,
@@ -274,6 +278,62 @@ export async function requireOrgRole(
     );
   }
   return context;
+}
+
+// ── Platform operators (T2.4 admin) ─────────────────────────────────────────
+
+/**
+ * True when the account may act as a MOSAI platform operator.
+ *
+ * Server-side only: the flag on the user, the pre-existing `admin` role, the
+ * deployment email allow-list (`lib/platformAdmin.ts`) or an active
+ * `platformAdmins` row. A client can never grant this.
+ */
+export async function resolvePlatformAdmin(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<boolean> {
+  const user = await ctx.db.get(userId);
+  if (!user) return false;
+  if (user.isPlatformAdmin === true) return true;
+  if (user.role === "admin") return true;
+
+  const email = normalizeEmail(user.email);
+  if (email && isPlatformAdminEmail(email)) return true;
+
+  if (email) {
+    const byEmail = await ctx.db
+      .query("platformAdmins")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+    if (byEmail?.status === "active") return true;
+  }
+  const byUser = await ctx.db
+    .query("platformAdmins")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  return byUser?.status === "active";
+}
+
+/** Authenticate and require operator access — the guard every admin-panel
+ *  function uses. Throws "Platform admin only" for everyone else. */
+export async function requirePlatformAdmin(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Id<"users">> {
+  const userId = await requireUser(ctx);
+  if (!(await resolvePlatformAdmin(ctx, userId))) {
+    throw new Error("Platform admin only");
+  }
+  return userId;
+}
+
+/** The organization an operator is acting on behalf of, for audit metadata. */
+export async function operatorEmailFor(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<string | null> {
+  const user = await ctx.db.get(userId);
+  return normalizeEmail(user?.email);
 }
 
 // ── Module capabilities (T2.3) ──────────────────────────────────────────────

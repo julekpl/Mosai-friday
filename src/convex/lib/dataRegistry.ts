@@ -70,4 +70,62 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
     export: "excluded",
     retention: "kept-until-revoked",
   },
+
+  // ── T2.4: platform operators and billing ─────────────────────────────────
+  platformAdmins: {
+    scope: "user",
+    tenantField: "userId",
+    authorization: "guards.requirePlatformAdmin (server-only; never client-grantable)",
+    export: "excluded",
+    retention: "kept-until-revoked",
+  },
+  adminAuditLog: {
+    scope: "global",
+    tenantField: "_id",
+    authorization: "guards.requirePlatformAdmin (read); written by guarded admin mutations",
+    export: "excluded",
+    retention: "kept-until-revoked",
+  },
+  billingCustomers: {
+    scope: "organization",
+    tenantField: "organizationId",
+    authorization: "guards.requireOrganization (billing.subscription) / internal billing helpers",
+    export: "included",
+    retention: "cascade-with-organization",
+  },
+  subscriptions: {
+    scope: "organization",
+    tenantField: "organizationId",
+    authorization: "guards.requireOrganization (billing.subscription) / internal webhook + reconciliation",
+    export: "included",
+    retention: "cascade-with-organization",
+  },
+  billingEvents: {
+    scope: "global",
+    tenantField: "_id",
+    authorization: "guards.requirePlatformAdmin (admin.billingEvents) / written only by the verified webhook",
+    export: "excluded",
+    retention: "kept-until-revoked",
+  },
+  billingReceipts: {
+    scope: "organization",
+    tenantField: "organizationId",
+    authorization: "written only by the verified webhook; read through the admin panel",
+    export: "included",
+    retention: "kept-until-revoked",
+  },
+  billingInvoices: {
+    scope: "organization",
+    tenantField: "organizationId",
+    authorization: "guards.requireOrganization (billing.subscription) / internal webhook",
+    export: "included",
+    retention: "kept-until-revoked",
+  },
+  reconciliationRuns: {
+    scope: "global",
+    tenantField: "_id",
+    authorization: "guards.requirePlatformAdmin (admin.reconciliation)",
+    export: "excluded",
+    retention: "kept-until-revoked",
+  },
 };

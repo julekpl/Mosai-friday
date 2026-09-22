@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { internalQuery, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { orgMutation, orgQuery, requireUser } from "./guards";
 import type { Doc } from "./_generated/dataModel";
@@ -83,6 +83,18 @@ export const create = mutation({
  * Called after the wizard's scan step finishes — stores scrape + SerpApi
  * findings on the project so every module can reuse the enriched context.
  */
+/** Platform-wide project count for the admin panel (T2.4). Internal on
+ *  purpose: the projects table is only read here and in the data-access layer,
+ *  so the admin module never touches it directly. */
+export const platformCount = internalQuery({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const take = Math.min(Math.max(limit ?? 5000, 1), 10_000);
+    const rows = await ctx.db.query("projects").take(take);
+    return { count: rows.length, capped: rows.length === take };
+  },
+});
+
 export const saveScan = orgMutation({
   args: {
     id: v.id("projects"),

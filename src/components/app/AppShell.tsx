@@ -13,6 +13,7 @@ import {
   Plus,
   Route,
   Search,
+  ShieldCheck,
   ShoppingBag,
   Sparkles,
   TrendingUp,
@@ -65,6 +66,7 @@ export function AppShell({
   projectId?: Id<"projects">;
 }) {
   const { user, signOut } = useAuth();
+  const admin = useQuery(api.admin.me);
   const projects = useQuery(api.projects.list) ?? [];
   const navigate = useNavigate();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -244,6 +246,11 @@ export function AppShell({
               <DropdownMenuItem onClick={() => navigate("/app/billing")}>
                 <Sparkles className="size-4" /> Plan &amp; billing
               </DropdownMenuItem>
+              {admin?.isAdmin && (
+                <DropdownMenuItem onClick={() => navigate("/admin")}>
+                  <ShieldCheck className="size-4" /> Platform admin
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 className="text-destructive"
                 onClick={async () => {

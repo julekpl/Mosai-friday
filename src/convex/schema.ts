@@ -32,18 +32,25 @@ const schema = defineSchema(
 
       role: v.optional(roleValidator), // role of the user. do not remove
 
-      // MOSAI additions — local billing mirror (source of truth: Stripe when wired)
-      plan: v.optional(v.string()), // free | starter | growth | scale
+      // MOSAI additions — local billing mirror (source of truth: Stripe; the
+      // only writers are the verified webhook + reconciliation server code).
+      plan: v.optional(v.string()), // free | starter | growth | scale (registry)
       planStatus: v.optional(
         v.union(
           v.literal("active"),
           v.literal("trialing"),
           v.literal("canceled"),
           v.literal("past_due"),
+          // T2.4: the honest wind-down state — a failed payment did not delete
+          // anything, it started a wind-down. Never a euphemism for "live".
+          v.literal("wind_down"),
         ),
       ),
       stripeCustomerId: v.optional(v.string()),
       deletionRequestedAt: v.optional(v.number()),
+      // Platform operator flag (T2.4 admin). Set by the allow-list resolution
+      // in `lib/platformAdmin.ts`; never grantable from the client.
+      isPlatformAdmin: v.optional(v.boolean()),
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
     // ── MOSAI: organizations, memberships, roles and invitations (T2.1) ──
@@ -910,6 +917,161 @@ const schema = defineSchema(
       copilotModel: v.optional(v.string()),
       updatedAt: v.number(),
     }).index("by_key", ["key"]),
+
+    // Platform operators (T2.4). A revoked row is kept, never deleted, so the
+    // grant/revoke trail survives. Resolution also honours a deployment
+    // allow-list (`PLATFORM_ADMIN_EMAILS` + the bootstrap email in
+    // `lib/platformAdmin.ts`), so the first operator does not need a seeded row.
+    platformAdmins: defineTable({
+      email: v.string(), // normalized lowercase
+      userId: v.optional(v.id("users")),
+      status: v.union(v.literal("active"), v.literal("revoked")),
+      grantedBy: v.optional(v.id("users")),
+      note: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_email", ["email"])
+      .index("by_user", ["userId"]),
+
+    // Every operator action is recorded (T2.4). Full cross-tenant access is
+    // powerful; the trail is what makes it reviewable.
+    adminAuditLog: defineTable({
+      actorId: v.id("users"),
+      actorEmail: v.optional(v.string()),
+      action: v.string(),
+      targetType: v.string(),
+      targetId: v.optional(v.string()),
+      detail: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_created", ["createdAt"])
+      .index("by_target", ["targetType", "targetId"]),
+
+    // ── Billing (T2.4): the local mirror of Stripe + the webhook ledger ────
+    // Truth lives in the provider. Nothing here may write `active`, `paid` or
+    // `succeeded` unless signature-verified, idempotent server code applied a
+    // provider record — never a browser redirect (`AGENTS.md` §5 rules 5/7).
+
+    // One Stripe customer per organization (connected-account model is E3.4;
+    // MOSAI's own subscriptions bill to the platform account).
+    billingCustomers: defineTable({
+      organizationId: v.id("organizations"),
+      provider: v.literal("stripe"),
+      customerId: v.string(),
+      email: v.optional(v.string()),
+      livemode: v.boolean(),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_customer", ["customerId"]),
+
+    // The subscription mirror. `lastEventCreated` is the out-of-order guard: a
+    // delivery older than the last applied one is a no-op.
+    subscriptions: defineTable({
+      organizationId: v.id("organizations"),
+      provider: v.literal("stripe"),
+      subscriptionId: v.string(),
+      customerId: v.string(),
+      priceId: v.optional(v.string()),
+      // The plan id from the capability registry, resolved from the price's
+      // metadata. Never a free-text tier invented here.
+      plan: v.string(),
+      status: v.string(), // canonical provider status (active, past_due, …)
+      livemode: v.boolean(),
+      currentPeriodEnd: v.optional(v.number()),
+      cancelAtPeriodEnd: v.boolean(),
+      // Set when a failed payment starts the wind-down; the sweep acts on it.
+      windDownAt: v.optional(v.number()),
+      dunningStage: v.number(),
+      lastEventCreated: v.number(),
+      lastEventId: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_subscription", ["subscriptionId"])
+      .index("by_status", ["status"]),
+
+    // Webhook idempotency ledger. The provider event id is the unique key: a
+    // duplicate delivery finds the row and changes nothing.
+    billingEvents: defineTable({
+      eventId: v.string(),
+      type: v.string(),
+      objectId: v.optional(v.string()),
+      status: v.union(
+        v.literal("processed"),
+        v.literal("ignored"),
+        v.literal("failed"),
+      ),
+      livemode: v.boolean(),
+      note: v.optional(v.string()),
+      created: v.number(),
+      receivedAt: v.number(),
+      processedAt: v.optional(v.number()),
+    })
+      .index("by_event_id", ["eventId"])
+      .index("by_type", ["type"]),
+
+    // Provider receipts (`AGENTS.md` §5 rule 6). A write that claims money
+    // moved must be traceable to one of these rows.
+    billingReceipts: defineTable({
+      provider: v.literal("stripe"),
+      objectType: v.string(),
+      objectId: v.string(),
+      eventId: v.string(),
+      eventType: v.string(),
+      organizationId: v.optional(v.id("organizations")),
+      amountMinor: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      livemode: v.boolean(),
+      createdAt: v.number(),
+    })
+      .index("by_object", ["objectType", "objectId"])
+      .index("by_event", ["eventId"]),
+
+    // Invoices, for dunning and the reconciliation report.
+    billingInvoices: defineTable({
+      organizationId: v.id("organizations"),
+      subscriptionId: v.optional(v.string()),
+      invoiceId: v.string(),
+      status: v.string(), // draft | open | paid | void | uncollectible
+      amountDueMinor: v.number(),
+      amountPaidMinor: v.number(),
+      currency: v.string(),
+      hostedInvoiceUrl: v.optional(v.string()),
+      attemptCount: v.number(),
+      nextRetryAt: v.optional(v.number()),
+      paidAt: v.optional(v.number()),
+      livemode: v.boolean(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_invoice", ["invoiceId"]),
+
+    // One row per reconciliation run. Target is `driftCount === 0`; a
+    // non-zero run names every disagreement so support can resolve it.
+    reconciliationRuns: defineTable({
+      source: v.string(), // cron | manual | snapshot
+      startedAt: v.number(),
+      finishedAt: v.number(),
+      checked: v.number(),
+      driftCount: v.number(),
+      drifts: v.array(
+        v.object({
+          organizationId: v.optional(v.id("organizations")),
+          subscriptionId: v.optional(v.string()),
+          kind: v.string(),
+          local: v.optional(v.string()),
+          provider: v.optional(v.string()),
+          detail: v.string(),
+        }),
+      ),
+      createdAt: v.number(),
+    }).index("by_started", ["startedAt"]),
 
     // ── Website / CMS module (W1 foundation) — see WEBSITE-ARCHITECTURE.md ─
     // Canonical ownership: CMS owns layout/presentation. Products, prices,

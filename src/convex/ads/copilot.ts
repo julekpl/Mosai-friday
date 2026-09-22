@@ -5,7 +5,13 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { copilotDefaultModel } from "./platforms";
-import { moduleAction, moduleMutation, moduleQuery, requireUser } from "../guards";
+import {
+  moduleAction,
+  moduleMutation,
+  moduleQuery,
+  requirePlatformAdmin,
+  requireUser,
+} from "../guards";
 
 /**
  * Ads Copilot: AI analyst over the project's normalized ad data.
@@ -34,14 +40,13 @@ export const copilotModel = query({
   },
 });
 
-/** Admin: set the copilot model. */
+/** Admin: set the copilot model. Operator access is resolved in
+ *  `guards.requirePlatformAdmin` (T2.4) — the old `role === "admin"` check
+ *  missed the deployment allow-list used by the rest of the admin panel. */
 export const setCopilotModel = mutation({
   args: { model: v.string() },
   handler: async (ctx, { model }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const user = await ctx.db.get(userId);
-    if (user?.role !== "admin") throw new Error("Admin only");
+    await requirePlatformAdmin(ctx);
     const row = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", "ads"))

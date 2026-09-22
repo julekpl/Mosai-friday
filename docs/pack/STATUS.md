@@ -69,6 +69,18 @@ resolution. `assertModule` is gone. The CI gate
 `scripts/audit-module-capabilities.mjs` fails on a module function that is
 reachable without a capability or a documented exemption. §1, §2b, §3 and §5
 reflect it.
+**Updated the same day by T2.4:** Stripe Billing and the platform admin panel
+are in. The owner answered the three blocking money questions (Connect for
+E3.4; Stripe Tax enabled; plans/prices **not** final), so price ids are
+configuration (`STRIPE_PRICE_*`) and an unconfigured plan is an honest
+`needs_setup`. `lib/stripe.ts` verifies webhook signatures (HMAC-SHA256) and
+refuses a live key unless `STRIPE_LIVE_MODE=true`; the internal webhook apply is
+idempotent by event id and out-of-order-safe, and a completed browser checkout
+never grants a plan. Dunning, a `past_due` → `wind_down` sweep and a daily
+reconciliation job (target 0 drift) are in. The `/admin` panel is guarded by
+`guards.requirePlatformAdmin`; the bootstrap operator is
+`julian.s.witkowski@gmail.com` via `lib/platformAdmin.ts` (extensible with
+`PLATFORM_ADMIN_EMAILS`). §1, §2b, §3, §5 and §6 reflect it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -139,7 +151,27 @@ mutations, actions and jobs together. `scripts/audit-module-capabilities.mjs`
 (`bun run audit:capabilities`) fails CI when a module function is reachable
 without a capability, when a convex file is unclassified, when a library file
 exports a public function, or when an exemption is missing a reason or stale.
-T2.4 (Stripe billing) is next.
+
+**T2.4 is done (22 Sep 2026):** Stripe Billing and the platform admin panel. The
+owner's answers to the three blocking money questions are recorded in §6 #1 —
+Connect (connected accounts) for the commerce add-on E3.4, **Stripe Tax enabled**
+for MOSAI's own billing, and **plans/prices are not final** — so price ids are
+deployment configuration (`STRIPE_PRICE_STARTER` / `_GROWTH` / `_SCALE`) and an
+unconfigured plan is an honest `needs_setup`, never a fake checkout.
+`src/convex/lib/stripe.ts` is the one provider seam (test-mode-only guard,
+mandatory idempotency key, mandatory HMAC-SHA256 webhook signature verification);
+`POST /api/stripe/webhook` calls the internal `billingWebhooks.applyEvent`, which
+is the only writer of the mirror: idempotent by provider event id,
+out-of-order-safe by `subscriptions.lastEventCreated`, and a completed browser
+checkout is recorded as a receipt but **never** grants entitlement. A daily
+reconciliation job (`billing.reconcileNow` over `lib/billingReconcile.ts`)
+reports entitlement drift with a target of 0; dunning advances on
+`invoice.payment_failed` and the `past_due` → `wind_down` sweep is honest and
+deletes nothing. Separately, `/admin` is a full platform-operator panel
+guarded by `guards.requirePlatformAdmin`; the bootstrap operator
+`julian.s.witkowski@gmail.com` is granted through `lib/platformAdmin.ts` (plus
+`users.isPlatformAdmin`, the legacy `admin` role and `PLATFORM_ADMIN_EMAILS`),
+and every operator write is recorded in `adminAuditLog`. T2.5 is next.
 
 `bun tsc -b --noEmit` is **clean** here. The pack's claim that a clean checkout
 produces 1,067 type errors is a *pre-codegen* measurement: `src/convex/_generated`
@@ -202,6 +234,7 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 
 | Ticket | Status | Evidence |
 |---|---|---|
+| **T2.4** Stripe billing, checkout, portal, webhooks, dunning | ✅ **done** (22 Sep 2026) | `lib/stripe.ts` (REST client + test-mode guard + HMAC-SHA256 signature verification), `lib/billingCatalog.ts` (registry plans → `STRIPE_PRICE_*`, no new tier list), `lib/billingReconcile.ts` (pure drift computation). New tables `billingCustomers` / `subscriptions` / `billingEvents` / `billingReceipts` / `billingInvoices` / `reconciliationRuns` and, for the admin panel, `platformAdmins` / `adminAuditLog`; all registered in `lib/dataRegistry.ts`. `billing.startCheckout` / `billing.openPortal` are org actions that return a URL and write no plan; `POST /api/stripe/webhook` (signature-verified) → internal `billingWebhooks.applyEvent` (idempotent by event id, out-of-order-safe by `lastEventCreated`, a completed checkout alone never grants a plan), the dunning path, the `past_due` → `wind_down` sweep and the daily `billing.reconcileNow` cron. `/admin` (route in `main.tsx`, link in `AppShell`) shows platform stats, Stripe config, the webhook ledger, the reconciliation report, audited plan overrides and operator grant/revoke; `guards.requirePlatformAdmin` resolves the bootstrap operator `julian.s.witkowski@gmail.com` (via `lib/platformAdmin.ts`) plus `users.isPlatformAdmin` / the legacy `admin` role / `PLATFORM_ADMIN_EMAILS`. Proof: `tests/unit/billing.test.ts` (12) — duplicate and out-of-order no-ops, redirect-never-grants, 0-drift reconciliation + drift detection, wind-down, signature/test-mode guards, admin gating, and a regression for a real defect (an invoice arriving before its subscription silently downgraded the customer to `free`; it is now ignored). Owner decisions recorded in §6 #1. See `docs/tickets/T2.4-stripe-billing.md`. |
 | **T2.3** capability registry, per-add-on entitlements | ✅ **done** (22 Sep 2026) | `src/convex/lib/capabilities.ts` — one registry: 8 modules × 5 verbs (34 capabilities), `PLAN_MODULES` (re-exported by `billing.ts`, so the old `assertModule`/tier lists are gone), `ROLE_MODULE_ACTIONS`, the four capability states, a country stub and `CONVEX_FILE_OWNERS`. `guards.ts`: `projectTenant` / `projectCapability` resolve plan × role **for the organization, not the caller**, and `moduleQuery` / `moduleMutation` / `moduleAction` enforce before the handler runs (149 module functions in 31 files). `social/executor.ts` refuses to publish a due post without `promote.publish` and records why with no receipt. UI: `use-module-entitlements.ts` + `entitlements.matrix`/`entitlements.plans` drive the sidebar locks, the `App.tsx` route gate, `Overview` and the `Billing` cards. Gate: `bun run audit:capabilities` (in `bun run check` and CI) fails on an ungated module function, an unclassified file, a public export from a library file and a missing/stale exemption — proven by 6 fixture tests in `tests/unit/audit-gate.test.ts`. Proof of behaviour: `tests/unit/entitlements.test.ts` (26 tests) — generated read axis (8 modules × 4 plans: a downgrade hides rows, an upgrade shows the same rows, nothing is deleted), generated write axis (per module), the plan-locked mutation, the role × action refusal (member vs owner), the job gate, and regressions for three defects (no server enforcement at all; the plan read from the caller instead of the organization, both directions; `entitlements.matrix` answering a foreign caller with an envelope instead of `null`, found by the T2.2 generated suite). Audit: 201 public functions, 194 guarded, 0 inline, exit 0; allow-list still **3** entries, no exemption added. See `docs/tickets/T2.3-capability-registry.md`. |
 | **T2.2** org-scoped function builders, generated cross-tenant tests | ✅ **done** (22 Sep 2026) | `guards.ts` exports `orgQuery` / `orgMutation` / `orgAction` and the `OrgAccess` context (`requireProject` / `ownedProject` / `ownedRow` / `requireOrganization`); `hasProjectAccess` = active membership of the owning organization (owner fallback only for a pre-T2.1 row). All **81** inline `ownerId` checks migrated across 27 modules; `projects.list` is organization-scoped. `eslint.config.js` bans a raw `ctx.db` project lookup outside the data-access layer. Audit: 198 public functions, **191** guarded, **0** inline, 4 self-scoped REVIEW, exit 0 — the script now fails on an unscoped function that names a record, proven by `tests/unit/audit-gate.test.ts` (5 tests). Coverage: `function-registry.ts` + `cross-tenant.fixtures.ts` + `cross-tenant.generated.test.ts` — 198/198 public functions classified, 163 record-scoped ones each exercised by a foreign-organization caller that is verified to share no organization with the owner, asserting nothing written (per-table row counts) and nothing revealed. The suite found two real gaps (`buildChat.editPage`/`planSite`/`generateSite`, `sellAI.generateDescription`), both fixed. No allow-list entry added (still 3). See `docs/tickets/T2.2-org-scoped-function-builders.md`. |
 | **T2.1** organizations, memberships, roles, invitations | ✅ **done** (22 Sep 2026) | New tables `organizations` / `memberships` / `invitations` / `roles` / `agencyClientLinks` plus `projects.organizationId`; role capabilities in `lib/roles.ts`; `guards.requireOrganization` / `requireOrgRole`; module `organizations.ts` with invitations, role administration, last-owner protection and agency links; idempotent `internalMutation` migration; data-registry entries in `lib/dataRegistry.ts`. Proof: `tests/unit/organizations.test.ts` (9 tests) shows a pre-T2.1 project moving under its owner's personal organization on the first run and a no-op on the second, and the owner/admin/member capability matrix. No allow-list entry added; `requireProject` left owner-based (T2.2). See `docs/tickets/T2.1-organizations-memberships-roles-invitations.md`. |
@@ -219,11 +252,11 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 | Lint | **0 errors / 25 warnings (T1.4, 22 Sep 2026; T2.2 added a data-access rule without changing the count).** Baseline re-measured on the current tree at **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`), so the pack's 79/25 was stale. All 82 errors fixed without adding a suppression or weakening `eslint.config.js`; source `eslint-disable` directives went **2 → 1** (only the documented `dal.ts` cascade handle remains). The 25 warnings are 21 Fast-Refresh `only-export-components` in shared modules and 4 generated-file headers — recorded and justified in `docs/tickets/T1.4-zero-lint-errors.md`. `bun run lint` exits 0. **T2.2 (22 Sep 2026)** adds `no-restricted-syntax` for `src/convex/**/*.ts`: a bare `ctx.db.get(projectId)` or `ctx.db.query("projects")` is an error, ignored only for the data-access layer (`guards.ts`, `dal.ts`, `organizations.ts`, `projects.ts`, `billing.ts`, `lib/**`, `_generated/**`), so a feature module cannot authorize a project on its own. 0 errors / 25 warnings still. |
 | Tests / test runner / CI | **Added (T1.5, 22 Sep 2026).** Unit: `vitest.config.ts` + `src/convex/test.setup.ts` + `tests/unit/` (Vitest 5, `convex-test`, `@edge-runtime/vm`). Browser: `playwright.config.ts` + `tests/e2e/` (Playwright + `@axe-core/playwright`). Scripts: `test`, `test:unit`, `test:e2e`, `test:a11y`, `scan:secrets`, `check`. CI: `.github/workflows/ci.yml`, one job per concern (install · codegen · typecheck · lint · unit · security · e2e · a11y). Green on this tree: `bun run check` exit 0; `bun run test:e2e` 13 passed; `bun run test:a11y` **5 passed** (T1.8) — `/`, `/auth` and `/app` with zero serious/critical axe violations and no allow-list, plus a skip-link and a keyboard-only sign-in test. **R1–R12 land in T1.7 (done 22 Sep 2026):**`tests/unit/{phase0-regressions,safe-fetch,deletion-completeness,secret-scan,platform-detach}.test.ts`
 (33 unit tests) and `tests/e2e/{sanitized-html,no-platform-calls}.spec.ts` (3 browser tests).
-**T2.1 added `tests/unit/organizations.test.ts` (9 tests).** **T2.2 added `tests/unit/cross-tenant.generated.test.ts` (165: 163 generated + 2 structural, driven by `function-registry.ts` over every public function), `cross-tenant.fixtures.ts` and `audit-gate.test.ts` (5).** **T2.3 (22 Sep 2026) adds `tests/unit/entitlements.test.ts` (26 — the capability/entitlement suite, generated over the registry) and 6 more cases in `audit-gate.test.ts` for the module-capability gate — 10 files, 246 unit tests total** (245 pass, 1 `it.fails` = R4). Browser: 13 e2e + 5 a11y passed with `--workers=2`. `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
+**T2.1 added `tests/unit/organizations.test.ts` (9 tests).** **T2.2 added `tests/unit/cross-tenant.generated.test.ts` (165: 163 generated + 2 structural, driven by `function-registry.ts` over every public function), `cross-tenant.fixtures.ts` and `audit-gate.test.ts` (5).** **T2.3 (22 Sep 2026) adds `tests/unit/entitlements.test.ts` (26 — the capability/entitlement suite, generated over the registry) and 6 more cases in `audit-gate.test.ts` for the module-capability gate.** **T2.4 (22 Sep 2026) adds `tests/unit/billing.test.ts` (12 — webhook idempotency/ordering, redirect-never-grants, reconciliation drift, wind-down, signature/test-mode guards, admin gating, one defect regression) and the generated cross-tenant suite grows to 171 (169 generated + 2 structural) as the new public functions are covered — 11 files, 263 unit tests total** (262 pass, 1 `it.fails` = R4). Browser: 13 e2e + 5 a11y passed with `--workers=2`. `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
 | Secret scanning | **Wired (T1.5, 22 Sep 2026).** `scripts/scan-secrets.mjs` reads the custom rules from `.gitleaks.toml` and runs inside `bun run check`, so a planted secret fails locally; the CI `security` job also runs gitleaks over full history and the working tree, plus `bun audit --audit-level=high` (now a hard failure, T1.6) and `audit:functions`. The T1.5 ticket quoted a literal dummy `x-api-key` value in its proof table, which the `vly-email-otp-key` rule correctly matched — the doc line was redacted in T1.6 rather than allow-listing `docs/tickets/`. Still open: pre-commit hook and the history purge (owner). |
 | Dependency audit | **Clean (T1.6, 22 Sep 2026).** `bun audit` (and `--audit-level=high`) → **"No vulnerabilities found"**; was 1 critical + 4 high + 8 moderate + 2 low. Fixed: `@convex-dev/auth` 0.0.90 → **0.0.94** (moves the `@auth/core` peer to `^0.41.1`) with `@auth/core` pinned at **0.41.3** (GHSA-7rqj-j65f-68wh critical + GHSA-xmf8-cvqr-rfgj high + GHSA-x445-f3h2-j279 moderate), and a root `overrides` entry forcing `undici` to `^7.19.0`, which removes the vulnerable nested `undici@5.29.0` under `@ai-sdk/provider-utils` (GHSA-vrm6-8vpv-qv8q / GHSA-v9p9-hfj2-hcw8 / GHSA-vxpw-j846-p89q high + moderates/lows) and de-duplicates the tree to one `undici@7.29.1`. The pack's `react-router` (7.18.4) and `hono` (4.13.8) findings are stale — neither is flagged. Rationale, the no-in-range-fix analysis and the override's compensating control are in `docs/tickets/T1.6-vulnerable-dependencies.md`. |
 | Node/bun engines | **Pinned (T1.1):** `engines.node >= 22.12.0`, `engines.bun >= 1.3.0`, `.nvmrc` = `22`. |
-| Authorization audit | `bun run audit:functions` → exit 0. Reports 201 public functions scanned: **194 authorize through a shared guard or the org access object (T2.2/T2.3, up from 106), 0 via an inline `ownerId` check (was 81), and 4 worth a human look** — all four self-scoped with no record argument (see §5). Since T2.2 the script **fails** (exit 1) on a public function that has no sign-in check, that authorizes inline, or that names a record (`v.id(...)`) and never authorizes it; `tests/unit/audit-gate.test.ts` proves each of those exits non-zero against throwaway fixtures. `scripts/public-functions-allowlist.json` is unchanged at 3 entries. (**T2.3, 22 Sep 2026:** the script also recognizes the module builders, so a module function is authorized by the builder that enforces it.) |
+| Authorization audit | `bun run audit:functions` → exit 0. Reports 218 public functions scanned: **212 authorize through a shared guard or the org access object (T2.2/T2.3/T2.4, up from 106), 0 via an inline `ownerId` check (was 81), and 3 worth a human look** — all self-scoped with no record argument (see §5). Since T2.2 the script **fails** (exit 1) on a public function that has no sign-in check, that authorizes inline, or that names a record (`v.id(...)`) and never authorizes it; `tests/unit/audit-gate.test.ts` proves each of those exits non-zero against throwaway fixtures. `scripts/public-functions-allowlist.json` is unchanged at 3 entries. (**T2.3, 22 Sep 2026:** the script also recognizes the module builders, so a module function is authorized by the builder that enforces it.) |
 | Module capability audit | **Added (T2.3, 22 Sep 2026).** `bun run audit:capabilities` → exit 0: **149 module functions scanned, 142 enforce a capability**, 4 documented exemptions (registry, each with a reason), 3 allow-listed anonymous endpoints (the two OAuth callbacks and the public published-CMS read). It **fails** (exit 1) on an ungated module function, a convex file the registry does not classify, an `internal` file that exports a public function, and an exemption that is missing a reason or stale. Runs inside `bun run check` and the CI `security` job; `tests/unit/audit-gate.test.ts` (6 cases) proves each failure mode against throwaway convex trees. The registry (`src/convex/lib/capabilities.ts`) is the only module list — the four copies that existed before (tier list, `AppShell`, `App.tsx`, `Billing.tsx`) are gone. |
 
 ---
@@ -244,15 +277,16 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 
 ## 5. Open items this audit found that the pack does not list
 
-1. **4 public functions authenticate but never authorize** (was 8 before T2.2;
-   `files.getFileUrl`, `projects.list`, `social/copilot.draftVariants` and
-   `social/copilot.suggestSchedule` now authorize through the org access object)
-   — `bun run audit:functions` names them: `ads/copilot.setCopilotModel`,
-   `billing.currentPlan`, `files.generateUploadUrl`, `users.currentUser`. All four
-   are self-scoped and take no record argument (own user row, own plan, an upload
-   URL, an admin-gated setting), which is why T2.2 left them as REVIEW warnings
-   while making "names a record but never authorizes it" a hard failure. Confirm
-   by hand if their shape changes.
+1. **3 public functions authenticate but never authorize** (was 8 before T2.2,
+   4 before T2.4; `files.getFileUrl`, `projects.list`,
+   `social/copilot.draftVariants`, `social/copilot.suggestSchedule` and
+   `ads/copilot.setCopilotModel` now authorize through the org access object or
+   `requirePlatformAdmin`) — `bun run audit:functions` names them:
+   `billing.currentPlan`, `files.generateUploadUrl`, `users.currentUser`. All
+   three are self-scoped and take no record argument (own plan, an upload URL,
+   the current user), which is why T2.2 left them as REVIEW warnings while making
+   "names a record but never authorizes it" a hard failure. Confirm by hand if
+   their shape changes.
 2. ~~81 public functions authorize inline~~ — **fixed in T2.2 (22 Sep 2026):**
    the audit reports **0** inline `ownerId` checks, and the audit now fails on
    the pattern, so a forgotten line is caught in CI rather than shipped.
@@ -285,7 +319,7 @@ These are the pack's open questions, unchanged:
 
 | # | Question | Blocks |
 |---|---|---|
-| 1 | Whose Stripe account receives buyers' payments (connected accounts vs. platform)? | G1, ADR-5, ticket T2.4/E3.4 |
+| 1 | Whose Stripe account receives buyers' payments (connected accounts vs. platform)? | ✅ **Answered (owner, 22 Sep 2026): connected accounts (Stripe Connect)** for the commerce add-on (E3.4); MOSAI's own plan subscriptions bill to the platform account. **Stripe Tax is enabled**; the launch **plans/prices are not final**, so T2.4 ships plan→price as configuration (`STRIPE_PRICE_*`) and treats an unconfigured plan as `needs_setup`. |
 | 2 | Are the exposed email + dotenvx secrets yours to rotate, or issued by the platform? Do you keep the platform for any production service? | T0.1, T0.8, ADR-9 |
 | 3 | Keep "all add-ons on one launch date", or adopt the cut-line rule? | ADR-8 |
 | 4 | Which countries and languages must be polished at launch? Regulated products, marketplaces, B2B pricing in scope? | capability matrix |

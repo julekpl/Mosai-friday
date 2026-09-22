@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
 import type * as ads_adapters from "../ads/adapters.js";
 import type * as ads_control from "../ads/control.js";
 import type * as ads_copilot from "../ads/copilot.js";
@@ -19,6 +20,7 @@ import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as billing from "../billing.js";
+import type * as billingWebhooks from "../billingWebhooks.js";
 import type * as buildChat from "../buildChat.js";
 import type * as buildInternals from "../buildInternals.js";
 import type * as buildPages from "../buildPages.js";
@@ -42,10 +44,14 @@ import type * as guards from "../guards.js";
 import type * as http from "../http.js";
 import type * as insights from "../insights.js";
 import type * as journeys from "../journeys.js";
+import type * as lib_billingCatalog from "../lib/billingCatalog.js";
+import type * as lib_billingReconcile from "../lib/billingReconcile.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_dataRegistry from "../lib/dataRegistry.js";
+import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_safeFetch from "../lib/safeFetch.js";
+import type * as lib_stripe from "../lib/stripe.js";
 import type * as media from "../media.js";
 import type * as organizations from "../organizations.js";
 import type * as personaChat from "../personaChat.js";
@@ -78,6 +84,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
   "ads/adapters": typeof ads_adapters;
   "ads/control": typeof ads_control;
   "ads/copilot": typeof ads_copilot;
@@ -89,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   "auth/emailOtp": typeof auth_emailOtp;
   billing: typeof billing;
+  billingWebhooks: typeof billingWebhooks;
   buildChat: typeof buildChat;
   buildInternals: typeof buildInternals;
   buildPages: typeof buildPages;
@@ -112,10 +120,14 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   insights: typeof insights;
   journeys: typeof journeys;
+  "lib/billingCatalog": typeof lib_billingCatalog;
+  "lib/billingReconcile": typeof lib_billingReconcile;
   "lib/capabilities": typeof lib_capabilities;
   "lib/dataRegistry": typeof lib_dataRegistry;
+  "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/roles": typeof lib_roles;
   "lib/safeFetch": typeof lib_safeFetch;
+  "lib/stripe": typeof lib_stripe;
   media: typeof media;
   organizations: typeof organizations;
   personaChat: typeof personaChat;

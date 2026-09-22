@@ -26,6 +26,7 @@ const AppShellWithProject = lazy(() =>
   import("./pages/App").then((m) => ({ default: m.AppShellWithProject })),
 );
 const Billing = lazy(() => import("./pages/app/Billing.tsx"));
+const AdminPanel = lazy(() => import("./pages/admin/AdminPanel.tsx"));
 const AppIndex = lazy(() => import("./pages/AppIndex.tsx"));
 const Storefront = lazy(() => import("./components/storefront/StorefrontApp.tsx"));
 
@@ -164,6 +165,14 @@ createRoot(document.getElementById("root")!).render(
                     <AppShellWithProject>
                       <Billing />
                     </AppShellWithProject>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <RequireAuth>
+                    <AdminPanel />
                   </RequireAuth>
                 }
               />

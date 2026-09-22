@@ -475,6 +475,8 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   files: "base",
   users: "base",
   billing: "base",
+  billingWebhooks: "base",
+  admin: "base",
   organizations: "base",
   http: "base",
   crons: "base",
@@ -509,6 +511,10 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/roles": "internal",
   "lib/safeFetch": "internal",
   "lib/capabilities": "internal",
+  "lib/platformAdmin": "internal",
+  "lib/stripe": "internal",
+  "lib/billingCatalog": "internal",
+  "lib/billingReconcile": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {
