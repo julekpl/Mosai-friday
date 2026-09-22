@@ -10,5 +10,7 @@
 node_modules
 dist
 
-# Convex codegen output (ticket T1.2 decides whether to commit this instead).
-src/convex/_generated
+# src/convex/_generated is COMMITTED (ticket T1.2, decided 22 Sep 2026).
+# Convex's own guidance is to check the bindings in so the project typechecks
+# and runs without first running `convex dev`. Do not add it back here; the
+# `bun run check:codegen` drift check keeps it honest.

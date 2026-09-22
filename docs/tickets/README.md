@@ -33,7 +33,7 @@ check — not when the code merely looks finished (`AGENTS.md` §6).
 | Phase | Tickets | Files | Gate |
 |---|---|---|---|
 | 0 | T0.1–T0.10 | 🔒 closed (code); four owner actions outstanding | G-P0 |
-| 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2–T1.8 not started | G-P1 |
+| 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2 ✅ done · T1.3–T1.8 not started | G-P1 |
 | 2 | T2.1–T2.16 | create when reached | G-P2 |
 | 3 | E3.1–E3.10 | create when reached | per add-on |
 

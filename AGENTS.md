@@ -59,6 +59,8 @@ pinned to Node 22 in `package.json` `engines` and `.nvmrc`.
 bun install               # install from bun.lock (`bun install --frozen-lockfile` in CI)
 bun convex dev --once     # Convex codegen — run after ANY change under src/convex/
 bun tsc -b --noEmit       # typecheck
+bun run codegen           # regenerate src/convex/_generated with `convex codegen`
+bun run check:codegen     # fail if the committed bindings have drifted (T1.2)
 bun run lint              # eslint
 bun run audit:functions   # public-function authorization audit (must exit 0)
 
@@ -69,7 +71,12 @@ bun run audit:functions   # public-function authorization audit (must exit 0)
 
 The hosting platform re-runs codegen and `tsc -b --noEmit` after every agent
 turn, so a type error blocks the next step. `src/convex/_generated` is
-git-ignored today (ticket T1.2 decides whether to commit it).
+**committed** (ticket T1.2, 22 Sep 2026), per Convex's own guidance, so a fresh
+clone typechecks and runs without first running `convex dev`. `bun run
+check:codegen` regenerates the bindings with `convex codegen` and fails if the
+committed copy has drifted. Never hand-edit anything under
+`src/convex/_generated/` — a type error there is a bug in `convex/`, not in the
+generated output.
 
 `bun run audit:functions` scans every public Convex function for an ownership
 guard and fails on any function that neither authenticates nor is listed in

@@ -1,0 +1,161 @@
+/* eslint-disable */
+/**
+ * Generated `api` utility.
+ *
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
+ */
+
+import type * as ads_adapters from "../ads/adapters.js";
+import type * as ads_control from "../ads/control.js";
+import type * as ads_copilot from "../ads/copilot.js";
+import type * as ads_credentials from "../ads/credentials.js";
+import type * as ads_oauth from "../ads/oauth.js";
+import type * as ads_platforms from "../ads/platforms.js";
+import type * as ads_sync from "../ads/sync.js";
+import type * as ai from "../ai.js";
+import type * as auth from "../auth.js";
+import type * as auth_emailOtp from "../auth/emailOtp.js";
+import type * as billing from "../billing.js";
+import type * as buildChat from "../buildChat.js";
+import type * as buildInternals from "../buildInternals.js";
+import type * as buildPages from "../buildPages.js";
+import type * as buildPlan from "../buildPlan.js";
+import type * as buildWorkspace from "../buildWorkspace.js";
+import type * as builds from "../builds.js";
+import type * as campaigns from "../campaigns.js";
+import type * as cms from "../cms.js";
+import type * as collections from "../collections.js";
+import type * as commerceEvents from "../commerceEvents.js";
+import type * as communications from "../communications.js";
+import type * as connections from "../connections.js";
+import type * as contacts from "../contacts.js";
+import type * as content from "../content.js";
+import type * as contentPlanning from "../contentPlanning.js";
+import type * as crons from "../crons.js";
+import type * as dal from "../dal.js";
+import type * as files from "../files.js";
+import type * as guards from "../guards.js";
+import type * as http from "../http.js";
+import type * as insights from "../insights.js";
+import type * as journeys from "../journeys.js";
+import type * as lib_safeFetch from "../lib/safeFetch.js";
+import type * as media from "../media.js";
+import type * as personaChat from "../personaChat.js";
+import type * as personas from "../personas.js";
+import type * as posts from "../posts.js";
+import type * as products from "../products.js";
+import type * as projects from "../projects.js";
+import type * as research from "../research.js";
+import type * as scraping from "../scraping.js";
+import type * as sell_feed from "../sell/feed.js";
+import type * as sell_queries from "../sell/queries.js";
+import type * as sell_readiness from "../sell/readiness.js";
+import type * as sellAI from "../sellAI.js";
+import type * as shopifySync from "../shopifySync.js";
+import type * as social_adapters from "../social/adapters.js";
+import type * as social_copilot from "../social/copilot.js";
+import type * as social_copilotData from "../social/copilotData.js";
+import type * as social_credentials from "../social/credentials.js";
+import type * as social_executor from "../social/executor.js";
+import type * as social_oauth from "../social/oauth.js";
+import type * as social_platforms from "../social/platforms.js";
+import type * as storefront from "../storefront.js";
+import type * as users from "../users.js";
+import type * as variants from "../variants.js";
+
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
+declare const fullApi: ApiFromModules<{
+  "ads/adapters": typeof ads_adapters;
+  "ads/control": typeof ads_control;
+  "ads/copilot": typeof ads_copilot;
+  "ads/credentials": typeof ads_credentials;
+  "ads/oauth": typeof ads_oauth;
+  "ads/platforms": typeof ads_platforms;
+  "ads/sync": typeof ads_sync;
+  ai: typeof ai;
+  auth: typeof auth;
+  "auth/emailOtp": typeof auth_emailOtp;
+  billing: typeof billing;
+  buildChat: typeof buildChat;
+  buildInternals: typeof buildInternals;
+  buildPages: typeof buildPages;
+  buildPlan: typeof buildPlan;
+  buildWorkspace: typeof buildWorkspace;
+  builds: typeof builds;
+  campaigns: typeof campaigns;
+  cms: typeof cms;
+  collections: typeof collections;
+  commerceEvents: typeof commerceEvents;
+  communications: typeof communications;
+  connections: typeof connections;
+  contacts: typeof contacts;
+  content: typeof content;
+  contentPlanning: typeof contentPlanning;
+  crons: typeof crons;
+  dal: typeof dal;
+  files: typeof files;
+  guards: typeof guards;
+  http: typeof http;
+  insights: typeof insights;
+  journeys: typeof journeys;
+  "lib/safeFetch": typeof lib_safeFetch;
+  media: typeof media;
+  personaChat: typeof personaChat;
+  personas: typeof personas;
+  posts: typeof posts;
+  products: typeof products;
+  projects: typeof projects;
+  research: typeof research;
+  scraping: typeof scraping;
+  "sell/feed": typeof sell_feed;
+  "sell/queries": typeof sell_queries;
+  "sell/readiness": typeof sell_readiness;
+  sellAI: typeof sellAI;
+  shopifySync: typeof shopifySync;
+  "social/adapters": typeof social_adapters;
+  "social/copilot": typeof social_copilot;
+  "social/copilotData": typeof social_copilotData;
+  "social/credentials": typeof social_credentials;
+  "social/executor": typeof social_executor;
+  "social/oauth": typeof social_oauth;
+  "social/platforms": typeof social_platforms;
+  storefront: typeof storefront;
+  users: typeof users;
+  variants: typeof variants;
+}>;
+
+/**
+ * A utility for referencing Convex functions in your app's public API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
+export declare const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+>;
+
+/**
+ * A utility for referencing Convex functions in your app's internal API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = internal.myModule.myFunction;
+ * ```
+ */
+export declare const internal: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "internal">
+>;
+
+export declare const components: {};

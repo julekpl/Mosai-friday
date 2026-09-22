@@ -6,6 +6,9 @@ the changes listed below). **Method:** read the code, ran
 `bun run audit:functions` (exit 0). **Updated the same day by T1.1:** the
 package-manager question is decided (bun) and recorded in §6; the §3 rows for the
 lockfile, the Tiptap peer conflict and the runtime pin now reflect the fix.
+**Updated the same day by T1.2:** the Convex codegen strategy is decided —
+`src/convex/_generated` is committed with a `bun run check:codegen` drift check;
+the §3 codegen row reflects it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -23,8 +26,9 @@ decision, not code.
 `bun tsc -b --noEmit` is **clean** here. The pack's claim that a clean checkout
 produces 1,067 type errors is a *pre-codegen* measurement: `src/convex/_generated`
 is git-ignored, so the errors appear only when the generated types are absent.
-With codegen present, type health is good. Ticket T1.2 is what makes this
-reproducible.
+With codegen present, type health is good. Ticket T1.2 (done 22 Sep 2026) makes
+this reproducible: `src/convex/_generated` is no longer git-ignored, so a fresh
+clone typechecks from the committed bindings with no Convex credentials.
 
 ---
 
@@ -73,7 +77,7 @@ exactly Phase 1.
 | Package manager | **bun is authoritative (T1.1, 22 Sep 2026).** `package-lock.json` is deleted; `bun.lock` is the only lockfile and was regenerated from a clean `node_modules`. `rm -rf node_modules && bun install --frozen-lockfile` exits 0 with no peer warnings. |
 | Tiptap peer conflict | **Resolved (T1.1).** `@tiptap/extension-collaboration-cursor@^2.26.2` was not imported anywhere in `src/` (the only collaboration import is `@tiptap/extension-collaboration`, in `src/components/app/ContentEditor.tsx`) and has been removed; the lockfile no longer contains it. |
 | Typecheck | `bun tsc -b --noEmit` → **exit 0** (with codegen present; re-verified after T1.1). |
-| Convex codegen | `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
+| Convex codegen | **Committed (T1.2, 22 Sep 2026).** `src/convex/_generated` is no longer git-ignored; `convex codegen` output is deterministic (regenerating leaves the 5 files byte-identical). `bun run check:codegen` regenerates with `convex codegen` and fails on drift (`git diff --exit-code`); `bun run codegen` regenerates by hand. `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
 | Lint | **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`). Measured during T1.1, which touched no source file; the pack's 79 was a different tree. T1.4 re-measures and owns the fixes. |
 | Tests / test runner / CI | **None.** `package.json` has no test script; no `.github/workflows`. |
 | Secret scanning | `.gitleaks.toml` exists; no CI job, no pre-commit hook, gitleaks not installed. |
