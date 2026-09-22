@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 import {
   ArrowRight,
   Blocks,
@@ -18,78 +17,260 @@ import {
   moduleTileText,
 } from "@/components/mosaic";
 import { SkipLink } from "@/components/SkipLink";
+import { StatusBadge } from "@/components/app/module-kit";
 import { cn } from "@/lib/utils";
 
-const modules = [
-  { icon: Search, id: "understand", name: "understand", detail: "Personas, buyer profiles, journeys, evidence" },
-  { icon: PenTool, id: "create", name: "create", detail: "Gaps, topics, briefs, content generation" },
-  { icon: Blocks, id: "build", name: "build", detail: "Websites & apps generated with SEO/GEO/WCAG checks" },
-  { icon: Users, id: "customers", name: "customers", detail: "CRM, consent, segments, mailing automations" },
-  { icon: Megaphone, id: "promote", name: "promote", detail: "Campaigns, email, social, ads planning & execution" },
-  { icon: ShoppingBag, id: "sell", name: "sell", detail: "Commerce, product feeds, billing/subscription" },
-  { icon: TrendingUp, id: "grow", name: "grow", detail: "Analytics, insights, recommendations — sourced & dated" },
-];
+/* ── The seven components, described as customer tasks ────────────────── */
 
-const bootLines = [
-  { time: "00:00.12", text: "project.spine .......... loaded", ok: true },
-  { time: "00:00.48", text: "personas.evidence ...... ready", ok: true },
-  { time: "00:00.73", text: "content.briefs ......... linked", ok: true },
-  { time: "00:01.05", text: "connections ............ ga4 · gsc · gads · meta", ok: true },
-  { time: "00:01.31", text: "a11y.contrast .......... wcag 2.2 AA", ok: true },
-  { time: "00:01.62", text: "modules ................ 7 ready", ok: true },
-];
+const components = [
+  {
+    icon: Search,
+    id: "understand",
+    name: "Understand",
+    task: "Know who you're selling to.",
+    detail:
+      "Write down your audiences — their goals, their frustrations, the evidence — so every later decision has somewhere to start.",
+  },
+  {
+    icon: PenTool,
+    id: "create",
+    name: "Create",
+    task: "Make something worth reading.",
+    detail:
+      "Draft posts, pages and emails grounded in what you know about your audience — then edit every word before you save it.",
+  },
+  {
+    icon: Blocks,
+    id: "build",
+    name: "Build",
+    task: "Make a place for your business.",
+    detail:
+      "Plan and build a website page by page, with your positioning and your audience in view the whole way.",
+  },
+  {
+    icon: Users,
+    id: "customers",
+    name: "Customers",
+    task: "Keep your people close.",
+    detail:
+      "Contacts, company details and marketing consent in one list you own — consent is checked before anything sends.",
+  },
+  {
+    icon: Megaphone,
+    id: "promote",
+    name: "Promote",
+    task: "Get your next message ready.",
+    detail:
+      "Prepare posts and campaigns, review them, and connect your own accounts when you're ready to share.",
+  },
+  {
+    icon: ShoppingBag,
+    id: "sell",
+    name: "Sell",
+    task: "Bring your products together.",
+    detail:
+      "Names, prices and availability in one catalog, checked for readiness before anything goes live.",
+  },
+  {
+    icon: TrendingUp,
+    id: "grow",
+    name: "Grow",
+    task: "See what's working.",
+    detail:
+      "Insights that keep their source and their date — no blended scores, no charts drawn from nothing.",
+  },
+] as const;
 
-/** Types out the boot log line by line on mount, then loops. */
-function useTypewriter() {
-  const [visible, setVisible] = useState(0);
-  const [chars, setChars] = useState(0);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+/* ── Small demonstration: one believable task, labelled as an example ─── */
 
-  useEffect(() => {
-    const CHAR_MS = 9;
-    const LINE_PAUSE = 110;
-    const RESET_PAUSE = 2600;
-    let line = 0;
-    let char = 0;
-    let cancelled = false;
+const demoSteps = [
+  {
+    label: "Tell MOSAI about your business",
+    caption: "What you sell, who buys it, where you sell it.",
+  },
+  {
+    label: "Choose an audience",
+    caption: "A person you're writing for, with goals and pains.",
+  },
+  {
+    label: "Draft an announcement",
+    caption: "Ask for the work; get an editable draft back.",
+  },
+  {
+    label: "Review and save",
+    caption: "You decide what's good, and what leaves the workspace.",
+  },
+] as const;
 
-    const tick = () => {
-      if (cancelled) return;
-      const text = bootLines[line]?.text ?? "";
-      if (char <= text.length) {
-        setVisible(line);
-        setChars(char);
-        char += 1;
-        timer.current = setTimeout(tick, CHAR_MS);
-      } else {
-        if (line < bootLines.length - 1) {
-          line += 1;
-          char = 0;
-          timer.current = setTimeout(tick, LINE_PAUSE);
-        } else {
-          timer.current = setTimeout(() => {
-            line = 0;
-            char = 0;
-            setVisible(0);
-            setChars(0);
-            tick();
-          }, RESET_PAUSE);
-        }
-      }
-    };
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
-
-  return { visible, chars };
+function DemoPanel({ step }: { step: number }) {
+  if (step === 0) {
+    return (
+      <div className="grid gap-3">
+        <p className="font-mono text-caption text-muted-foreground">
+          business details
+        </p>
+        <p className="font-mono text-small font-medium">
+          Hearth — a neighbourhood bakery
+        </p>
+        <p className="font-mono text-caption text-muted-foreground">
+          sourdough, pastries and weekend classes · Berlin · sells in-store and
+          through a small web shop
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {["weekend classes", "sourdough", "in-store + web"].map((t) => (
+            <span
+              key={t}
+              className="rounded-full border border-terminal-green/40 bg-terminal-green-soft px-2.5 py-0.5 font-mono text-caption text-terminal-green"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (step === 1) {
+    return (
+      <div className="grid gap-3">
+        <p className="font-mono text-caption text-muted-foreground">
+          audience
+        </p>
+        <p className="font-mono text-small font-medium">
+          Weekend regulars — families &amp; freelancers
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded-md border bg-muted/40 p-3">
+            <p className="font-mono text-caption text-terminal-green">goals</p>
+            <p className="mt-1 font-mono text-caption">
+              a reliable Saturday treat · learning to bake at home
+            </p>
+          </div>
+          <div className="rounded-md border bg-muted/40 p-3">
+            <p className="font-mono text-caption text-terminal-amber">
+              frustrations
+            </p>
+            <p className="mt-1 font-mono text-caption">
+              classes sell out · unclear opening hours
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (step === 2) {
+    return (
+      <div className="grid gap-3">
+        <p className="font-mono text-caption text-muted-foreground">
+          draft · not yet saved
+        </p>
+        <div className="rounded-md border bg-card p-4 shadow-card">
+          <p className="font-mono text-small font-medium">
+            New: Saturday sourdough class
+          </p>
+          <p className="mt-1.5 font-mono text-caption text-muted-foreground">
+            Ever wanted to shape a loaf of your own? Join us Saturdays from 9 —
+            a small group, one batch of dough, and a loaf to take home. Spaces
+            are limited to eight bakers per class.
+          </p>
+        </div>
+        <p className="font-mono text-caption text-muted-foreground">
+          Written from your business details and the audience you picked — the
+          tone and length are settings you can change.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-3">
+      <p className="font-mono text-caption text-muted-foreground">
+        after review
+      </p>
+      <div className="rounded-md border bg-card p-4 shadow-card">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-mono text-small font-medium">
+            New: Saturday sourdough class
+          </p>
+          <StatusBadge status="draft" />
+        </div>
+        <p className="mt-1.5 font-mono text-caption text-muted-foreground">
+          You trimmed one sentence, liked the rest, and saved it. It sits in
+          your drafts until you decide to use it.
+        </p>
+      </div>
+      <p className="font-mono text-caption text-muted-foreground">
+        Saving is not publishing. Sharing happens only when you connect an
+        account and press the button yourself.
+      </p>
+    </div>
+  );
 }
 
-export default function Landing() {
-  const { visible, chars } = useTypewriter();
+function Demo() {
+  const [step, setStep] = useState(0);
+  return (
+    <div className="overflow-hidden rounded-md border bg-card shadow-card">
+      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/60 px-3 py-1.5">
+        <span className="size-2 rounded-full bg-terminal-green" />
+        <span className="font-mono text-caption text-muted-foreground">
+          example workspace — a fictional bakery, shown for illustration
+        </span>
+      </div>
+      <div className="grid gap-0 md:grid-cols-[minmax(0,14rem)_1fr]">
+        <ol className="border-b md:border-b-0 md:border-r">
+          {demoSteps.map((s, i) => (
+            <li key={s.label}>
+              <button
+                type="button"
+                aria-current={step === i ? "step" : undefined}
+                onClick={() => setStep(i)}
+                className={cn(
+                  "flex w-full items-start gap-2.5 border-b px-4 py-3 text-left transition-colors duration-150 ease-terminal last:border-b-0 md:border-b-0 md:border-t",
+                  step === i
+                    ? "bg-terminal-green-soft"
+                    : "hover:bg-accent focus-visible:bg-accent",
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[3px] font-mono text-caption transition-colors duration-150",
+                    step === i
+                      ? "bg-terminal-green text-background"
+                      : "border text-muted-foreground",
+                  )}
+                  aria-hidden
+                >
+                  {i + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-mono text-small font-medium">
+                    {s.label}
+                  </span>
+                  <span className="mt-0.5 block font-mono text-caption text-muted-foreground">
+                    {s.caption}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        <div className="min-w-0 p-4 sm:p-5">
+          <DemoPanel step={step} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
+/* ── Page ─────────────────────────────────────────────────────────────── */
+
+const navLinks = [
+  { href: "#demo", label: "See it work" },
+  { href: "#how", label: "How it works" },
+  { href: "#components", label: "What you can do" },
+  { href: "#control", label: "Your control" },
+] as const;
+
+export default function Landing() {
   return (
     <div className="min-h-screen overflow-x-clip bg-background">
       <SkipLink />
@@ -105,209 +286,311 @@ export default function Landing() {
               mosai
             </span>
           </a>
-          <span className="hidden font-mono text-caption text-muted-foreground md:block">
-            understand · create · build · customers · promote · sell · grow
-          </span>
+          <nav aria-label="Page sections" className="hidden md:block">
+            <ul className="ml-4 flex items-center gap-5">
+              {navLinks.map((l) => (
+                <li key={l.href}>
+                  <a
+                    href={l.href}
+                    className="font-mono text-caption text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
           <div className="ml-auto flex items-center gap-2">
             <Button asChild size="sm" variant="ghost">
-              <a href="/auth">sign in</a>
+              <a href="/auth">Sign in</a>
             </Button>
             <Button asChild size="sm">
-              <a href="/auth">start free</a>
+              <a href="/auth">Create your workspace</a>
             </Button>
           </div>
         </div>
       </header>
 
       <main id="main-content" tabIndex={-1}>
-      {/* Hero */}
-      <section className="relative overflow-hidden border-b bg-grid">
-        <FloatingTiles />
-        <div className="relative mx-auto max-w-6xl px-4 py-20 sm:px-6 md:py-28">
-          <p className="animate-mosaic-in font-mono text-caption text-terminal-green">
-            ▸ mosai.init(project="yours") — ok
-          </p>
-          <h1 className="animate-mosaic-in mt-5 max-w-3xl font-mono text-display" style={{ animationDelay: "80ms" }}>
-            One workspace from
-            <br />
-            persona to revenue
-            <span className="animate-caret text-terminal-green">▌</span>
-          </h1>
-          <p
-            className="animate-mosaic-in mt-4 max-w-2xl font-mono text-body text-muted-foreground"
-            style={{ animationDelay: "160ms" }}
-          >
-            mosai connects the whole loop: understand your buyers, create the
-            content, build the website or app, run campaigns, sell, and grow —
-            each module works alone or together, on the plan you choose.
-          </p>
-          <div
-            className="animate-mosaic-in mt-8 flex flex-wrap items-center gap-3"
-            style={{ animationDelay: "240ms" }}
-          >
-            <Button asChild size="lg" className="shadow-pop transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:scale-[1.02] active:translate-y-0 active:scale-95">
-              <a href="/auth">
-                Create your first project
-                <ArrowRight className="size-4 transition-transform ease-mosaic group-hover:translate-x-0.5" />
-              </a>
-            </Button>
-            <Button asChild size="lg" variant="outline" className="transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:border-terminal-green/50 active:translate-y-0 active:scale-95">
-              <a href="#modules">See the modules</a>
-            </Button>
-          </div>
-          <div
-            className="animate-mosaic-in mt-6 flex flex-wrap items-center gap-2 font-mono text-caption text-muted-foreground"
-            style={{ animationDelay: "320ms" }}
-          >
-            <Kbd>tokens</Kbd>
-            <Kbd>states</Kbd>
-            <Kbd>motion</Kbd>
-            <Kbd>a11y</Kbd>
-            <span>— every section documented live</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Boot sequence */}
-      <section className="border-b bg-dots">
-        <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
-          <Reveal>
-            <div className="overflow-hidden rounded-md border bg-card shadow-card">
-              <div className="flex items-center gap-2 border-b bg-muted/60 px-3 py-1.5">
-                <span className="size-2 rounded-full bg-terminal-green" />
-                <span className="font-mono text-caption text-muted-foreground">
-                  boot.log — phase 1
-                </span>
-                <span className="ml-auto font-mono text-caption text-muted-foreground/60">
-                  replay in a moment…
-                </span>
-              </div>
-              <div className="min-h-[196px] p-4 font-mono text-small">
-                {bootLines.map((l, i) => {
-                  const isActive = i === visible;
-                  const isDone = i < visible;
-                  if (!isActive && !isDone) return null;
-                  const shown = isActive ? l.text.slice(0, chars) : l.text;
-                  return (
-                    <div key={l.time} className="flex items-baseline gap-3 py-0.5">
-                      <span className="shrink-0 text-muted-foreground">{l.time}</span>
-                      <span className="min-w-0 truncate">{shown}</span>
-                      {isDone && (
-                        <span className="ml-auto shrink-0 text-terminal-green">[ok]</span>
-                      )}
-                      {isActive && chars >= l.text.length && (
-                        <span className="ml-auto shrink-0 text-terminal-green">[ok]</span>
-                      )}
-                      <span className="w-6 shrink-0" />
-                    </div>
-                  );
-                })}
-                <div className="flex items-baseline gap-3 pt-1 text-terminal-green">
-                  <span>▸</span>
-                  <span className="animate-caret">▌</span>
-                </div>
-              </div>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* Modules */}
-      <section id="modules" className="border-b">
-        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-          <Reveal>
-            <p className="font-mono text-caption text-terminal-green">▸ seven modules, one spine</p>
-            <h2 className="mt-2 font-mono text-h1">Work together or separately</h2>
-            <p className="mt-2 max-w-2xl font-mono text-small text-muted-foreground">
-              Every project is the container: business details, channels,
-              competitors, goals and KPIs, plus GA4, Search Console and social
-              connections. Modules read from that same spine — pick only the
-              ones your plan needs.
+        {/* Hero — direction B: the product, plainly explained */}
+        <section className="relative overflow-hidden border-b bg-grid">
+          <FloatingTiles />
+          <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
+            <p className="animate-mosaic-in font-mono text-caption text-terminal-green">
+              ▸ mosai — one marketing workspace for a small business
             </p>
-          </Reveal>
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {modules.map((m, i) => (
-              <Reveal key={m.name} delay={i * 60}>
-                <div
-                  className={cn(
-                    "group h-full rounded-md border bg-card p-4 shadow-card transition-all duration-300 ease-mosaic",
-                    "hover:-translate-y-1 hover:rotate-[-0.4deg] hover:scale-[1.02] hover:shadow-pop",
-                    "hover:border-terminal-green/40",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "grid size-9 place-items-center rounded-md transition-transform duration-300 ease-mosaic",
-                      "group-hover:scale-110 group-hover:-rotate-6",
-                    )}
-                  >
-                    <m.icon className={cn("size-5", moduleTileText(m.id))} />
-                  </span>
-                  <p className="mt-3 font-mono text-small font-medium">{m.name}</p>
-                  <p className="mt-1 font-mono text-caption text-muted-foreground">
-                    {m.detail}
-                  </p>
-                </div>
-              </Reveal>
-            ))}
+            <h1
+              className="animate-mosaic-in mt-5 max-w-3xl font-mono text-display"
+              style={{ animationDelay: "80ms" }}
+            >
+              Your marketing,
+              <br />
+              coming together.
+            </h1>
+            <p
+              className="animate-mosaic-in mt-5 max-w-2xl font-mono text-body text-muted-foreground"
+              style={{ animationDelay: "160ms" }}
+            >
+              Understand your audience, make the content, and organize your next
+              move — with what you know about your business close at hand. AI
+              does the first pass; you review, edit and save the work.
+            </p>
+            <div
+              className="animate-mosaic-in mt-8 flex flex-wrap items-center gap-3"
+              style={{ animationDelay: "240ms" }}
+            >
+              <Button
+                asChild
+                size="lg"
+                className="shadow-pop transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:scale-[1.02] active:translate-y-0 active:scale-95"
+              >
+                <a href="/auth">
+                  Create your workspace
+                  <ArrowRight className="size-4" />
+                </a>
+              </Button>
+              <Button
+                asChild
+                size="lg"
+                variant="outline"
+                className="transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:border-terminal-green/50 active:translate-y-0 active:scale-95"
+              >
+                <a href="#demo">See how it works</a>
+              </Button>
+            </div>
+            <p
+              className="animate-mosaic-in mt-5 max-w-2xl font-mono text-caption text-muted-foreground"
+              style={{ animationDelay: "320ms" }}
+            >
+              Sign in with an email code to begin. New workspaces start on the
+              free plan — Understand, Journeys and Create — and you can add the
+              rest as you grow.
+            </p>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* CTA */}
-      <section className="relative overflow-hidden bg-scanlines">
-        <FloatingTiles className="opacity-70" />
-        <div className="relative mx-auto max-w-6xl px-4 py-16 text-center sm:px-6">
-          <Reveal>
-            <div className="mx-auto mb-4 flex justify-center gap-1">
-              {(
-                [
-                  "bg-tile-teal",
-                  "bg-tile-coral",
-                  "bg-tile-violet",
-                  "bg-tile-lime",
-                ] as const
-              ).map((tile, i) => (
-                <span
-                  key={tile}
-                  className="animate-mosaic-pop size-4 rounded-[3px] shadow-hairline"
-                  style={{ animationDelay: `${i * 110}ms` }}
-                >
-                  <span className={cn("block size-full rounded-[3px]", tile)} />
-                </span>
+        {/* Demonstration */}
+        <section id="demo" className="border-b bg-dots">
+          <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+            <Reveal>
+              <p className="font-mono text-caption text-terminal-green">
+                ▸ one task, start to finish
+              </p>
+              <h2 className="mt-2 font-mono text-h1">
+                Something useful happens quickly
+              </h2>
+              <p className="mt-2 max-w-2xl font-mono text-small text-muted-foreground">
+                A bakery owner tells MOSAI what the business is, picks who
+                they're writing for, asks for an announcement, and reviews the
+                draft. Click through the steps — this is example content, not a
+                real account.
+              </p>
+            </Reveal>
+            <Reveal delay={80}>
+              <div className="mt-6">
+                <Demo />
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section id="how" className="border-b">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+            <Reveal>
+              <p className="font-mono text-caption text-terminal-green">
+                ▸ how it works
+              </p>
+              <h2 className="mt-2 font-mono text-h1">
+                Context first, then work you can review
+              </h2>
+            </Reveal>
+            <ol className="mt-8 grid gap-3 md:grid-cols-3">
+              {[
+                {
+                  n: "1",
+                  title: "Add your business context",
+                  body: "What you sell, who buys it, where you sell it. One project holds it, and every component reads from it.",
+                },
+                {
+                  n: "2",
+                  title: "Ask for the work",
+                  body: "A post, a page, a plan, a product listing. AI drafts it from that context instead of from nothing.",
+                },
+                {
+                  n: "3",
+                  title: "Review, edit and save",
+                  body: "Every AI result arrives as an editable draft. You decide what's good — and nothing is shared until you say so.",
+                },
+              ].map((s, i) => (
+                <Reveal key={s.n} delay={i * 70}>
+                  <li className="h-full rounded-md border bg-card p-5 shadow-card">
+                    <span className="grid size-7 place-items-center rounded-[3px] bg-terminal-green font-mono text-caption text-background">
+                      {s.n}
+                    </span>
+                    <p className="mt-3 font-mono text-small font-medium">
+                      {s.title}
+                    </p>
+                    <p className="mt-1.5 font-mono text-caption text-muted-foreground">
+                      {s.body}
+                    </p>
+                  </li>
+                </Reveal>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* The seven components */}
+        <section id="components" className="border-b bg-dots">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+            <Reveal>
+              <p className="font-mono text-caption text-terminal-green">
+                ▸ what you can do
+              </p>
+              <h2 className="mt-2 font-mono text-h1">Seven components</h2>
+              <p className="mt-2 max-w-2xl font-mono text-small text-muted-foreground">
+                Each one is useful on its own and better when the others are
+                there. Your plan decides which are active — the sidebar always
+                tells you.
+              </p>
+            </Reveal>
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {components.map((m, i) => (
+                <Reveal key={m.name} delay={i * 60}>
+                  <article className="group h-full rounded-md border bg-card p-4 shadow-card transition-all duration-300 ease-mosaic hover:-translate-y-1 hover:rotate-[-0.4deg] hover:scale-[1.02] hover:border-terminal-green/40 hover:shadow-pop">
+                    <span
+                      className={cn(
+                        "grid size-9 place-items-center rounded-md transition-transform duration-300 ease-mosaic",
+                        "group-hover:scale-110 group-hover:-rotate-6",
+                      )}
+                    >
+                      <m.icon className={cn("size-5", moduleTileText(m.id))} />
+                    </span>
+                    <p className="mt-3 font-mono text-small font-semibold">
+                      {m.name} <span className="text-muted-foreground">— </span>
+                      {m.task}
+                    </p>
+                    <p className="mt-1.5 font-mono text-caption text-muted-foreground">
+                      {m.detail}
+                    </p>
+                  </article>
+                </Reveal>
               ))}
             </div>
-            <h2 className="font-mono text-h1">Start with a project</h2>
-            <p className="mx-auto mt-2 max-w-xl font-mono text-small text-muted-foreground">
-              Free plan includes Understand and Create. Connect GA4 and Search
-              Console, build a persona, generate your first content brief — then
-              add modules as you grow.
-            </p>
-            <Button
-              asChild
-              size="lg"
-              className="mt-6 shadow-pop transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:scale-[1.03] active:translate-y-0 active:scale-95"
-            >
-              <a href="/auth">
-                Create your first project
-                <ArrowRight className="size-4" />
-              </a>
-            </Button>
-            <p className="mt-4 font-mono text-caption text-muted-foreground">
-              every tile above is a module — place yours.
-            </p>
-          </Reveal>
-        </div>
-      </section>
+            <Reveal delay={120}>
+              <p className="mt-4 font-mono text-caption text-muted-foreground">
+                Journeys — the steps your customers actually take — sits next to
+                Understand in every workspace, and feeds Create and Build.
+              </p>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* Control and trust */}
+        <section id="control" className="border-b">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+            <Reveal>
+              <p className="font-mono text-caption text-terminal-green">
+                ▸ your control
+              </p>
+              <h2 className="mt-2 font-mono text-h1">
+                Nothing is live unless you made it live
+              </h2>
+            </Reveal>
+            <div className="mt-8 grid gap-3 md:grid-cols-3">
+              {[
+                {
+                  title: "Drafts stay drafts",
+                  body: "Saving is saving. Publishing is a separate, reviewed step — and a page only shows as published when the system actually published it.",
+                },
+                {
+                  title: "You hold the pen",
+                  body: "AI writes the first version; you edit every word. Tone, audience and length are visible settings, not hidden magic.",
+                },
+                {
+                  title: "Connect only what you choose",
+                  body: "Sharing to social accounts requires connecting them first, with your own login. Marketing consent is stored per contact and checked before any send.",
+                },
+              ].map((c, i) => (
+                <Reveal key={c.title} delay={i * 70}>
+                  <div className="h-full rounded-md border bg-card p-5 shadow-card">
+                    <p className="font-mono text-small font-medium">
+                      {c.title}
+                    </p>
+                    <p className="mt-1.5 font-mono text-caption text-muted-foreground">
+                      {c.body}
+                    </p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+            <Reveal delay={140}>
+              <p className="mt-4 font-mono text-caption text-muted-foreground">
+                Your project is exportable as a readable pack at any time —
+                context, personas and content in one file.
+              </p>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* Final action */}
+        <section id="start" className="relative overflow-hidden bg-scanlines">
+          <FloatingTiles className="opacity-70" />
+          <div className="relative mx-auto max-w-6xl px-4 py-16 text-center sm:px-6">
+            <Reveal>
+              <div className="mx-auto mb-4 flex justify-center gap-1">
+                {(
+                  [
+                    "bg-tile-teal",
+                    "bg-tile-coral",
+                    "bg-tile-violet",
+                    "bg-tile-lime",
+                  ] as const
+                ).map((tile, i) => (
+                  <span
+                    key={tile}
+                    className="animate-mosaic-pop size-4 rounded-[3px] shadow-hairline"
+                    style={{ animationDelay: `${i * 110}ms` }}
+                  >
+                    <span className={cn("block size-full rounded-[3px]", tile)} />
+                  </span>
+                ))}
+              </div>
+              <h2 className="font-mono text-h1">Start with a workspace</h2>
+              <p className="mx-auto mt-3 max-w-xl font-mono text-small text-muted-foreground">
+                Sign in with an email code, name your project, and add what your
+                business does. Your first draft is a few clicks after that.
+              </p>
+              <Button
+                asChild
+                size="lg"
+                className="mt-6 shadow-pop transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:scale-[1.03] active:translate-y-0 active:scale-95"
+              >
+                <a href="/auth">
+                  Create your workspace
+                  <ArrowRight className="size-4" />
+                </a>
+              </Button>
+              <p className="mt-4 font-mono text-caption text-muted-foreground">
+                Free plan includes Understand, Journeys and Create — add
+                modules as you grow.
+              </p>
+            </Reveal>
+          </div>
+        </section>
       </main>
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-8 font-mono text-caption text-muted-foreground sm:flex-row sm:items-center sm:px-6">
           <span className="flex items-center gap-2">
             <MosaicMark size={16} />
-            mosai — understand · create · build · customers · promote · sell · grow
+            mosai — understand · create · build · customers · promote · sell ·
+            grow
           </span>
-          <span className="sm:ml-auto">modules work alone or together — your plan decides</span>
+          <span className="sm:ml-auto">
+            drafts first, publishing only when you confirm it
+          </span>
         </div>
       </footer>
     </div>

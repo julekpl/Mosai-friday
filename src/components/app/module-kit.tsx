@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Component, useState, type ErrorInfo, type ReactNode } from "react";
+import { Link } from "react-router";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -178,6 +180,133 @@ export function ConfirmDelete({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ── Loading state: never flash an empty state while data is in flight ── */
+
+/** Honest skeleton for a module section that is still loading.
+ *  Convex queries return `undefined` until they resolve; pages must not
+ *  render "No … yet" during that window. */
+export function ModuleSkeleton({
+  label = "Loading…",
+  rows = 2,
+}: {
+  label?: string;
+  rows?: number;
+}) {
+  return (
+    <div role="status" className="grid gap-3">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="h-16 animate-pulse rounded-md border bg-card shadow-card"
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ── Error state: a query/render failure is shown, never swallowed ────── */
+
+export function ModuleErrorState({
+  title = "We couldn't load this section.",
+  hint = "Your data is safe. Try again in a moment.",
+  onRetry,
+}: {
+  title?: string;
+  hint?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-terminal-red/40 bg-terminal-red-soft p-6 text-center"
+    >
+      <AlertTriangle className="mx-auto size-5 text-terminal-red" />
+      <p className="mt-2 font-mono text-small font-medium">{title}</p>
+      <p className="mt-1 font-mono text-caption text-muted-foreground">{hint}</p>
+      {onRetry && (
+        <div className="mt-3 flex justify-center">
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Per-section error boundary. Convex query errors surface during render;
+ *  this keeps one failed section from blanking the whole module page. */
+export class ModuleErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.warn("[module] section failed:", error.message, info.componentStack);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <ModuleErrorState onRetry={() => this.setState({ failed: false })} />
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ── Contextual cross-module links ────────────────────────────────────── */
+
+const MODULE_LABEL: Record<string, string> = {
+  understand: "Understand",
+  journeys: "Journeys",
+  create: "Create",
+  build: "Build",
+  customers: "Customers",
+  promote: "Promote",
+  sell: "Sell",
+  grow: "Grow",
+};
+
+/** "Related" row: contextual, permission-aware links to neighbouring work.
+ *  Locked modules simply resolve to their route and the route gate sends a
+ *  visitor to the plan screen — the same behaviour as the sidebar. */
+export function RelatedModules({
+  projectId,
+  modules,
+}: {
+  projectId: Id<"projects">;
+  modules: readonly string[];
+}) {
+  if (modules.length === 0) return null;
+  return (
+    <nav
+      aria-label="Related components"
+      className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-4"
+    >
+      <span className="font-mono text-caption text-muted-foreground">
+        related:
+      </span>
+      {modules.map((m) => (
+        <Link
+          key={m}
+          to={`/app/${projectId}/${m}`}
+          className="font-mono text-caption text-terminal-green hover:underline"
+        >
+          {MODULE_LABEL[m] ?? m}
+        </Link>
+      ))}
+    </nav>
   );
 }
 

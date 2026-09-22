@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Link } from "react-router";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import {
+  Boxes,
   BrainCircuit,
   Loader2,
   MessageSquare,
@@ -18,6 +19,11 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import {
+  ModuleErrorBoundary,
+  ModuleSkeleton,
+  RelatedModules,
+} from "@/components/app/module-kit";
 import { PersonaChat } from "@/components/app/PersonaChat";
 import { Button } from "@/components/ui/button";
 import {
@@ -244,16 +250,21 @@ function AiPersonaDialog({
   );
 }
 
+const RelationMap = lazy(() => import("@/components/app/RelationMap"));
+
 export default function Understand({
   projectId,
 }: {
   projectId: Id<"projects">;
 }) {
-  const personas = useQuery(api.personas.list, { projectId }) ?? [];
+  const personasResult = useQuery(api.personas.list, { projectId });
+  const personas = personasResult ?? [];
+  const loading = personasResult === undefined;
   const remove = useMutation(api.personas.remove);
 
   const [open, setOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const [editing, setEditing] = useState<Id<"personas"> | undefined>();
   const [chatPersona, setChatPersona] = useState<Id<"personas"> | null>(null);
 
@@ -265,7 +276,7 @@ export default function Understand({
       <ModuleHeader
         icon={Search}
         title="Understand"
-        subtitle="Personas, buyer profiles and journeys — the base every other module uses"
+        subtitle="Start with what you know about your business — the audiences, goals and evidence every other component builds on"
       >
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setAiOpen(true)}>
@@ -301,6 +312,36 @@ export default function Understand({
           </Dialog>
         </div>
       </ModuleHeader>
+
+      {/* Relationship map: an optional 3D view over the same facts the
+          list below shows — the list is always present and complete. */}
+      <section className="mb-8">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="font-mono text-h3">Relationship map</h2>
+          <span className="font-mono text-caption text-muted-foreground">
+            your business, audiences, journeys and content — how they connect
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            aria-expanded={mapOpen}
+            onClick={() => setMapOpen((v) => !v)}
+          >
+            <Boxes className="size-3.5" />
+            {mapOpen ? "Hide map" : "Open map"}
+          </Button>
+        </div>
+        {mapOpen && (
+          <ModuleErrorBoundary>
+            <Suspense
+              fallback={<ModuleSkeleton label="Loading the relationship map…" />}
+            >
+              <RelationMap projectId={projectId} />
+            </Suspense>
+          </ModuleErrorBoundary>
+        )}
+      </section>
 
       {/* AI generation dialog */}
       <Dialog open={aiOpen} onOpenChange={setAiOpen}>
@@ -361,16 +402,26 @@ export default function Understand({
         </DialogContent>
       </Dialog>
 
-      {personas.length === 0 ? (
+      {loading ? (
+        <ModuleSkeleton label="Loading audiences…" />
+      ) : personas.length === 0 ? (
         <div className="rounded-md border border-dashed p-10 text-center">
           <Users className="mx-auto size-6 text-muted-foreground" />
           <p className="mt-3 font-mono text-small font-medium">
-            No personas yet
+            Your next audience starts here
           </p>
           <p className="mt-1 font-mono text-caption text-muted-foreground">
-            Create one yourself, or let AI generate one from your project in
-            seconds.
+            Write one down — what they're trying to do, what gets in the way —
+            or let AI draft one from your project details.
           </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="size-4" /> New persona
+            </Button>
+            <Button variant="outline" onClick={() => setAiOpen(true)}>
+              <Sparkles className="size-4" /> Draft one with AI
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -470,6 +521,11 @@ export default function Understand({
           ))}
         </div>
       )}
+
+      <RelatedModules
+        projectId={projectId}
+        modules={["create", "customers", "grow"]}
+      />
     </div>
   );
 }

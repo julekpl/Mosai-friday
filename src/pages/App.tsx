@@ -1,7 +1,8 @@
-import type { ComponentType, ReactNode } from "react";
+import { useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { useParams, Navigate } from "react-router";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/app/AppShell";
+import { ModuleTransition } from "@/components/motion";
 import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
 import Overview from "./app/Overview";
 import Understand from "./app/Understand";
@@ -52,6 +53,43 @@ export default function AppHome() {
   );
 }
 
+/** Renders one module with the shared route transition and heading focus.
+ *  On a module switch, focus moves to the new page's <h1> so keyboard and
+ *  screen-reader users land where the content changed; a direct page load
+ *  leaves focus alone. */
+function ModuleView({
+  module,
+  projectId,
+}: {
+  module: string;
+  projectId: Id<"projects">;
+}) {
+  const Component = MODULES[module];
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mountedOnce = useRef(false);
+
+  useEffect(() => {
+    if (!mountedOnce.current) {
+      mountedOnce.current = true;
+      return;
+    }
+    const heading = containerRef.current?.querySelector("h1");
+    if (heading instanceof HTMLElement) {
+      heading.setAttribute("tabindex", "-1");
+      heading.focus();
+    }
+  }, [module]);
+
+  if (!Component) return null;
+  return (
+    <div ref={containerRef}>
+      <ModuleTransition>
+        <Component key={module} projectId={projectId} />
+      </ModuleTransition>
+    </div>
+  );
+}
+
 export function ModuleRouter() {
   const { projectId, module } = useParams<{ projectId: string; module: string }>();
   // The route gate reads the same server resolution the guards enforce
@@ -63,13 +101,11 @@ export function ModuleRouter() {
 
   if (!projectId || !module) return <Navigate to="/dashboard" replace />;
 
-  const Component = MODULES[module];
-  if (!Component) return <Navigate to={`/app/${projectId}`} replace />;
-
   const state = entitlements.stateOf(module);
   if (state !== null && state !== "included") {
     return <Navigate to="/app/billing" replace />;
   }
+  if (!MODULES[module]) return <Navigate to={`/app/${projectId}`} replace />;
 
-  return <Component projectId={projectId as Id<"projects">} />;
+  return <ModuleView module={module} projectId={projectId as Id<"projects">} />;
 }
