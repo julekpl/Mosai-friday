@@ -9,6 +9,9 @@ lockfile, the Tiptap peer conflict and the runtime pin now reflect the fix.
 **Updated the same day by T1.2:** the Convex codegen strategy is decided —
 `src/convex/_generated` is committed with a `bun run check:codegen` drift check;
 the §3 codegen row reflects it.
+**Updated the same day by T1.3:** the post-T1.2 typecheck baseline is measured at
+**0 errors** (final also 0), the check is proven to really read `src/` with a
+planted-error probe, and no suppression was added; §1 and §3 reflect it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -29,6 +32,14 @@ is git-ignored, so the errors appear only when the generated types are absent.
 With codegen present, type health is good. Ticket T1.2 (done 22 Sep 2026) makes
 this reproducible: `src/convex/_generated` is no longer git-ignored, so a fresh
 clone typechecks from the committed bindings with no Convex credentials.
+
+**T1.3 (done 22 Sep 2026) records the number:** baseline **0** errors and final
+**0** errors, re-measured with the incremental cache wiped
+(`rm -rf node_modules/.tmp`) and with `--force`. A temporary planted error
+(`TS2322`) was reported by `tsc`, proving the check is live and not skipping
+`src/`. No suppression comment was added; the suppression survey is unchanged
+(`@ts-ignore` 0, `@ts-expect-error` 0, `as any` 4 — including the accepted
+`dal.ts` deletion handle).
 
 ---
 
@@ -76,7 +87,7 @@ exactly Phase 1.
 |---|---|
 | Package manager | **bun is authoritative (T1.1, 22 Sep 2026).** `package-lock.json` is deleted; `bun.lock` is the only lockfile and was regenerated from a clean `node_modules`. `rm -rf node_modules && bun install --frozen-lockfile` exits 0 with no peer warnings. |
 | Tiptap peer conflict | **Resolved (T1.1).** `@tiptap/extension-collaboration-cursor@^2.26.2` was not imported anywhere in `src/` (the only collaboration import is `@tiptap/extension-collaboration`, in `src/components/app/ContentEditor.tsx`) and has been removed; the lockfile no longer contains it. |
-| Typecheck | `bun tsc -b --noEmit` → **exit 0** (with codegen present; re-verified after T1.1). |
+| Typecheck | **T1.3 (22 Sep 2026): 0 errors.** `bun tsc -b --noEmit` → exit 0 with codegen present, re-verified with the incremental cache wiped (`rm -rf node_modules/.tmp`) and with `--force`, and per project (`tsconfig.app.json`, `tsconfig.node.json`) → all exit 0, 0 errors. A planted `TS2322` was reported by `tsc`, proving the check reads `src/`. No `@ts-ignore`/`@ts-expect-error` anywhere; `as any` count unchanged (4, incl. the accepted `dal.ts` handle). |
 | Convex codegen | **Committed (T1.2, 22 Sep 2026).** `src/convex/_generated` is no longer git-ignored; `convex codegen` output is deterministic (regenerating leaves the 5 files byte-identical). `bun run check:codegen` regenerates with `convex codegen` and fails on drift (`git diff --exit-code`); `bun run codegen` regenerates by hand. `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
 | Lint | **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`). Measured during T1.1, which touched no source file; the pack's 79 was a different tree. T1.4 re-measures and owns the fixes. |
 | Tests / test runner / CI | **None.** `package.json` has no test script; no `.github/workflows`. |
