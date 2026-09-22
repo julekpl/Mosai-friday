@@ -6,7 +6,7 @@ const crons = cronJobs();
 // Social queue executor: publish any due scheduled posts, every 2 minutes.
 crons.interval(
   "publish-due-social-posts",
-  { minutes: 2 },
+  { minutes: 5 },
   internal.social.executor.runDue,
   {},
 );
