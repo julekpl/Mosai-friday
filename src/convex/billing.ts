@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { userCtx, cascadeDeleteProject } from "./dal";
 
@@ -62,20 +62,10 @@ export const currentPlan = query({
   },
 });
 
-/** Entitlement check for mutations. Throws when the plan lacks the module. */
-export async function assertModule(ctx: MutationCtx, moduleName: string) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Not signed in");
-  const user = await ctx.db.get(userId);
-  const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
-  const mods = PLAN_MODULES[plan] ?? PLAN_MODULES.free;
-  if (!mods.includes(moduleName)) {
-    throw new Error(
-      `Your current plan does not include "${moduleName}". Upgrade to unlock it.`,
-    );
-  }
-  return userId;
-}
+/* The entitlement guard for mutations lives in `guards.ts` only. A second
+ * copy used to exist here and fell back to a different default plan, so
+ * whether a mutation was allowed depended on which one it imported.
+ * (MOSAI pack T0.3 / G21.) Import `assertModule` from "./guards". */
 
 /** Entitlement check callable from actions (which have no ctx.db).
  *  Throws when the user's plan lacks the module. */

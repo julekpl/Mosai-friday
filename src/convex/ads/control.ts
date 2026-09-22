@@ -6,7 +6,7 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { getAdapter } from "./adapters";
 import { isPlatform, type Platform } from "./platforms";
-import { assertModule } from "../billing";
+import { assertModule } from "../guards";
 
 /**
  * Change control: nothing touches a live ad platform without a drafted

@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertModule, ownedRow, requireUser } from "./guards";
+import { assertModule, ownedRow, requireProject } from "./guards";
 
 /* ── M1 Collections — reference products, never own them ───────────────── */
 
@@ -26,10 +26,14 @@ export const create = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Ownership first: `assertModule` only checks the plan, so without this
+    // any signed-in user could insert a collection into somebody else's
+    // project by passing a foreign projectId (review finding T0.6).
+    const { project } = await requireProject(ctx, args.projectId);
     await assertModule(ctx, "sell");
     const { projectId, ...rest } = args;
     return await ctx.db.insert("collections", {
-      projectId,
+      projectId: project._id,
       ...rest,
       createdAt: Date.now(),
     });

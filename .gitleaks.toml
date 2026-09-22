@@ -1,0 +1,43 @@
+# Patterns that must never be committed. Referenced by the CI secret-scan job
+# (MOSAI pack T0.1 / G19). Run locally with:
+#   gitleaks detect --no-banner --config .gitleaks.toml
+#
+# Rotating an exposed key is the fix; purging history is hygiene. If a rule
+# below fires on the current tree, treat the value as compromised.
+
+title = "MOSAI"
+[extend]
+# Keep gitleaks' built-in rules and add the provider-specific ones below.
+useDefault = true
+
+[[rules]]
+id = "vly-email-otp-key"
+description = "Auth/freebuff OTP email API key (was committed in emailOtp.ts)"
+regex = '''x-api-key["'\s:]+[A-Za-z0-9_\-]{16,}'''
+tags = ["key", "vly"]
+
+[[rules]]
+id = "dotenvx-private-key"
+description = "dotenvx private key material"
+regex = '''DOTENV_PRIVATE_KEY[A-Z_]*\s*=\s*[A-Za-z0-9+/=]{16,}'''
+tags = ["key", "dotenvx"]
+
+[[rules]]
+id = "convex-deploy-key"
+description = "Convex deployment key"
+regex = '''(CONVEX_DEPLOY_KEY|CONVEX_DEPLOYMENT_KEY)\s*[=:]\s*["']?[a-z0-9:|_\-]{16,}'''
+tags = ["key", "convex"]
+
+[[rules]]
+id = "provider-secret"
+description = "OAuth client secrets and app secrets for the module providers"
+regex = '''(SHOPIFY_[A-Z_]*TOKEN|GOOGLE_[A-Z_]*SECRET|META_[A-Z_]*(SECRET|TOKEN)|TIKTOK_[A-Z_]*(SECRET|TOKEN)|STRIPE_[A-Z_]*KEY|SERPAPI_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY)\s*[=:]\s*["']?[A-Za-z0-9_\-]{16,}'''
+tags = ["key"]
+
+[allowlist]
+description = "Documentation that names the variables without holding values"
+paths = [
+  '''docs/runbooks/secret-rotation\.md''',
+  '''\.env\.example''',
+  '''\.gitleaks\.toml''',
+]

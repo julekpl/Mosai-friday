@@ -1,4 +1,14 @@
-.env.local
+# ── Secrets ──────────────────────────────────────────────────────────────
+# The dotenvx private key (.env.keys) and a live OTP email API key were
+# committed to this repository while it was public and must be treated as
+# compromised. Only the documented example file may ever be committed.
+# See docs/runbooks/secret-rotation.md (MOSAI pack T0.1 / G19).
+.env*
+!.env.example
+
+# ── Build and tooling ────────────────────────────────────────────────────
 node_modules
 dist
+
+# Convex codegen output (ticket T1.2 decides whether to commit this instead).
 src/convex/_generated

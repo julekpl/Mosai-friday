@@ -5,6 +5,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { copilotDefaultModel } from "./platforms";
+import { requireUser } from "../guards";
 
 /**
  * Ads Copilot: AI analyst over the project's normalized ad data.
@@ -18,10 +19,13 @@ import { copilotDefaultModel } from "./platforms";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-/** Read the admin-selected copilot model (client-facing). */
+/** Read the admin-selected copilot model. Dashboard-only, so it requires a
+ *  signed-in account (the audit script flags any public function that reads
+ *  without establishing identity — review T0.6). */
 export const copilotModel = query({
   args: {},
   handler: async (ctx) => {
+    await requireUser(ctx);
     const row = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", "ads"))
