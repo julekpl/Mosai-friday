@@ -852,7 +852,9 @@ function CollectionRefField({
   );
 }
 
-/* ── Shopify catalog sync (W5 connector) — capability matrix shown honestly ─ */
+/* ── Shopify catalog sync (W5 connector) ────────────────────────────────
+ * Disabled until credentials are per project (review T0.9 / G24). The action
+ * refuses server-side; this card must not imply the sync works. ─────────── */
 
 function ShopifySyncCard({ projectId }: { projectId: Id<"projects"> }) {
   const sync = useAction(api.shopifySync.syncCatalog);
@@ -866,7 +868,7 @@ function ShopifySyncCard({ projectId }: { projectId: Id<"projects"> }) {
         `Synced ${r.products} products · ${r.collections} collections from Shopify`,
       );
     } catch (e) {
-      toast.error("Shopify sync failed", {
+      toast.error("Shopify sync unavailable", {
         description: e instanceof Error ? e.message : "Try again.",
       });
     } finally {
@@ -885,6 +887,9 @@ function ShopifySyncCard({ projectId }: { projectId: Id<"projects"> }) {
         <p className="text-muted-foreground">
           ✗ cart/checkout — added with the W6 checkout handoff
         </p>
+        <p className="text-terminal-amber">
+          ⚠ sync unavailable — needs per-project credentials
+        </p>
       </div>
       <Button
         size="sm"
@@ -900,9 +905,10 @@ function ShopifySyncCard({ projectId }: { projectId: Id<"projects"> }) {
         Sync Shopify catalog
       </Button>
       <p className="mt-2 font-mono text-caption text-muted-foreground">
-        Requires SHOPIFY_STORE_DOMAIN and SHOPIFY_STOREFRONT_ACCESS_TOKEN in
-        the Keys tab. Provider facts stay authoritative — MOSAI never edits
-        them, only displays them.
+        Disabled: the connector still reads one deployment-wide store, so it
+        could sync that store into any project. It returns once a project can
+        hold its own store domain and access token. Provider facts stay
+        authoritative — MOSAI never edits them, only displays them.
       </p>
     </div>
   );

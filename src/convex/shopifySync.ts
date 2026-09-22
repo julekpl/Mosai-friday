@@ -20,6 +20,15 @@ import {
  * never touch the client.
  */
 
+/* Per-project credentials do not exist yet. Until the connections framework
+ * can supply a store domain + access token for a single project, this route
+ * must stay disabled: it would read ONE deployment-wide Shopify store from
+ * the environment and sync that store's catalog into EVERY project that
+ * calls it (cross-tenant data exposure — see review item T0.9 / G24).
+ *
+ * Flip this only once credentials are resolved per project. */
+const SHOPIFY_PER_PROJECT_CREDENTIALS = false;
+
 type NormalizedProduct = {
   externalId: string;
   title: string;
@@ -256,6 +265,12 @@ export const syncCatalog = action({
     );
     if (!project || project.ownerId !== userId)
       throw new Error("Not found");
+
+    if (!SHOPIFY_PER_PROJECT_CREDENTIALS) {
+      throw new Error(
+        "Shopify catalog sync is not available yet — it needs per-project credentials so one store can never sync into another project.",
+      );
+    }
 
     const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
     const accessToken = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
