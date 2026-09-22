@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { api, internal } from "@/convex/_generated/api";
 import * as connectionsModule from "@/convex/connections";
 import { PLAN_MODULES } from "@/convex/billing";
+import { AI_QUOTA_LIMIT } from "@/convex/guards";
 import { newBackend, seedProject, seedUser } from "./helpers";
 import {
   completionCalls,
@@ -82,6 +83,8 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
     const t = newBackend();
     // A real project row so `projectId`-taking actions pass argument
     // validation and the rejection is the sign-in guard, not a validator.
+    // (Since T0.4 every AI action takes this id and loads its context
+    // server-side — none of them accepts a client-built snapshot any more.)
     const ownerId = await seedUser(t).then((u) => u.userId);
     const projectId = await seedProject(t, ownerId);
 
@@ -89,54 +92,50 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       [
         "ai.detectContentGaps",
         api.ai.detectContentGaps,
-        { project: { name: "P" }, personas: [], journeys: [] },
+        { projectId, personas: [], journeys: [] },
       ],
       [
         "ai.suggestTopics",
         api.ai.suggestTopics,
-        { project: { name: "P" }, gap: { title: "gap" } },
+        { projectId, gap: { title: "gap" } },
       ],
       [
         "ai.generateContent",
         api.ai.generateContent,
-        { project: { name: "P" }, topic: { title: "topic" } },
+        { projectId, topic: { title: "topic" } },
       ],
       [
         "ai.editSelection",
         api.ai.editSelection,
-        { op: "expand", selectionHtml: "<p>x</p>", project: { name: "P" } },
+        { op: "expand", selectionHtml: "<p>x</p>", projectId },
       ],
-      ["ai.generatePersona", api.ai.generatePersona, { project: { name: "P" } }],
+      ["ai.generatePersona", api.ai.generatePersona, { projectId }],
       [
         "ai.personaChat",
         api.ai.personaChat,
         {
           mode: "persona",
-          project: { name: "P" },
+          projectId,
           persona: { name: "Buyer" },
           message: "hello",
         },
       ],
-      [
-        "ai.generateJourneyMap",
-        api.ai.generateJourneyMap,
-        { project: { name: "P" } },
-      ],
+      ["ai.generateJourneyMap", api.ai.generateJourneyMap, { projectId }],
       [
         "ai.generateJourney",
         api.ai.generateJourney,
-        { project: { name: "P" }, persona: { name: "Buyer" } },
+        { projectId, persona: { name: "Buyer" } },
       ],
       [
         "ai.generateComms",
         api.ai.generateComms,
-        { project: { name: "P" }, topic: "launch" },
+        { projectId, topic: "launch" },
       ],
       ["research.researchTopic", api.research.researchTopic, { query: "x" }],
       [
         "sellAI.generateDescription",
         api.sellAI.generateDescription,
-        { projectId, title: "T", mode: "fill_missing", project: { name: "P" } },
+        { projectId, title: "T", mode: "fill_missing" },
       ],
       [
         "sellAI.generateAltText",
@@ -146,7 +145,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       [
         "sellAI.generateSeo",
         api.sellAI.generateSeo,
-        { title: "T", project: { name: "P" } },
+        { projectId, title: "T" },
       ],
       [
         "scraping.scanWebsite",
@@ -162,7 +161,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
         "buildPlan.generateBuildPlan",
         api.buildPlan.generateBuildPlan,
         {
-          project: { name: "P" },
+          projectId,
           idea: "idea",
           kind: "website",
           name: "Site",
@@ -174,7 +173,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
         "buildPlan.generatePageDraft",
         api.buildPlan.generatePageDraft,
         {
-          project: { name: "P" },
+          projectId,
           build: { name: "Site", kind: "website" },
           page: { name: "Home", path: "/" },
         },
@@ -193,14 +192,14 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
   });
 });
 
-describe("R4 — AI actions load context server-side (T0.4 remainder)", () => {
-  // BLOCKED(T0.4): the server still accepts a client-supplied `project`
-  // snapshot and feeds it straight into the prompt. The pack keeps this test
-  // red (`it.fails`) instead of deleting or weakening it — see
-  // docs/tickets/README.md. When T0.4 replaces the snapshot argument with a
-  // server-loaded `projectId`, this assertion passes and `it.fails` turns into
-  // a hard failure, which is the reminder to promote it to `it(...)`.
-  it.fails("a fabricated snapshot never reaches the prompt", async () => {
+describe("R4 — AI actions load context server-side (T0.4)", () => {
+  // PROMOTED from `it.fails` on 22 Sep 2026: T0.4's remainder landed. The
+  // actions take a `projectId` and the prompt is built server-side by
+  // `guards.actionProjectSnapshot` after the caller's access is verified —
+  // there is no client-supplied snapshot argument left to fabricate.
+  const SERVER_MARKER = "SERVER-LOADED-CONTEXT-MARKER";
+
+  it("the prompt is built from the database for a project the caller owns", async () => {
     resetCompletionStub();
     stubCompletionContent(
       JSON.stringify({ gaps: [{ title: "A real gap", severity: "high" }] }),
@@ -208,11 +207,13 @@ describe("R4 — AI actions load context server-side (T0.4 remainder)", () => {
 
     const t = newBackend();
     const { as } = await seedUser(t, { plan: "scale" });
-    const SENTINEL = "FABRICATED-SNAPSHOT-SENTINEL";
+    const projectId = await as.mutation(api.projects.create, {
+      name: SERVER_MARKER,
+    });
 
     await as
       .action(api.ai.detectContentGaps, {
-        project: { name: SENTINEL, industry: SENTINEL },
+        projectId,
         personas: [],
         journeys: [],
       })
@@ -224,12 +225,69 @@ describe("R4 — AI actions load context server-side (T0.4 remainder)", () => {
       .flatMap((call) => call.messages.map((m) => m.content))
       .join("\n");
     expect(completionCalls.length).toBeGreaterThan(0);
-    expect(prompt).not.toContain(SENTINEL);
+    // The context reached the prompt straight from the stored project row.
+    expect(prompt).toContain(SERVER_MARKER);
+  });
+
+  it("a caller without access to the project gets nothing and spends nothing", async () => {
+    resetCompletionStub();
+    stubCompletionContent(
+      JSON.stringify({ gaps: [{ title: "A real gap", severity: "high" }] }),
+    );
+
+    const t = newBackend();
+    const { as } = await seedUser(t, { plan: "scale" });
+    const projectId = await as.mutation(api.projects.create, {
+      name: SERVER_MARKER,
+    });
+    const outsider = await seedUser(t, { plan: "scale" });
+
+    await expect(
+      outsider.as.action(api.ai.detectContentGaps, {
+        projectId,
+        personas: [],
+        journeys: [],
+      }),
+    ).rejects.toThrow(/Not found/);
+    // Refused BEFORE any provider call and before any quota was consumed.
+    expect(completionCalls.length).toBe(0);
+    const buckets = await t.run((ctx) => ctx.db.query("aiRateLimits").collect());
+    expect(buckets).toEqual([]);
   });
 
   it("records the prompt the server built (keeps the R4 probe honest)", () => {
     // If the stub stopped recording, R4 above would fail for the wrong reason.
     expect(Array.isArray(completionCalls)).toBe(true);
+  });
+});
+
+describe("T0.4 — per-user AI rate limit", () => {
+  it("stops a caller after AI_QUOTA_LIMIT requests and spends no provider call on the refusal", async () => {
+    resetCompletionStub();
+    stubCompletionContent(
+      JSON.stringify({ gaps: [{ title: "A real gap", severity: "high" }] }),
+    );
+
+    const t = newBackend();
+    const { as } = await seedUser(t, { plan: "scale" });
+    const projectId = await as.mutation(api.projects.create, { name: "P" });
+
+    for (let i = 0; i < AI_QUOTA_LIMIT; i++) {
+      await as
+        .action(api.ai.detectContentGaps, { projectId, personas: [], journeys: [] })
+        .catch(() => {
+          /* the quota is consumed before the provider call either way */
+        });
+    }
+
+    const before = completionCalls.length;
+    await expect(
+      as.action(api.ai.detectContentGaps, { projectId, personas: [], journeys: [] }),
+    ).rejects.toThrow(/limit/i);
+    expect(completionCalls.length).toBe(before);
+
+    const buckets = await t.run((ctx) => ctx.db.query("aiRateLimits").collect());
+    expect(buckets.some((row) => row.count >= AI_QUOTA_LIMIT)).toBe(true);
   });
 });
 

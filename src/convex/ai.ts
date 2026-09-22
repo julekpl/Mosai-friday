@@ -4,7 +4,16 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { vly } from "../lib/vly-integrations";
 import type { Id } from "./_generated/dataModel";
-import { requireActionUser } from "./guards";
+import {
+  actionProjectSnapshot,
+  consumeAiQuotaForAction,
+  requireActionUser,
+  type ProjectSnapshot,
+} from "./guards";
+
+// The snapshot type lives with the loader (T0.4); re-exported so existing
+// consumers keep one import site.
+export type { ProjectSnapshot };
 
 /* ── Shared helpers ───────────────────────────────────────────────────── */
 
@@ -25,53 +34,11 @@ async function complete(
   return res.data.choices[0]?.message?.content?.trim() ?? "";
 }
 
-/** Serializable project snapshot the client passes in (already fetched via
- *  projects.get + files.list) so these node actions stay db-free. */
-export type ProjectSnapshot = {
-  name: string;
-  industry?: string;
-  description?: string;
-  websiteUrl?: string;
-  productsServices?: string[];
-  goals?: string[];
-  competitors?: string[];
-  gmbTitle?: string;
-  gmbCategory?: string;
-  gmbRating?: number;
-  gmbReviews?: number;
-  fileExcerpts?: string[];
-  // Level-1 context integration (M1-BLUEPRINT §13): active products give
-  // every AI action commerce context. References only — never copied truth.
-  products?: Array<{
-    title: string;
-    price?: string;
-    description?: string;
-  }>;
-};
-
-export const projectSnapshotValidator = v.object({
-  name: v.string(),
-  industry: v.optional(v.string()),
-  description: v.optional(v.string()),
-  websiteUrl: v.optional(v.string()),
-  productsServices: v.optional(v.array(v.string())),
-  goals: v.optional(v.array(v.string())),
-  competitors: v.optional(v.array(v.string())),
-  gmbTitle: v.optional(v.string()),
-  gmbCategory: v.optional(v.string()),
-  gmbRating: v.optional(v.number()),
-  gmbReviews: v.optional(v.number()),
-  fileExcerpts: v.optional(v.array(v.string())),
-  products: v.optional(
-    v.array(
-      v.object({
-        title: v.string(),
-        price: v.optional(v.string()),
-        description: v.optional(v.string()),
-      }),
-    ),
-  ),
-});
+/** The AI prompt's business context is built SERVER-side from the database
+ *  (project row + attached-file excerpts + active products) by
+ *  `guards.actionProjectSnapshot`, after the caller's access to the project
+ *  is verified. The client passes only a `projectId` it owns — never a
+ *  snapshot (pack T0.4; AGENTS.md §5 rule 3: client input is untrusted). */
 
 function contextLines(p: ProjectSnapshot): string[] {
   return [
@@ -148,7 +115,7 @@ function parsePersona(json: string) {
  */
 export const detectContentGaps = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     personas: v.array(
       v.object({
         id: v.string(),
@@ -176,8 +143,10 @@ export const detectContentGaps = action({
       }),
     ),
   },
-  handler: async (ctx, { project, personas, journeys }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, personas, journeys }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const text = await complete(
       `You are a content strategist auditing a business's content coverage. Identify CONTENT GAPS: questions, topics or moments in the customer journey where the business has no good content answering the persona's real need. Ground every gap in the persona's pains/goals and the journey stage (weakest stages = biggest gaps). Return ONLY valid JSON (no markdown) shaped as:
 {"gaps": [{"personaId": string|null, "journeyMapId": string|null, "journeyStage": string|null, "title": string, "description": string, "severity": "low"|"medium"|"high"}]}
@@ -243,7 +212,7 @@ Give 5-10 gaps. Use the provided persona/journey ids exactly. title = short labe
  */
 export const suggestTopics = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     gap: v.object({
       title: v.string(),
       description: v.optional(v.string()),
@@ -252,8 +221,10 @@ export const suggestTopics = action({
     }),
     researchDigest: v.optional(v.array(v.string())), // condensed research hits
   },
-  handler: async (ctx, { project, gap, researchDigest }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, gap, researchDigest }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const text = await complete(
       `You are a content strategist. For the given content gap, propose 4 concrete, distinct topics to fill it. For each: title (audience-facing, specific), angle (the hook that makes it fresh), contentType — one of landing_page|script|social_post|social_series|blog|email|video_script — and 2-4 keywords. Return ONLY valid JSON shaped as:
 {"topics": [{"title": string, "angle": string, "contentType": string, "keywords": string[]}]}`,
@@ -305,7 +276,7 @@ export const suggestTopics = action({
  */
 export const generateContent = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     topic: v.object({
       title: v.string(),
       angle: v.optional(v.string()),
@@ -325,8 +296,10 @@ export const generateContent = action({
     researchDigest: v.optional(v.array(v.string())),
     userInstructions: v.optional(v.string()),
   },
-  handler: async (ctx, { project, topic, persona, journeyStage, researchDigest, userInstructions }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, topic, persona, journeyStage, researchDigest, userInstructions }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const TYPE_GUIDE: Record<string, string> = {
       landing_page:
         "a high-converting landing page: hero headline + subhead, 3 benefit sections each with heading + 2-3 sentences, a social-proof section, and a clear CTA section",
@@ -379,12 +352,14 @@ export const editSelection = action({
     op: v.union(v.literal("expand"), v.literal("rewrite")),
     selectionHtml: v.string(),
     surroundingContext: v.optional(v.string()),
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     personaName: v.optional(v.string()),
     instruction: v.optional(v.string()),
   },
-  handler: async (ctx, { op, selectionHtml, surroundingContext, project, personaName }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { op, selectionHtml, surroundingContext, projectId, personaName }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const text = await complete(
       op === "expand"
         ? `You are an expert content editor. The user selected part of a document. Expand the selection: keep its meaning, language and voice, add depth/examples/nuance so it is roughly 2-3x longer. Return ONLY the replacement HTML using only <p>, <ul>, <ol>, <li>, <strong>, <em> tags. No preamble.${personaName ? ` Audience: ${personaName}.` : ""}`
@@ -411,9 +386,11 @@ export const editSelection = action({
  * the returned persona is persisted by the caller via personas.create.
  */
 export const generatePersona = action({
-  args: { project: projectSnapshotValidator, hint: v.optional(v.string()) },
-  handler: async (ctx, { project, hint }) => {
-    await requireActionUser(ctx);
+  args: { projectId: v.id("projects"), hint: v.optional(v.string()) },
+  handler: async (ctx, { projectId, hint }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const text = await complete(
       `You are a senior marketing strategist. Given the business context below, invent ONE realistic, specific buyer persona. Be concrete (names, habits, real-world details) and ground every trait in the business context. ${PERSONA_JSON_SHAPE}`,
       [
@@ -438,7 +415,7 @@ export const generatePersona = action({
 export const personaChat = action({
   args: {
     mode: v.union(v.literal("persona"), v.literal("analyst")),
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     persona: v.object({
       name: v.string(),
       role: v.optional(v.string()),
@@ -458,8 +435,10 @@ export const personaChat = action({
     ),
     message: v.string(),
   },
-  handler: async (ctx, { mode, project, persona, history, message }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { mode, projectId, persona, history, message }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const personaDesc = [
       `Persona name: ${persona.name}`,
       persona.role ? `Role/context: ${persona.role}` : "",
@@ -495,7 +474,7 @@ export const personaChat = action({
  */
 export const generateJourneyMap = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     persona: v.optional(
       v.object({
         name: v.string(),
@@ -509,8 +488,10 @@ export const generateJourneyMap = action({
     scenario: v.optional(v.string()),
     stageCount: v.optional(v.number()),
   },
-  handler: async (ctx, { project, persona, scenario, stageCount }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, persona, scenario, stageCount }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const personaDesc = persona
       ? [
           `Persona name: ${persona.name}`,
@@ -592,7 +573,7 @@ export const generateJourneyMap = action({
  */
 export const generateJourney = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     persona: v.object({
       name: v.string(),
       role: v.optional(v.string()),
@@ -603,8 +584,10 @@ export const generateJourney = action({
       evidence: v.optional(v.string()),
     }),
   },
-  handler: async (ctx, { project, persona }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, persona }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const personaDesc = [
       `Persona name: ${persona.name}`,
       persona.role ? `Role/context: ${persona.role}` : "",
@@ -661,13 +644,15 @@ export const generateJourney = action({
  */
 export const generateComms = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     personaLines: v.optional(v.array(v.string())),
     topic: v.string(),
     influence: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { project, personaLines, topic, influence }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, personaLines, topic, influence }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const text = await complete(
       `You are a marketing communications director. Define ONE core marketing communication for the given topic: a crisp message (1-2 sentences a real customer would recognize themselves in), the strategic rationale, the best 2-4 channels, and the target audience. Return ONLY valid JSON (no markdown) shaped as:
 {"name": string, "message": string, "rationale": string, "channels": string[], "audience": string}`,

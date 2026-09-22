@@ -1,5 +1,11 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { action, internalQuery, mutation, query } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -1067,6 +1073,158 @@ export const activeOrganizationIds = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => activeOrganizationIdsFor(ctx, userId),
 });
+
+// ── AI context + per-user quota (T0.4) ─────────────────────────────────────
+
+/** The business context an AI prompt is built from. Loaded **server-side**
+ *  from the database (project row + attached-file excerpts + active products)
+ *  after the caller's access to the project is verified — never accepted from
+ *  the client (AGENTS.md §5 rule 3; pack T0.4). */
+export type ProjectSnapshot = {
+  name: string;
+  industry?: string;
+  description?: string;
+  websiteUrl?: string;
+  productsServices?: string[];
+  goals?: string[];
+  competitors?: string[];
+  gmbTitle?: string;
+  gmbCategory?: string;
+  gmbRating?: number;
+  gmbReviews?: number;
+  fileExcerpts?: string[];
+  // Level-1 context integration (M1-BLUEPRINT §13): active products give
+  // every AI action commerce context. References only — never copied truth.
+  products?: Array<{
+    title: string;
+    price?: string;
+    description?: string;
+  }>;
+};
+
+/** Build the snapshot for an authorized project. Returns null for a foreign
+ *  or missing project so the caller can answer "Not found" without leaking
+ *  whether the id exists. Mirrors the shape the client used to assemble in
+ *  the old `use-project-snapshot` hook (deleted with T0.4), so prompts are
+ *  unchanged except that they are now truthful about their source. */
+export const projectSnapshotForAction = internalQuery({
+  args: { projectId: v.id("projects"), userId: v.id("users") },
+  handler: async (ctx, { projectId, userId }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project || !(await hasProjectAccess(ctx, project, userId))) return null;
+
+    const files = await ctx.db
+      .query("projectFiles")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    const activeProducts = await ctx.db
+      .query("products")
+      .withIndex("by_project_status", (q) =>
+        q.eq("projectId", projectId).eq("status", "active"),
+      )
+      .collect();
+    const variants = await ctx.db
+      .query("productVariants")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+
+    const snapshot: ProjectSnapshot = {
+      name: project.name,
+      industry: project.industry,
+      description: project.description,
+      websiteUrl: project.websiteUrl,
+      productsServices: project.productsServices,
+      goals: project.goals,
+      competitors: project.competitors,
+      gmbTitle: project.websiteScan?.gmb?.title,
+      gmbCategory: project.websiteScan?.gmb?.category,
+      gmbRating: project.websiteScan?.gmb?.rating,
+      gmbReviews: project.websiteScan?.gmb?.reviews,
+      fileExcerpts: files
+        .slice(0, 8)
+        .map((f) => `- ${f.name}: ${(f.excerpt ?? "(no text extracted)").slice(0, 600)}`),
+      products: activeProducts.slice(0, 50).map((p) => {
+        const def = variants.find((vr) => vr.productId === p._id && vr.isDefault);
+        return {
+          title: p.title,
+          price:
+            def?.priceCents != null
+              ? `${(def.priceCents / 100).toFixed(2)} ${def.currency}`
+              : undefined,
+          description: p.description,
+        };
+      }),
+    };
+    return snapshot;
+  },
+});
+
+/** Action-side loader: authenticate (already done), authorize the project
+ *  and return the server-built snapshot. Throws "Not found" for a missing or
+ *  foreign project — the same answer every guard gives, so an action can
+ *  never be used to probe for someone else's project id. */
+export async function actionProjectSnapshot(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<ProjectSnapshot> {
+  const snapshot = await ctx.runQuery(
+    internal.guards.projectSnapshotForAction,
+    { projectId, userId },
+  );
+  if (!snapshot) throw new Error("Not found");
+  return snapshot;
+}
+
+/** Per-user AI/scraping budget: this many requests per rolling window.
+ *  Exported for the regression test that proves the limit bites. */
+export const AI_QUOTA_WINDOW_MS = 10 * 60_000;
+export const AI_QUOTA_LIMIT = 30;
+
+/** Consume one unit of the caller's AI quota. Internal — only server code
+ *  holding an already-authorized caller can reach it, so a client can never
+ *  grant itself budget or reset a window. */
+export const consumeAiQuota = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const windowStart = Math.floor(Date.now() / AI_QUOTA_WINDOW_MS) * AI_QUOTA_WINDOW_MS;
+    const bucket = await ctx.db
+      .query("aiRateLimits")
+      .withIndex("by_user_window", (q) =>
+        q.eq("userId", userId).eq("windowStart", windowStart),
+      )
+      .unique();
+    if (bucket) {
+      if (bucket.count >= AI_QUOTA_LIMIT) {
+        throw new Error(
+          "AI request limit reached — wait a few minutes and try again.",
+        );
+      }
+      await ctx.db.patch(bucket._id, { count: bucket.count + 1 });
+      return;
+    }
+    await ctx.db.insert("aiRateLimits", { userId, windowStart, count: 1 });
+    // Opportunistic cleanup: keep this user's rows down to the current
+    // window plus the last hour (registry: `ephemeral`).
+    const rows = await ctx.db
+      .query("aiRateLimits")
+      .withIndex("by_user_window", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of rows) {
+      if (row.windowStart < windowStart - 60 * 60_000) await ctx.db.delete(row._id);
+    }
+  },
+});
+
+/** Action-side quota gate. Call it AFTER the project is authorized (so a
+ *  foreign caller's refused request writes nothing) and BEFORE the provider
+ *  call (so a runaway loop is stopped before it costs money). */
+export async function consumeAiQuotaForAction(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+): Promise<void> {
+  await ctx.runMutation(internal.guards.consumeAiQuota, { userId });
+}
 
 // ── Builders ────────────────────────────────────────────────────────────────
 

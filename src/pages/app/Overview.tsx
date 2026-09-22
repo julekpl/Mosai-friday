@@ -32,7 +32,6 @@ import {
   StatusBadge,
 } from "@/components/app/module-kit";
 import { ProjectFilesSection } from "@/components/app/ProjectFiles";
-import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -115,7 +114,6 @@ function CommsDialog({
   projectId: Id<"projects">;
   onOpenChange: (o: boolean) => void;
 }) {
-  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const generate = useAction(api.ai.generateComms);
   const create = useMutation(api.communications.create);
@@ -130,11 +128,11 @@ function CommsDialog({
     );
 
   const run = async () => {
-    if (!snapshot || !topic.trim()) return;
+    if (!topic.trim()) return;
     setBusy(true);
     try {
       const result = await generate({
-        project: snapshot,
+        projectId,
         personaLines: personas
           .slice(0, 5)
           .map(
@@ -206,7 +204,7 @@ function CommsDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={run} disabled={busy || !topic.trim() || !snapshot}>
+          <Button onClick={run} disabled={busy || !topic.trim()}>
             {busy ? (
               <>
                 <Loader2 className="size-4 animate-spin" /> Drafting…
@@ -314,7 +312,6 @@ export default function Overview({
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const pack = useQuery(api.projects.exportPack, { id: projectId });
 
-  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
   const generate = useAction(api.ai.generatePersona);
   const createPersona = useMutation(api.personas.create);
   const [generating, setGenerating] = useState(false);
@@ -336,10 +333,10 @@ export default function Overview({
   };
 
   const quickGeneratePersona = async () => {
-    if (!snapshot || generating) return;
+    if (generating) return;
     setGenerating(true);
     try {
-      const p = await generate({ project: snapshot });
+      const p = await generate({ projectId });
       await createPersona({ projectId, ...p });
       toast.success(`Persona "${p.name}" generated`);
     } catch (e) {
@@ -439,7 +436,7 @@ export default function Overview({
               variant="outline"
               className="mt-1 w-fit"
               onClick={quickGeneratePersona}
-              disabled={generating || !snapshot}
+              disabled={generating}
             >
               {generating ? (
                 <Loader2 className="size-3.5 animate-spin" />

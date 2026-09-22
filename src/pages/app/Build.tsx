@@ -24,7 +24,6 @@ import {
   ModuleEmpty,
   StatusBadge,
 } from "@/components/app/module-kit";
-import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { SitePanel } from "@/components/cms/SitePanel";
 import { BuildWorkspace } from "@/components/build/BuildWorkspace";
 import { Button } from "@/components/ui/button";
@@ -103,7 +102,6 @@ function NewBuildForm({
   const plan = useAction(api.buildPlan.generateBuildPlan);
   const update = useMutation(api.builds.update);
   const createPage = useMutation(api.buildPages.create);
-  const { snapshot } = useProjectSnapshot(projectId);
   const personas = (useQuery(api.personas.list, { projectId }) ?? []) as PersonaRow[];
   const journeys = (useQuery(api.journeys.list, { projectId }) ?? []) as JourneyRow[];
 
@@ -129,7 +127,7 @@ function NewBuildForm({
       // + journeys, then persist positioning/goals/differentiators/pages.
       try {
         const result = await plan({
-          project: snapshot!,
+          projectId,
           idea: idea.trim(),
           kind,
           name: name.trim(),
@@ -250,7 +248,7 @@ function NewBuildForm({
         </Button>
         <Button
           onClick={handleSave}
-          disabled={isSaving || !name.trim() || !idea.trim() || !snapshot}
+          disabled={isSaving || !name.trim() || !idea.trim()}
         >
           {isSaving ? (
             <Loader2 className="size-4 animate-spin" />
@@ -270,17 +268,16 @@ function PlanTab({ build }: { build: BuildRow }) {
   const update = useMutation(api.builds.update);
   const setStepStatus = useMutation(api.builds.setStepStatus);
   const plan = useAction(api.buildPlan.generateBuildPlan);
-  const { snapshot } = useProjectSnapshot(build.projectId);
   const personas = (useQuery(api.personas.list, { projectId: build.projectId }) ?? []) as PersonaRow[];
   const journeys = (useQuery(api.journeys.list, { projectId: build.projectId }) ?? []) as JourneyRow[];
   const [regenerating, setRegenerating] = useState(false);
 
   const regenerate = async () => {
-    if (!snapshot || !build.idea) return;
+    if (!build.idea) return;
     setRegenerating(true);
     try {
       const result = await plan({
-        project: snapshot,
+        projectId: build.projectId,
         idea: build.idea,
         kind: build.kind,
         name: build.name,
@@ -346,7 +343,7 @@ function PlanTab({ build }: { build: BuildRow }) {
           <Button
             className="mt-3"
             onClick={regenerate}
-            disabled={regenerating || !snapshot || !build.idea}
+            disabled={regenerating || !build.idea}
           >
             {regenerating ? (
               <Loader2 className="size-4 animate-spin" />
@@ -467,7 +464,6 @@ function PagesTab({ build }: { build: BuildRow }) {
   const updatePage = useMutation(api.buildPages.update);
   const createPage = useMutation(api.buildPages.create);
   const draft = useAction(api.buildPlan.generatePageDraft);
-  const { snapshot } = useProjectSnapshot(build.projectId);
   const personas = (useQuery(api.personas.list, { projectId: build.projectId }) ?? []) as PersonaRow[];
 
   const [open, setOpen] = useState(false);
@@ -478,14 +474,13 @@ function PagesTab({ build }: { build: BuildRow }) {
   const [preview, setPreview] = useState<string | null>(null);
 
   const generate = async (pageId: Id<"buildPages">, pageName: string) => {
-    if (!snapshot) return;
     const page = pages.find((p) => p._id === pageId);
     if (!page) return;
     setBusyPage(pageId);
     try {
       const persona = personas.find((p) => p._id === page.personaId);
       const html = await draft({
-        project: snapshot,
+        projectId: build.projectId,
         build: {
           name: build.name,
           kind: build.kind,
@@ -634,7 +629,7 @@ function PagesTab({ build }: { build: BuildRow }) {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busyPage === p._id || !snapshot}
+                    disabled={busyPage === p._id}
                     onClick={() => generate(p._id, p.name)}
                   >
                     {busyPage === p._id ? (

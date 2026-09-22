@@ -19,7 +19,6 @@ import {
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import { PersonaChat } from "@/components/app/PersonaChat";
-import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -170,7 +169,6 @@ function AiPersonaDialog({
   projectId: Id<"projects">;
   onDone: (personaId?: Id<"personas">) => void;
 }) {
-  const { snapshot } = useProjectSnapshot(projectId);
   const generate = useAction(api.ai.generatePersona);
   const create = useMutation(api.personas.create);
 
@@ -178,11 +176,10 @@ function AiPersonaDialog({
   const [busy, setBusy] = useState(false);
 
   const run = async () => {
-    if (!snapshot) return;
     setBusy(true);
     try {
       const p = await generate({
-        project: snapshot,
+        projectId,
         hint: hint.trim() || undefined,
       });
       const id = await create({
@@ -231,7 +228,7 @@ function AiPersonaDialog({
         <Button variant="ghost" onClick={() => onDone()} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={run} disabled={busy || !snapshot}>
+        <Button onClick={run} disabled={busy}>
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Generating…
@@ -254,7 +251,6 @@ export default function Understand({
 }) {
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const remove = useMutation(api.personas.remove);
-  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
 
   const [open, setOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -359,7 +355,6 @@ export default function Understand({
                   channels: chatTarget.channels,
                   evidence: chatTarget.evidence,
                 }}
-                snapshot={(snapshot ?? {}) as never}
               />
             </>
           )}

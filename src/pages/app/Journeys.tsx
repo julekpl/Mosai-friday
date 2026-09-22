@@ -17,7 +17,6 @@ import {
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import { ModuleEmpty } from "@/components/app/module-kit";
-import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -129,7 +128,6 @@ function JourneyEditor({
   onDone: () => void;
 }) {
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
-  const { snapshot } = useProjectSnapshot(projectId);
   const create = useMutation(api.journeys.create);
   const update = useMutation(api.journeys.update);
   const generate = useAction(api.ai.generateJourneyMap);
@@ -173,12 +171,12 @@ function JourneyEditor({
   };
 
   const runAi = async () => {
-    if (!snapshot || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
       const persona = personas.find((p) => p._id === personaId);
       const result = await generate({
-        project: snapshot,
+        projectId,
         persona: persona
           ? {
               name: persona.name,
@@ -313,7 +311,7 @@ function JourneyEditor({
             }}
           />
         </div>
-        <Button variant="outline" onClick={runAi} disabled={busy || !snapshot}>
+        <Button variant="outline" onClick={runAi} disabled={busy}>
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Generating…

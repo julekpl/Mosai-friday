@@ -20,7 +20,6 @@ import {
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import { ConfirmDelete, ModuleEmpty, StatusBadge } from "@/components/app/module-kit";
-import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { ContentEditor } from "@/components/app/ContentEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,7 +142,6 @@ function GapsTab({
   }>;
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
-  const { snapshot } = useProjectSnapshot(projectId);
   const detect = useAction(api.ai.detectContentGaps);
   const createGap = useMutation(api.contentPlanning.createGap);
   const removeGap = useMutation(api.contentPlanning.removeGap);
@@ -160,11 +158,11 @@ function GapsTab({
   const selectedJourney = journeys.find((j) => j._id === mJourney);
 
   const runDetect = async () => {
-    if (!snapshot || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
       const result = await detect({
-        project: snapshot,
+        projectId,
         personas: personas.map((p) => ({
           id: p._id,
           name: p.name,
@@ -248,7 +246,7 @@ function GapsTab({
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={runDetect} disabled={busy || !snapshot}>
+        <Button onClick={runDetect} disabled={busy}>
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Analyzing…
@@ -273,7 +271,7 @@ function GapsTab({
           title="No content gaps mapped yet"
           hint="AI cross-checks personas + journey stages against the business and flags where content is missing. Or add your own."
           action={
-            <Button onClick={runDetect} disabled={busy || !snapshot}>
+            <Button onClick={runDetect} disabled={busy}>
               <Sparkles className="size-4" /> Detect gaps with AI
             </Button>
           }
@@ -459,7 +457,6 @@ function TopicsTab({
     [topicsRaw],
   );
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
-  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
   const suggest = useAction(api.ai.suggestTopics);
   const research = useAction(api.research.researchTopic);
   const createTopic = useMutation(api.contentPlanning.createTopic);
@@ -487,7 +484,7 @@ function TopicsTab({
   };
 
   const runSuggest = async () => {
-    if (!snapshot || !gap || busy) return;
+    if (!gap || busy) return;
     setBusy(true);
     try {
       // 1. quick live research on the gap title to ground topic suggestions
@@ -499,7 +496,7 @@ function TopicsTab({
         /* research optional here */
       }
       const result = await suggest({
-        project: snapshot,
+        projectId,
         gap: {
           title: gap.title,
           description: gap.description,
@@ -613,7 +610,7 @@ function TopicsTab({
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={runSuggest} disabled={busy || !gap || !snapshot}>
+        <Button onClick={runSuggest} disabled={busy || !gap}>
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Working…
@@ -905,7 +902,6 @@ function PieceEditor({
   const update = useMutation(api.content.update);
   const editSelectionAi = useAction(api.ai.editSelection);
   const generateContentAi = useAction(api.ai.generateContent);
-  const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
 
   const storedDoc = useQuery(api.contentPlanning.getDoc, { pieceId: piece._id });
 
@@ -951,11 +947,10 @@ function PieceEditor({
     selectionText: string;
     surroundingText: string;
   }) => {
-    if (!snapshot) throw new Error("Project context not loaded yet");
     // empty selection + expand = full AI draft
     if (!selectionText.trim() && op === "expand") {
       return await generateContentAi({
-        project: snapshot,
+        projectId,
         topic: {
           title: topic?.title ?? piece.title,
           angle: topic?.angle,
@@ -979,7 +974,7 @@ function PieceEditor({
       op,
       selectionHtml: selectionText,
       surroundingContext: surroundingText,
-      project: snapshot,
+      projectId,
       personaName: persona?.name,
     });
   };

@@ -128,4 +128,14 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
     export: "excluded",
     retention: "kept-until-revoked",
   },
+
+  // ── T0.4: per-user AI budget ────────────────────────────────────────────
+  aiRateLimits: {
+    scope: "user",
+    tenantField: "userId",
+    authorization:
+      "internal guards.consumeAiQuota (server-only; called by AI actions after the record is authorized)",
+    export: "excluded",
+    retention: "ephemeral",
+  },
 };

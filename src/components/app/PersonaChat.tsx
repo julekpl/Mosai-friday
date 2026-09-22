@@ -27,12 +27,10 @@ export function PersonaChat({
   projectId,
   personaId,
   persona,
-  snapshot,
 }: {
   projectId: Id<"projects">;
   personaId: Id<"personas">;
   persona: PersonaSnapshot;
-  snapshot: Record<string, unknown>;
 }) {
   const [mode, setMode] = useState<"persona" | "analyst">("persona");
   const [draft, setDraft] = useState("");
@@ -58,7 +56,7 @@ export function PersonaChat({
     try {
       const reply = await chat({
         mode,
-        project: snapshot as never,
+        projectId,
         persona,
         history: thread.slice(-16).map((m) => ({ role: m.role, content: m.content })),
         message,

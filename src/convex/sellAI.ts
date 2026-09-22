@@ -2,9 +2,13 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { moduleAction, requireActionUser } from "./guards";
+import {
+  actionProjectSnapshot,
+  consumeAiQuotaForAction,
+  moduleAction,
+  requireActionUser,
+} from "./guards";
 import { vly } from "../lib/vly-integrations";
-import type { Id } from "./_generated/dataModel";
 
 /* ── M1 Sell AI actions — M1-BLUEPRINT §8/§9, SELL-ARCHITECTURE §6 ────────
  *
@@ -49,15 +53,6 @@ STRICT RULES:
 - If information is missing, omit rather than invent.
 - Output plain text only — no markdown headers, no commentary.`;
 
-async function productContextOf(
-  projectId: Id<"projects">,
-): Promise<{ name?: string; industry?: string; description?: string; businessName?: string }> {
-  // The action context is db-free per ai.ts house pattern — the client
-  // passes project context inline instead. Kept for future enrichment.
-  void projectId;
-  return {};
-}
-
 /** Proposal for a product description. Refuses when a real description
  *  already exists unless mode:"improve" — and improve never overwrites
  *  server-side; it returns a proposal for review. */
@@ -69,19 +64,17 @@ export const generateDescription = moduleAction("sell", {
     productType: v.optional(v.string()),
     currentDescription: v.optional(v.string()),
     mode: v.union(v.literal("fill_missing"), v.literal("improve")),
-    project: v.object({
-      name: v.string(),
-      industry: v.optional(v.string()),
-      description: v.optional(v.string()),
-    }),
   },
   handler: async (ctx, args) => {
-    void productContextOf;
     // T2.2 authorized the project; T2.3's `moduleAction` enforces `sell.edit`
     // for the acting organization's plan and the caller's role BEFORE the
     // provider call (the builder resolves the tenant from `projectId`), so a
     // member of another organization (or a locked plan) cannot bill this
-    // project's AI budget.
+    // project's AI budget. The business context below is then loaded
+    // SERVER-side from the database (T0.4) — never trusted from the client.
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, args.projectId);
+    await consumeAiQuotaForAction(ctx, userId);
 
     if (args.mode === "fill_missing") {
       const existing = args.currentDescription?.trim() ?? "";
@@ -96,11 +89,9 @@ export const generateDescription = moduleAction("sell", {
     }
 
     const context = [
-      `Business: ${args.project.name}`,
-      args.project.industry ? `Industry: ${args.project.industry}` : "",
-      args.project.description
-        ? `About: ${args.project.description}`
-        : "",
+      `Business: ${project.name}`,
+      project.industry ? `Industry: ${project.industry}` : "",
+      project.description ? `About: ${project.description}` : "",
       `Product: ${args.title}`,
       args.brand ? `Brand: ${args.brand}` : "",
       args.productType ? `Type: ${args.productType}` : "",
@@ -129,7 +120,8 @@ export const generateAltText = action({
     productType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireActionUser(ctx);
+    const userId = await requireActionUser(ctx);
+    await consumeAiQuotaForAction(ctx, userId);
     if (!args.imageUrl) {
       throw new Error("Alt text requires an existing product image.");
     }
@@ -145,17 +137,18 @@ export const generateAltText = action({
 /** SEO title + description into enrichment. Fill-missing only. */
 export const generateSeo = action({
   args: {
+    projectId: v.id("projects"),
     title: v.string(),
     description: v.optional(v.string()),
     currentSeoTitle: v.optional(v.string()),
     currentSeoDescription: v.optional(v.string()),
-    project: v.object({
-      name: v.string(),
-      industry: v.optional(v.string()),
-    }),
   },
   handler: async (ctx, args) => {
-    await requireActionUser(ctx);
+    const userId = await requireActionUser(ctx);
+    // T0.4: business context comes from the database for a project the
+    // caller can reach — "Not found" for a foreign project id.
+    const project = await actionProjectSnapshot(ctx, userId, args.projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     if (args.currentSeoTitle?.trim() && args.currentSeoDescription?.trim()) {
       throw new Error("SEO fields already filled — nothing to generate.");
     }
@@ -165,7 +158,7 @@ export const generateSeo = action({
 
     const text = await complete(
       `You write SEO metadata for ecommerce product pages.${NEVER_FABRICATE}`,
-      `Business: ${args.project.name}${args.project.industry ? ` (${args.project.industry})` : ""}\nProduct: ${args.title}\n${args.description ? `Description: ${args.description.slice(0, 500)}` : ""}\n\nReturn ${[wantsTitle && "a SEO title (max 60 chars)", wantsDesc && "a meta description (max 155 chars)"].filter(Boolean).join(" and ")}. Format exactly:\nTITLE: <title>\nDESCRIPTION: <description>`,
+      `Business: ${project.name}${project.industry ? ` (${project.industry})` : ""}\nProduct: ${args.title}\n${args.description ? `Description: ${args.description.slice(0, 500)}` : ""}\n\nReturn ${[wantsTitle && "a SEO title (max 60 chars)", wantsDesc && "a meta description (max 155 chars)"].filter(Boolean).join(" and ")}. Format exactly:\nTITLE: <title>\nDESCRIPTION: <description>`,
       { maxTokens: 200, temperature: 0.5 },
     );
 

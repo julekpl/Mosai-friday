@@ -25,7 +25,6 @@ import {
   ModuleEmpty,
   StatusBadge,
 } from "@/components/app/module-kit";
-import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -323,7 +322,6 @@ function AiFixCard({
           brand: product.brand,
           currentDescription: hasDescription ? product.description : undefined,
           mode: hasDescription ? "improve" : "fill_missing",
-          project: { name: "your business" },
         });
         setProposal(r);
       } else if (issue.field === "seo") {
@@ -332,7 +330,7 @@ function AiFixCard({
           description: product.description,
           currentSeoTitle: product.enrichment?.seoTitle,
           currentSeoDescription: product.enrichment?.seoDescription,
-          project: { name: "your business" },
+          projectId,
         });
         setProposal(r);
       }
@@ -1131,9 +1129,6 @@ function StorefrontTab({ projectId }: { projectId: Id<"projects"> }) {
 /* ── Page ──────────────────────────────────────────────────────────────── */
 
 export default function Sell({ projectId }: { projectId: Id<"projects"> }) {
-  // Project context stays available for richer AI grounding in follow-ups.
-  useProjectSnapshot(projectId, { skipFiles: true });
-
   return (
     <div>
       <ModuleHeader

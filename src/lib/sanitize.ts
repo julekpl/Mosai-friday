@@ -78,6 +78,37 @@ const DROP_CONTENT_TAGS: ReadonlySet<string> = new Set([
   "frameset",
 ]);
 
+/** Every standard HTML element name. A real element that is NOT in the prose
+ *  allow-list is stripped and its text kept (an `<img onerror=…>` surfaces
+ *  nothing at all), while a tag-shaped token we do not recognise as HTML is
+ *  escaped to VISIBLE text instead of silently swallowed — `<notatag>` must
+ *  come out as `&lt;notatag>`, not as nothing (sanitize.test.ts). Neither
+ *  branch can produce markup: one drops it, the other escapes its `<`. */
+const HTML_ELEMENTS: ReadonlySet<string> = new Set([
+  // document / metadata / scripting
+  "html", "head", "body", "title", "base", "link", "meta", "style",
+  "script", "noscript", "template", "slot", "svg", "math", "canvas",
+  // sections
+  "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "blockquote",
+  "pre", "address", "figure", "figcaption",
+  // lists
+  "ul", "ol", "li", "dl", "dt", "dd",
+  // inline / text-level semantics
+  "a", "em", "strong", "small", "s", "q", "cite", "dfn", "abbr", "ruby",
+  "rt", "rp", "data", "time", "code", "var", "samp", "kbd", "sub", "sup",
+  "i", "b", "u", "mark", "bdi", "bdo", "span", "br", "wbr", "ins", "del",
+  // embedded content / replaced elements (never prose — always stripped)
+  "img", "picture", "source", "iframe", "embed", "object", "param",
+  "video", "audio", "track", "map", "area", "applet", "frame", "frameset",
+  // tabular data
+  "table", "caption", "colgroup", "col", "tbody", "thead", "tfoot", "tr",
+  "td", "th",
+  // interactive / forms
+  "form", "input", "button", "select", "datalist", "optgroup", "option",
+  "textarea", "label", "fieldset", "legend", "output", "progress", "meter",
+  "details", "summary", "dialog", "menu",
+]);
+
 /** The subset of HTML named entities that can change how an attribute value
  *  parses (`&colon;` → `:`, `&#58;` → `:` are the classic javascript: bypass). */
 const NAMED_ENTITIES: Record<string, string> = {
@@ -133,10 +164,24 @@ function escapeAttribute(value: string): string {
  */
 function safeHref(raw: string): string | null {
   const decoded = decodeEntities(raw);
-  const compact = decoded.replace(/[\u0000-\u0020\u007f]/g, "");
-  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(compact);
-  if (scheme) {
-    const name = scheme[1].toLowerCase();
+  // Strip ASCII control characters (0x00-0x20 and 0x7f) without a regex: a
+  // literal pattern spanning that range contains control characters, which
+  // `no-control-regex` (correctly) rejects. A code-point filter has the
+  // identical behaviour to the old `/[\u0000-\u0020\u007f]/g`.
+  let compact = "";
+  for (const ch of decoded) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code > 0x20 && code !== 0x7f) compact += ch;
+  }
+  // A colon before any `/`, `?` or `#` starts the URL scheme — including the
+  // EMPTY scheme an entity-encoded `&colon;…` decodes to. A missing or
+  // non-allow-listed scheme is refused; scheme-less and colon-free values
+  // (relative paths, `//host`, fragments) pass through unchanged.
+  const colon = compact.indexOf(":");
+  const firstDelimiter = compact.search(/[/?#]/);
+  if (colon !== -1 && (firstDelimiter === -1 || colon < firstDelimiter)) {
+    const name = compact.slice(0, colon).toLowerCase();
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*$/.test(name)) return null; // `:alert(1)`
     if (name !== "https" && name !== "http" && name !== "mailto" && name !== "tel") {
       return null;
     }
@@ -234,8 +279,16 @@ export function allowListSanitize(input: string): string {
         const closeRe = new RegExp(`<\\/${name}\\s*>`, "i");
         const close = closeRe.exec(rest);
         i = close ? lt + full.length + close.index + close[0].length : n;
+      } else if (HTML_ELEMENTS.has(name)) {
+        // A real HTML element outside the prose allow-list: strip the markup,
+        // keep its text (`<div onclick=…>hi</div>` → `hi`).
+        i = lt + full.length;
       } else {
-        i = lt + full.length; // drop the markup, keep surrounding text
+        // Not an element we recognise as HTML: escape the `<` so the token
+        // becomes visible text rather than vanishing (`<notatag>` →
+        // `&lt;notatag>`). The rest of the token is plain text from here.
+        out += "&lt;";
+        i = lt + 1;
       }
       continue;
     }

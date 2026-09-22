@@ -3,11 +3,12 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { vly } from "../lib/vly-integrations";
+import type { ProjectSnapshot } from "./ai";
 import {
-  projectSnapshotValidator,
-  type ProjectSnapshot,
-} from "./ai";
-import { requireActionUser } from "./guards";
+  actionProjectSnapshot,
+  consumeAiQuotaForAction,
+  requireActionUser,
+} from "./guards";
 
 /* ── shared helpers ──────────────────────────────────────────────────── */
 
@@ -74,7 +75,7 @@ const STEPS = [
  */
 export const generateBuildPlan = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     idea: v.string(),
     kind: v.union(v.literal("website"), v.literal("app")),
     name: v.string(),
@@ -102,8 +103,10 @@ export const generateBuildPlan = action({
       }),
     ),
   },
-  handler: async (ctx, { project, idea, kind, name, personas, journeys }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, idea, kind, name, personas, journeys }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const personaLines = personas
       .map(
         (p) =>
@@ -235,7 +238,7 @@ const STEP_DETAILS = [
  */
 export const generatePageDraft = action({
   args: {
-    project: projectSnapshotValidator,
+    projectId: v.id("projects"),
     build: v.object({
       name: v.string(),
       kind: v.union(v.literal("website"), v.literal("app")),
@@ -259,8 +262,10 @@ export const generatePageDraft = action({
     ),
     userInstructions: v.optional(v.string()),
   },
-  handler: async (ctx, { project, build, page, persona, userInstructions }) => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { projectId, build, page, persona, userInstructions }) => {
+    const userId = await requireActionUser(ctx);
+    const project = await actionProjectSnapshot(ctx, userId, projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const personaDesc = persona
       ? `Write for persona: ${persona.name}${persona.role ? ` (${persona.role})` : ""}${
           persona.pains?.length ? ` — pains: ${persona.pains.join("; ")}` : ""

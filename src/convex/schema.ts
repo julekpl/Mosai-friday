@@ -1232,6 +1232,16 @@ const schema = defineSchema(
     })
       .index("by_site_path", ["siteId", "fromPath"])
       .index("by_project", ["projectId"]),
+
+    // Per-user AI/scraping budget buckets (pack T0.4). One row per user and
+    // fixed time window; written only by the internal `guards.consumeAiQuota`
+    // mutation that the server-side AI actions call before spending a
+    // provider call. Ephemeral: expired rows are dropped opportunistically.
+    aiRateLimits: defineTable({
+      userId: v.id("users"),
+      windowStart: v.number(), // epoch ms, aligned to AI_QUOTA_WINDOW_MS
+      count: v.number(),
+    }).index("by_user_window", ["userId", "windowStart"]),
   },
   {
     schemaValidation: false,
