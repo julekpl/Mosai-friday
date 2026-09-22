@@ -1,7 +1,6 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
+import { assertModule, orgMutation, orgQuery, ownedRow, requireUser } from "./guards";
 import { v } from "convex/values";
-import { assertModule, ownedRow, requireUser } from "./guards";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { computeReadiness } from "./sell/readiness";
@@ -22,13 +21,12 @@ function slugify(title: string) {
 /* ── Queries ─────────────────────────────────────────────────────────── */
 
 /** Products + variants + media + readiness in one reactive call. */
-export const listWithReadiness = query({
+export const listWithReadiness = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
+    const project = scope.project;
 
     const products = await ctx.db
       .query("products")
@@ -106,7 +104,7 @@ export const getWithDetail = query({
 /* ── Mutations ────────────────────────────────────────────────────────── */
 
 /** Create a product. Always creates exactly one default variant. */
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     title: v.string(),
@@ -120,11 +118,9 @@ export const create = mutation({
     collectionIds: v.optional(v.array(v.id("collections"))),
     identifierStatus: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const userId = await assertModule(ctx, "sell");
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
-    void userId;
+  handler: async (ctx, args, access) => {
+    await assertModule(ctx, "sell");
+    await access.requireProject(args.projectId);
 
     const now = Date.now();
     const { projectId, imageUrl, ...rest } = args;

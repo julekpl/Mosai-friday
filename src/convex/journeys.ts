@@ -1,5 +1,4 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 
 export const DEFAULT_LANES = [
@@ -16,13 +15,11 @@ const stageValidator = v.object({
   score: v.optional(v.number()),
 });
 
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("journeyMaps")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -30,20 +27,14 @@ export const list = query({
   },
 });
 
-export const get = query({
+export const get = orgQuery({
   args: { id: v.id("journeyMaps") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const map = await ctx.db.get(id);
-    if (!map) return null;
-    const project = await ctx.db.get(map.projectId);
-    if (!project || project.ownerId !== userId) return null;
-    return map;
+  handler: async (ctx, { id }, access) => {
+    return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     personaId: v.optional(v.id("personas")),
@@ -53,11 +44,8 @@ export const create = mutation({
     stages: v.array(stageValidator),
     source: v.union(v.literal("manual"), v.literal("ai"), v.literal("csv")),
   },
-  handler: async (ctx, { projectId, ...rest }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, ...rest }, access) => {
+    const { userId } = await access.requireProject(projectId);
     const now = Date.now();
     return await ctx.db.insert("journeyMaps", {
       projectId,
@@ -70,7 +58,7 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("journeyMaps"),
     name: v.optional(v.string()),
@@ -79,13 +67,9 @@ export const update = mutation({
     lanes: v.optional(v.array(v.string())),
     stages: v.optional(v.array(stageValidator)),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const map = await ctx.db.get(id);
-    if (!map) throw new Error("Not found");
-    const project = await ctx.db.get(map.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
@@ -94,15 +78,11 @@ export const update = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("journeyMaps") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const map = await ctx.db.get(id);
-    if (!map) throw new Error("Not found");
-    const project = await ctx.db.get(map.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
   },
 });

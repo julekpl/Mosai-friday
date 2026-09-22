@@ -1,17 +1,13 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
-import { ownedRow, requireUser } from "./guards";
 import { isSocialPlatform } from "./social/platforms";
 import { getSocialAdapter } from "./social/adapters";
 
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("posts")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -19,7 +15,7 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     channel: v.string(), // facebook | instagram | linkedin | x | tiktok
@@ -29,10 +25,8 @@ export const create = mutation({
     scheduledFor: v.optional(v.number()),
     contentId: v.optional(v.id("contentPieces")),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, args, access) => {
+    await access.requireProject(args.projectId);
     if (!isSocialPlatform(args.channel)) throw new Error("Unknown platform");
 
     // Fail early, not at publish time: run the platform adapter's validation.
@@ -56,7 +50,7 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("posts"),
     body: v.optional(v.string()),
@@ -73,11 +67,9 @@ export const update = mutation({
       ),
     ),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    await requireUser(ctx);
-    const doc = await ctx.db.get(id);
-    const row = await ownedRow(ctx, doc);
-    if (!row || !doc) throw new Error("Not found");
+  handler: async (ctx, { id, ...patch }, access) => {
+    const doc = await access.ownedRow(await ctx.db.get(id));
+    if (!doc) throw new Error("Not found");
     // Status transitions that touch real publishing go through the executor
     // (schedule / publishNow); direct status writes stay for drafts/edits.
     if (patch.status && doc.status !== "draft") {
@@ -92,11 +84,10 @@ export const update = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("posts") },
-  handler: async (ctx, { id }) => {
-    await requireUser(ctx);
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
   },

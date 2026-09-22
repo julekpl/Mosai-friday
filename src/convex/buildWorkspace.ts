@@ -1,5 +1,4 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
@@ -13,15 +12,13 @@ import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
 /* ── Live preview data: site + pages + current draft documents ─────────── */
 
-export const getPreviewData = query({
+export const getPreviewData = orgQuery({
   args: { buildId: v.id("builds") },
-  handler: async (ctx, { buildId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+  handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
     if (!build) return null;
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) return null;
+    const scope = await access.ownedProject(build.projectId);
+    if (!scope) return null;
 
     const site = await ctx.db
       .query("sites")
@@ -60,15 +57,13 @@ export const getPreviewData = query({
   },
 });
 
-export const listMessages = query({
+export const listMessages = orgQuery({
   args: { buildId: v.id("builds") },
-  handler: async (ctx, { buildId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
     if (!build) return [];
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) return [];
+    const scope = await access.ownedProject(build.projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("buildMessages")
       .withIndex("by_build", (q) => q.eq("buildId", buildId))
@@ -76,15 +71,12 @@ export const listMessages = query({
   },
 });
 
-export const clearChat = mutation({
+export const clearChat = orgMutation({
   args: { buildId: v.id("builds") },
-  handler: async (ctx, { buildId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
     if (!build) throw new Error("Not found");
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    await access.requireProject(build.projectId);
     const msgs = await ctx.db
       .query("buildMessages")
       .withIndex("by_build", (q) => q.eq("buildId", buildId))
@@ -93,15 +85,13 @@ export const clearChat = mutation({
   },
 });
 
-export const listVersions = query({
+export const listVersions = orgQuery({
   args: { buildId: v.id("builds") },
-  handler: async (ctx, { buildId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
     if (!build) return [];
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) return [];
+    const scope = await access.ownedProject(build.projectId);
+    if (!scope) return [];
     const versions = await ctx.db
       .query("buildVersions")
       .withIndex("by_build", (q) => q.eq("buildId", buildId))
@@ -111,15 +101,12 @@ export const listVersions = query({
 });
 
 /** Restore = copy every snapshot page back into fresh draft revisions. */
-export const restoreVersion = mutation({
+export const restoreVersion = orgMutation({
   args: { versionId: v.id("buildVersions") },
-  handler: async (ctx, { versionId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-    const version = await ctx.db.get(versionId);
+  handler: async (ctx, { versionId }, access) => {
+    const version = await access.ownedRow(await ctx.db.get(versionId));
     if (!version) throw new Error("Not found");
-    const project = await ctx.db.get(version.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    const userId = await access.requireUser();
 
     let restored = 0;
     for (const p of version.pages) {
@@ -167,15 +154,12 @@ export const restoreVersion = mutation({
 });
 
 /** Publish: promote every page draft through the canonical revision path. */
-export const publishSite = mutation({
+export const publishSite = orgMutation({
   args: { buildId: v.id("builds") },
-  handler: async (ctx, { buildId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
     if (!build) throw new Error("Not found");
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    const { userId } = await access.requireProject(build.projectId);
 
     const site = await ctx.db
       .query("sites")

@@ -1,11 +1,18 @@
 
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+} from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { getAdapter } from "./adapters";
 import { isPlatform, type Platform } from "./platforms";
 import { internal } from "../_generated/api";
+import { orgQuery, projectAccessFor } from "../guards";
 
 /**
  * Sync engine: pull data from the four platforms into normalized MOSAI tables.
@@ -22,18 +29,6 @@ function daysAgo(n: number): string {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/** Internal ownership check usable from actions (no ctx.db there). */
-export const assertProjectOwner = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
-    return userId;
-  },
-});
-
 /** Full sync for one platform: accounts → campaigns → 14 days of metrics. */
 export const syncPlatform = action({
   args: { projectId: v.id("projects"), platform: v.string() },
@@ -42,9 +37,13 @@ export const syncPlatform = action({
     const p = platform as Platform;
 
     // Ownership + entitlement checks (actions have no ctx.db — run as queries).
-    const userId = await ctx.runQuery(internal.ads.sync.assertProjectOwner, {
-      projectId,
-    });
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const authorized = await ctx.runQuery(
+      internal.guards.projectAccessForAction,
+      { projectId, userId: userId as Id<"users"> },
+    );
+    if (!authorized) throw new Error("Not found");
     await ctx.runQuery(internal.billing.checkModule, {
       userId: userId as Id<"users">,
       module: "promote",
@@ -132,13 +131,14 @@ export const syncPlatform = action({
 });
 
 async function requireProject(
-  ctx: { db: { get(id: Id<"projects">): Promise<{ ownerId: Id<"users"> } | null> } },
+  ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
 ) {
-  const userId = await getAuthUserId(ctx as never);
+  const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Not signed in");
-  const project = await ctx.db.get(projectId);
-  if (!project || project.ownerId !== userId) throw new Error("Not found");
+  if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
+    throw new Error("Not found");
+  }
   return userId as Id<"users">;
 }
 
@@ -305,13 +305,11 @@ export const upsertMetricRow = internalMutation({
 });
 
 /** Client-facing reads: accounts, campaigns, metrics rollup. */
-export const listAccounts = query({
+export const listAccounts = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("adsAccounts")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -319,13 +317,11 @@ export const listAccounts = query({
   },
 });
 
-export const listCampaigns = query({
+export const listCampaigns = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     const campaigns = await ctx.db
       .query("adsCampaigns")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))

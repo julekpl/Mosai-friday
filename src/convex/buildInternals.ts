@@ -2,6 +2,7 @@ import { internalQuery, internalMutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { projectAccessFor } from "./guards";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
 /* ── Build workspace internals (shared by buildChat actions) ──────────────
@@ -163,8 +164,9 @@ export const ensureSiteWithPages = internalMutation({
   handler: async (ctx, { projectId, projectName, pages }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
+      throw new Error("Not found");
+    }
 
     const norm = (raw: string) =>
       raw
@@ -300,8 +302,9 @@ export const applyEditWithSnapshot = internalMutation({
   handler: async (ctx, { projectId, versionLabel, snapshotPages }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
+      throw new Error("Not found");
+    }
 
     const build = await ctx.db
       .query("builds")

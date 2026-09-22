@@ -1,11 +1,7 @@
 import { v } from "convex/values";
-import {
-  internalMutation,
-  internalQuery,
-  action,
-} from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { orgAction } from "./guards";
 import type { Id } from "./_generated/dataModel";
 
 /* ── Shopify READ connector (W5) — see CMS-CONNECTOR-CONTRACT.md ──────────
@@ -240,27 +236,11 @@ export const upsertExternalCollection = internalMutation({
 
 /** Link products to their Shopify collections — see applyCollectionMembership. */
 
-/** Internal project ownership check for actions. */
-export const getProjectOwner = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const project = await ctx.db.get(projectId);
-    return project ? { ownerId: project.ownerId } : null;
-  },
-});
-
 /** Full catalog sync. Returns counts; throws readable errors to the client. */
-export const syncCatalog = action({
+export const syncCatalog = orgAction({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project: { ownerId: Id<"users"> } | null = await ctx.runQuery(
-      internal.shopifySync.getProjectOwner,
-      { projectId },
-    );
-    if (!project || project.ownerId !== userId)
-      throw new Error("Not found");
+  handler: async (ctx, { projectId }, access) => {
+    await access.requireProject(projectId);
 
     if (!SHOPIFY_PER_PROJECT_CREDENTIALS) {
       throw new Error(

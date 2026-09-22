@@ -1,12 +1,10 @@
 
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import type { Id } from "../_generated/dataModel";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getAdapter } from "./adapters";
 import { isPlatform, type Platform } from "./platforms";
-import { assertModule } from "../guards";
+import { assertModule, orgAction, orgMutation, orgQuery } from "../guards";
 
 /**
  * Change control: nothing touches a live ad platform without a drafted
@@ -17,7 +15,7 @@ import { assertModule } from "../guards";
  */
 
 /** Create a change request (draft). The UI and the copilot both land here. */
-export const createDraft = mutation({
+export const createDraft = orgMutation({
   args: {
     projectId: v.id("projects"),
     platform: v.string(),
@@ -34,11 +32,9 @@ export const createDraft = mutation({
     rationale: v.optional(v.string()),
     origin: v.union(v.literal("user"), v.literal("copilot")),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args, access) => {
     await assertModule(ctx, "promote");
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    const { userId } = await access.requireProject(args.projectId);
     if (!isPlatform(args.platform)) throw new Error("Unknown platform");
     if (args.kind === "set_daily_budget") {
       if (!args.payload || args.payload <= 0) {
@@ -68,15 +64,12 @@ export const createDraft = mutation({
 });
 
 /** Approve a draft. This is the human gate — nothing executes without it. */
-export const approve = mutation({
+export const approve = orgMutation({
   args: { id: v.id("adsChangeRequests") },
-  handler: async (ctx, { id }) => {
+  handler: async (ctx, { id }, access) => {
     await assertModule(ctx, "promote");
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
-    const row = await ctx.db.get(id);
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
-    const project = await ctx.db.get(row.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
     if (row.status !== "draft") throw new Error("Only drafts can be approved");
     // Idempotency key: a uuid-style hex string generated without node:crypto.
     const idempotencyKey = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -89,15 +82,12 @@ export const approve = mutation({
 });
 
 /** Reject a draft. */
-export const reject = mutation({
+export const reject = orgMutation({
   args: { id: v.id("adsChangeRequests") },
-  handler: async (ctx, { id }) => {
+  handler: async (ctx, { id }, access) => {
     await assertModule(ctx, "promote");
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
-    const row = await ctx.db.get(id);
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
-    const project = await ctx.db.get(row.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
     if (row.status !== "draft") throw new Error("Only drafts can be rejected");
     await ctx.db.patch(id, { status: "rejected", decidedAt: Date.now() });
   },
@@ -105,21 +95,17 @@ export const reject = mutation({
 
 /** Execute an approved change against the provider. Records a receipt either
  *  way; the receipt is immutable (insert-only). */
-export const execute = action({
+export const execute = orgAction({
   args: { id: v.id("adsChangeRequests") },
-  handler: async (ctx, { id }) => {
-    const userId = (await getAuthUserId(ctx as never)) as Id<"users">;
-    if (!userId) throw new Error("Not signed in");
+  handler: async (ctx, { id }, access) => {
+    const userId = await access.requireUser();
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",
     });
     const row = await ctx.runQuery(internal.ads.control.getChange, { id });
     if (!row) throw new Error("Not found");
-    const project = await ctx.runQuery(internal.ads.control.getProject, {
-      projectId: row.projectId,
-    });
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    await access.requireProject(row.projectId);
     if (row.status !== "approved") {
       throw new Error("Only approved changes can be executed");
     }
@@ -178,13 +164,11 @@ export const execute = action({
 });
 
 /** List change requests (drafts first) + executions receipts. */
-export const listChanges = query({
+export const listChanges = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     const rows = await ctx.db
       .query("adsChangeRequests")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -193,13 +177,11 @@ export const listChanges = query({
   },
 });
 
-export const listExecutions = query({
+export const listExecutions = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     const rows = await ctx.db
       .query("adsExecutions")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -214,13 +196,6 @@ export const getChange = internalQuery({
   args: { id: v.id("adsChangeRequests") },
   handler: async (ctx, { id }) => {
     return await ctx.db.get(id);
-  },
-});
-
-export const getProject = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    return await ctx.db.get(projectId);
   },
 });
 

@@ -1,16 +1,13 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 
 /* ── Content gaps ─────────────────────────────────────────────────────── */
 
-export const listGaps = query({
+export const listGaps = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("contentGaps")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -18,7 +15,7 @@ export const listGaps = query({
   },
 });
 
-export const createGap = mutation({
+export const createGap = orgMutation({
   args: {
     projectId: v.id("projects"),
     personaId: v.optional(v.id("personas")),
@@ -31,11 +28,8 @@ export const createGap = mutation({
     ),
     source: v.optional(v.union(v.literal("ai"), v.literal("manual"))),
   },
-  handler: async (ctx, { projectId, ...rest }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, ...rest }, access) => {
+    const { userId } = await access.requireProject(projectId);
     return await ctx.db.insert("contentGaps", {
       projectId,
       ...rest,
@@ -46,7 +40,7 @@ export const createGap = mutation({
   },
 });
 
-export const updateGap = mutation({
+export const updateGap = orgMutation({
   args: {
     id: v.id("contentGaps"),
     title: v.optional(v.string()),
@@ -58,13 +52,9 @@ export const updateGap = mutation({
       v.union(v.literal("open"), v.literal("covered"), v.literal("dismissed")),
     ),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const gap = await ctx.db.get(id);
-    if (!gap) throw new Error("Not found");
-    const project = await ctx.db.get(gap.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
@@ -72,28 +62,22 @@ export const updateGap = mutation({
   },
 });
 
-export const removeGap = mutation({
+export const removeGap = orgMutation({
   args: { id: v.id("contentGaps") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const gap = await ctx.db.get(id);
-    if (!gap) throw new Error("Not found");
-    const project = await ctx.db.get(gap.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
   },
 });
 
 /* ── Researched topics ────────────────────────────────────────────────── */
 
-export const listTopics = query({
+export const listTopics = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("contentTopics")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -101,7 +85,7 @@ export const listTopics = query({
   },
 });
 
-export const createTopic = mutation({
+export const createTopic = orgMutation({
   args: {
     projectId: v.id("projects"),
     gapId: v.optional(v.id("contentGaps")),
@@ -118,11 +102,8 @@ export const createTopic = mutation({
       ),
     ),
   },
-  handler: async (ctx, { projectId, ...rest }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, ...rest }, access) => {
+    const { userId } = await access.requireProject(projectId);
     return await ctx.db.insert("contentTopics", {
       projectId,
       ...rest,
@@ -133,7 +114,7 @@ export const createTopic = mutation({
   },
 });
 
-export const updateTopic = mutation({
+export const updateTopic = orgMutation({
   args: {
     id: v.id("contentTopics"),
     title: v.optional(v.string()),
@@ -160,13 +141,9 @@ export const updateTopic = mutation({
       ),
     ),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const topic = await ctx.db.get(id);
-    if (!topic) throw new Error("Not found");
-    const project = await ctx.db.get(topic.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
@@ -174,30 +151,22 @@ export const updateTopic = mutation({
   },
 });
 
-export const removeTopic = mutation({
+export const removeTopic = orgMutation({
   args: { id: v.id("contentTopics") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const topic = await ctx.db.get(id);
-    if (!topic) throw new Error("Not found");
-    const project = await ctx.db.get(topic.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
   },
 });
 
 /* ── Collaborative doc snapshots (Yjs state per content piece) ────────── */
 
-export const getDoc = query({
+export const getDoc = orgQuery({
   args: { pieceId: v.id("contentPieces") },
-  handler: async (ctx, { pieceId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const piece = await ctx.db.get(pieceId);
+  handler: async (ctx, { pieceId }, access) => {
+    const piece = await access.ownedRow(await ctx.db.get(pieceId));
     if (!piece) return null;
-    const project = await ctx.db.get(piece.projectId);
-    if (!project || project.ownerId !== userId) return null;
     const doc = await ctx.db
       .query("contentDocs")
       .withIndex("by_piece", (q) => q.eq("pieceId", pieceId))
@@ -206,20 +175,17 @@ export const getDoc = query({
   },
 });
 
-export const saveDoc = mutation({
+export const saveDoc = orgMutation({
   args: {
     pieceId: v.id("contentPieces"),
     snapshot: v.bytes(),
     bodyText: v.optional(v.string()),
     bodyHtml: v.optional(v.string()),
   },
-  handler: async (ctx, { pieceId, snapshot, bodyHtml }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const piece = await ctx.db.get(pieceId);
+  handler: async (ctx, { pieceId, snapshot, bodyHtml }, access) => {
+    const piece = await access.ownedRow(await ctx.db.get(pieceId));
     if (!piece) throw new Error("Not found");
-    const project = await ctx.db.get(piece.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    const userId = await access.requireUser();
     const now = Date.now();
     const existing = await ctx.db
       .query("contentDocs")

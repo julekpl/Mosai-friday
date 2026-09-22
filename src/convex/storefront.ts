@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { projectAccessFor } from "./guards";
 
 /* ── Storefront read model (svelte-commerce pattern) ──────────────────────
  *
@@ -43,8 +44,9 @@ async function requireOwnedProject(
 ): Promise<{ ok: true; site: Doc<"sites"> | null } | { ok: false }> {
   const userId = await getAuthUserId(ctx);
   if (!userId) return { ok: false };
-  const project = await ctx.db.get(projectId);
-  if (!project || project.ownerId !== userId) return { ok: false };
+  if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
+    return { ok: false };
+  }
   const site = await ctx.db
     .query("sites")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))

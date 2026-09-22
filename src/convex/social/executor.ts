@@ -1,14 +1,12 @@
 import { v } from "convex/values";
 import {
-  action,
   internalAction,
   internalMutation,
   internalQuery,
-  mutation,
 } from "../_generated/server";
 import type { GenericActionCtx } from "convex/server";
 import type { AnyDataModel } from "convex/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { orgAction, orgMutation } from "../guards";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { getSocialAdapter } from "./adapters";
@@ -27,17 +25,14 @@ import { isSocialPlatform } from "./platforms";
 /* ── Scheduling (mutations — user-facing gate) ────────────────────────── */
 
 /** Schedule a draft. This is the explicit human action that arms the post. */
-export const schedule = mutation({
+export const schedule = orgMutation({
   args: {
     id: v.id("posts"),
     scheduledFor: v.number(),
   },
-  handler: async (ctx, { id, scheduledFor }) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
-    const row = await ctx.db.get(id);
+  handler: async (ctx, { id, scheduledFor }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
-    const project = await ctx.db.get(row.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
     if (row.status !== "draft") throw new Error("Only drafts can be scheduled");
     if (scheduledFor < Date.now() - 60_000) {
       throw new Error("Schedule time must be in the future");
@@ -47,34 +42,28 @@ export const schedule = mutation({
 });
 
 /** Unschedule: pull a scheduled post back to draft. */
-export const unschedule = mutation({
+export const unschedule = orgMutation({
   args: { id: v.id("posts") },
-  handler: async (ctx, { id }) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
-    const row = await ctx.db.get(id);
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
-    const project = await ctx.db.get(row.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
     if (row.status !== "scheduled") throw new Error("Only scheduled posts can be pulled back");
     await ctx.db.patch(id, { status: "draft", scheduledFor: undefined });
   },
 });
 
 /** Publish now — only drafts, explicit user action. */
-export const publishNow = action({
+export const publishNow = orgAction({
   args: { id: v.id("posts") },
-  handler: async (ctx, { id }) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
+  handler: async (ctx, { id }, access) => {
+    const userId = await access.requireUser();
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",
     });
     const post = await ctx.runQuery(internal.social.executor.getPost, { id });
     if (!post) throw new Error("Not found");
-    const project = await ctx.runQuery(internal.social.executor.getProject, {
-      projectId: post.projectId,
-    });
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    await access.requireProject(post.projectId);
     if (post.status === "published") throw new Error("Already published");
 
     const result = await publishOne(ctx, id);
@@ -91,11 +80,6 @@ export const publishNow = action({
 export const getPost = internalQuery({
   args: { id: v.id("posts") },
   handler: async (ctx, { id }) => await ctx.db.get(id),
-});
-
-export const getProject = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => await ctx.db.get(projectId),
 });
 
 /** Fetch due scheduled posts (scheduledFor <= now, status = scheduled). */

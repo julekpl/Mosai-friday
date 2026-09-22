@@ -1,7 +1,5 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
-import { ownedRow, requireUser } from "./guards";
 
 const blueprintStep = v.object({
   step: v.string(),
@@ -18,13 +16,11 @@ const blueprintValidator = v.object({
   generatedAt: v.number(),
 });
 
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("builds")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -32,20 +28,14 @@ export const list = query({
   },
 });
 
-export const get = query({
+export const get = orgQuery({
   args: { id: v.id("builds") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const build = await ctx.db.get(id);
-    if (!build) return null;
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) return null;
-    return build;
+  handler: async (ctx, { id }, access) => {
+    return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     name: v.string(),
@@ -58,10 +48,8 @@ export const create = mutation({
     journeyMapIds: v.optional(v.array(v.id("journeyMaps"))),
     differentiators: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, args, access) => {
+    await access.requireProject(args.projectId);
     const { projectId, ...rest } = args;
     const now = Date.now();
     return await ctx.db.insert("builds", {
@@ -74,7 +62,7 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("builds"),
     name: v.optional(v.string()),
@@ -96,9 +84,8 @@ export const update = mutation({
     seoReady: v.optional(v.boolean()),
     wcagReady: v.optional(v.boolean()),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    await requireUser(ctx);
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
@@ -108,18 +95,15 @@ export const update = mutation({
   },
 });
 
-export const setStepStatus = mutation({
+export const setStepStatus = orgMutation({
   args: {
     id: v.id("builds"),
     stepIndex: v.number(),
     status: v.union(v.literal("todo"), v.literal("doing"), v.literal("done")),
   },
-  handler: async (ctx, { id, stepIndex, status }) => {
-    const userId = await requireUser(ctx);
-    const build = await ctx.db.get(id);
+  handler: async (ctx, { id, stepIndex, status }, access) => {
+    const build = await access.ownedRow(await ctx.db.get(id));
     if (!build) throw new Error("Not found");
-    const project = await ctx.db.get(build.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
     const blueprint = build.blueprint;
     if (!blueprint?.steps || stepIndex < 0 || stepIndex >= blueprint.steps.length)
       throw new Error("Step not found");
@@ -133,11 +117,10 @@ export const setStepStatus = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("builds") },
-  handler: async (ctx, { id }) => {
-    await requireUser(ctx);
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     // cascade: remove the build's pages too
     const pages = await ctx.db

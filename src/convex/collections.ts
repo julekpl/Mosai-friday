@@ -1,17 +1,14 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
+import { assertModule } from "./guards";
 import { v } from "convex/values";
-import { assertModule, ownedRow, requireProject } from "./guards";
 
 /* ── M1 Collections — reference products, never own them ───────────────── */
 
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("collections")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -19,17 +16,17 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     title: v.string(),
     description: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args, access) => {
     // Ownership first: `assertModule` only checks the plan, so without this
     // any signed-in user could insert a collection into somebody else's
     // project by passing a foreign projectId (review finding T0.6).
-    const { project } = await requireProject(ctx, args.projectId);
+    const { project } = await access.requireProject(args.projectId);
     await assertModule(ctx, "sell");
     return await ctx.db.insert("collections", {
       ...args,
@@ -39,15 +36,15 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("collections"),
     title: v.optional(v.string()),
     description: v.optional(v.string()),
   },
-  handler: async (ctx, { id, ...patch }) => {
+  handler: async (ctx, { id, ...patch }, access) => {
     await assertModule(ctx, "sell");
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
@@ -58,11 +55,11 @@ export const update = mutation({
 
 /** Deleting a collection de-references it from products — never touches
  *  the products themselves (M1-BLUEPRINT §5). */
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("collections") },
-  handler: async (ctx, { id }) => {
+  handler: async (ctx, { id }, access) => {
     await assertModule(ctx, "sell");
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
 
     const products = await ctx.db

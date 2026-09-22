@@ -1,17 +1,15 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { query } from "../_generated/server";
+import { orgQuery } from "../guards";
 import { v } from "convex/values";
 import { buildGoogleFeed, feedToXml } from "./feed";
 
 /* ── Sell module read model — readiness summary + feed projection ──────── */
 
-export const feedStatus = query({
+export const feedStatus = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return null;
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return null;
+    const project = scope.project;
 
     const products = await ctx.db
       .query("products")

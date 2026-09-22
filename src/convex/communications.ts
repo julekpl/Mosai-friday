@@ -1,14 +1,11 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("communications")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -16,7 +13,7 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     name: v.string(),
@@ -25,11 +22,8 @@ export const create = mutation({
     channels: v.optional(v.array(v.string())),
     audience: v.optional(v.string()),
   },
-  handler: async (ctx, { projectId, ...rest }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, ...rest }, access) => {
+    const { userId } = await access.requireProject(projectId);
     return await ctx.db.insert("communications", {
       projectId,
       ...rest,
@@ -40,7 +34,7 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("communications"),
     name: v.optional(v.string()),
@@ -52,13 +46,9 @@ export const update = mutation({
       v.union(v.literal("draft"), v.literal("active"), v.literal("archived")),
     ),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const comms = await ctx.db.get(id);
-    if (!comms) throw new Error("Not found");
-    const project = await ctx.db.get(comms.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
@@ -66,15 +56,11 @@ export const update = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("communications") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const comms = await ctx.db.get(id);
-    if (!comms) throw new Error("Not found");
-    const project = await ctx.db.get(comms.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
   },
 });

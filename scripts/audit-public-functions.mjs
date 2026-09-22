@@ -26,14 +26,30 @@ const ALLOWLIST_PATH = join(ROOT, "scripts", "public-functions-allowlist.json");
 
 /** Guards that establish tenancy through one reviewed helper. `require*`
  *  covers the canonical helpers (requireUser / requireProject /
- *  requireActionUser) and module-local ones (requireOwnedProject). */
+ *  requireActionUser) and module-local ones (requireOwnedProject). The
+ *  org-scoped access object (T2.2) exposes `requireProject` / `requireOrganization`
+ *  and `ownedProject` / `ownedRow`, which match the same patterns. */
 const STRONG_GUARDS = /\b(require[A-Z]\w*|owned[A-Z]\w*|userCtx|projectCtx)\b|\bctx\.auth\b/;
-/** Hand-rolled ownership check: comparing the row's ownerId to the caller. */
+/** Hand-rolled ownership check: comparing the row's ownerId to the caller.
+ *  Since T2.2 this is a **failure**, not a warning: a function that reads the
+ *  owner off a project and compares it inline bypasses the organization
+ *  membership rule and is exactly the pattern that produced the
+ *  `collections.create` cross-tenant write. */
 const INLINE_OWNERSHIP = /\.ownerId\s*(?:!==|===|!=|==)\s*\w+/;
 /** Helpers that authenticate but leave authorization to the caller. */
 const WEAK_GUARDS = /\b(getAuthUserId|maybeUser)\b/;
 
-const PUBLIC_KINDS = ["query", "mutation", "action", "httpAction"];
+/** Every wrapper that produces a public Convex function, including the T2.2
+ *  org-scoped builders. */
+const PUBLIC_KINDS = [
+  "query",
+  "mutation",
+  "action",
+  "httpAction",
+  "orgQuery",
+  "orgMutation",
+  "orgAction",
+];
 
 function walk(dir) {
   const out = [];
@@ -48,7 +64,8 @@ function walk(dir) {
 
 /** Split a module into top-level `export const <name> = <kind>(` declarations. */
 function publicFunctions(source) {
-  const decl = /^export const (\w+) = (query|mutation|action|httpAction)\s*\(/gm;
+  const decl =
+    /^export const (\w+) = (query|mutation|action|httpAction|orgQuery|orgMutation|orgAction)\s*\(/gm;
   const found = [];
   const hits = [...source.matchAll(decl)];
   for (let i = 0; i < hits.length; i++) {
@@ -87,9 +104,9 @@ for (const file of walk(CONVEX_DIR)) {
       guarded++;
       continue;
     }
-    // An inline `project.ownerId !== userId` check authorizes correctly, but
-    // it is the pattern that produced the collections.create bug: one call
-    // site forgetting it is a cross-tenant write. Report it, do not fail.
+    // An inline `project.ownerId !== userId` check bypasses organization
+    // membership and is the pattern that produced the collections.create bug.
+    // T2.2 migrated all 81 of them; from now on this is a hard failure.
     if (INLINE_OWNERSHIP.test(fn.body)) {
       inline.push({ key, file: rel, line: fn.line, name: fn.name, kind: fn.kind });
       continue;
@@ -112,8 +129,13 @@ if (process.argv.includes("--json")) {
   );
 } else {
   console.log(`public functions scanned: ${total}`);
-  console.log(`  ${guarded} via a shared guard helper`);
-  console.log(`  ${inline.length} via an inline ownerId check (migrate to requireProject — T2.2)`);
+  console.log(`  ${guarded} authorize through a shared guard / org access helper`);
+  if (inline.length) {
+    console.log(
+      `\n✗ inline ownerId authorization — FAIL (${inline.length}); use orgQuery/orgMutation/orgAction and access.requireProject/ownedRow:`,
+    );
+    for (const f of inline) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
+  }
   if (weak.length) {
     console.log(`\n! authenticates but never authorizes — REVIEW (${weak.length}):`);
     for (const f of weak) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
@@ -122,7 +144,9 @@ if (process.argv.includes("--json")) {
     console.log(`\n✗ no sign-in check at all — FAIL (${findings.length}):`);
     for (const f of findings) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
   }
-  if (!findings.length) console.log("\n✓ every public function authenticates or is allow-listed");
+  if (!findings.length && !inline.length) {
+    console.log(`\n✓ every public function authenticates and authorizes (or is allow-listed)`);
+  }
 }
 
-process.exit(findings.length ? 1 : 0);
+process.exit(findings.length || inline.length ? 1 : 0);

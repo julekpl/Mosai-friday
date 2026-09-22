@@ -1,10 +1,9 @@
 "use node";
 
 import { v } from "convex/values";
-import { action } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
+import { orgAction } from "../guards";
 import { vly } from "../../lib/vly-integrations";
 import { isSocialPlatform, SOCIAL_PLATFORM_META } from "./platforms";
 
@@ -37,7 +36,7 @@ async function complete(
 
 /* ── 1. Platform variants: one approved source → drafts per platform ──── */
 
-export const draftVariants = action({
+export const draftVariants = orgAction({
   args: {
     projectId: v.id("projects"),
     contentId: v.optional(v.id("contentPieces")),
@@ -46,8 +45,8 @@ export const draftVariants = action({
     campaignId: v.optional(v.id("campaigns")),
     platforms: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
+  handler: async (ctx, args, access) => {
+    const { userId } = await access.requireProject(args.projectId);
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",
@@ -124,14 +123,14 @@ export const draftVariants = action({
 
 /* ── 2. Best-time suggestion per platform (advice, never auto-scheduling) ─ */
 
-export const suggestSchedule = action({
+export const suggestSchedule = orgAction({
   args: {
     projectId: v.id("projects"),
     platform: v.string(),
     body: v.string(),
   },
-  handler: async (ctx, { platform, body }) => {
-    const userId = (await getAuthUserId(ctx)) as Id<"users">;
+  handler: async (ctx, { projectId, platform, body }, access) => {
+    const { userId } = await access.requireProject(projectId);
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",

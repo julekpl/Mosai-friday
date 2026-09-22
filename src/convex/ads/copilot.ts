@@ -1,11 +1,11 @@
 
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { copilotDefaultModel } from "./platforms";
-import { requireUser } from "../guards";
+import { orgAction, orgMutation, orgQuery, requireUser } from "../guards";
 
 /**
  * Ads Copilot: AI analyst over the project's normalized ad data.
@@ -59,13 +59,11 @@ export const setCopilotModel = mutation({
 });
 
 /** Chat history for the copilot panel. */
-export const listMessages = query({
+export const listMessages = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     const rows = await ctx.db
       .query("adsCopilotMessages")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -75,13 +73,10 @@ export const listMessages = query({
 });
 
 /** Clear the copilot thread. */
-export const clearMessages = mutation({
+export const clearMessages = orgMutation({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId }, access) => {
+    await access.requireProject(projectId);
     const rows = await ctx.db
       .query("adsCopilotMessages")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -112,7 +107,7 @@ type CopilotCampaign = {
 
 type CopilotHistory = Array<{ role: "user" | "assistant"; content: string }>;
 
-export const ask = action({
+export const ask = orgAction({
   args: {
     projectId: v.id("projects"),
     message: v.string(),
@@ -120,17 +115,14 @@ export const ask = action({
   handler: async (
     ctx,
     { projectId, message },
+    access,
   ): Promise<{ reply: string; changeRequestId: Id<"adsChangeRequests"> | undefined }> => {
-    const userId = (await getAuthUserId(ctx as never)) as Id<"users">;
-    if (!userId) throw new Error("Not signed in");
+    const userId = await access.requireUser();
     await ctx.runQuery(internal.billing.checkModule, {
       userId,
       module: "promote",
     });
-    const project = await ctx.runQuery(internal.ads.control.getProject, {
-      projectId,
-    });
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    const { project } = await access.requireProject(projectId);
     const trimmed = message.trim();
     if (!trimmed) throw new Error("Empty message");
     if (trimmed.length > 4000) throw new Error("Message too long");

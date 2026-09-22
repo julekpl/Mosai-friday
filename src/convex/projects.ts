@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireUser } from "./guards";
+import { orgMutation, orgQuery, requireUser } from "./guards";
 import { cascadeDeleteProject } from "./dal";
 import { getOrCreatePersonalOrganization } from "./organizations";
 
@@ -17,14 +17,11 @@ export const list = query({
   },
 });
 
-export const get = query({
+export const get = orgQuery({
   args: { id: v.id("projects") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const project = await ctx.db.get(id);
-    if (!project || project.ownerId !== userId) return null;
-    return project;
+  handler: async (ctx, { id }, access) => {
+    const scope = await access.ownedProject(id);
+    return scope?.project ?? null;
   },
 });
 
@@ -68,7 +65,7 @@ export const create = mutation({
  * Called after the wizard's scan step finishes — stores scrape + SerpApi
  * findings on the project so every module can reuse the enriched context.
  */
-export const saveScan = mutation({
+export const saveScan = orgMutation({
   args: {
     id: v.id("projects"),
     status: v.union(
@@ -95,10 +92,8 @@ export const saveScan = mutation({
       }),
     ),
   },
-  handler: async (ctx, { id, ...scan }) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(id);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id, ...scan }, access) => {
+    const { project } = await access.requireProject(id);
 
     // Auto-populate description from the best evidence we got.
     const description =
@@ -124,7 +119,7 @@ export const saveScan = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("projects"),
     name: v.optional(v.string()),
@@ -137,10 +132,8 @@ export const update = mutation({
     kpis: v.optional(v.array(v.string())),
     channels: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(id);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id, ...patch }, access) => {
+    await access.requireProject(id);
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
@@ -153,13 +146,12 @@ export const update = mutation({
  * pack" to produce one markdown file with all important details, personas,
  * content, communications and attached-file excerpts.
  */
-export const exportPack = query({
+export const exportPack = orgQuery({
   args: { id: v.id("projects") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const project = await ctx.db.get(id);
-    if (!project || project.ownerId !== userId) return null;
+  handler: async (ctx, { id }, access) => {
+    const scope = await access.ownedProject(id);
+    if (!scope) return null;
+    const project = scope.project;
 
     const [personas, content, comms, files] = await Promise.all([
       ctx.db.query("personas").withIndex("by_project", (q) => q.eq("projectId", id)).collect(),
@@ -227,12 +219,10 @@ export const exportPack = query({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("projects") },
-  handler: async (ctx, { id }) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(id);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { id }, access) => {
+    await access.requireProject(id);
     // One shared cascade (dal.ts) — never maintain a second table list here.
     await cascadeDeleteProject(ctx, id);
   },

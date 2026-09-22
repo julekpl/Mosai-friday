@@ -1,7 +1,6 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { requireUser } from "./guards";
+import { hasRowAccess, orgMutation, orgQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
 import { validateDocument } from "../lib/cms/blocks";
 
@@ -53,20 +52,17 @@ async function requireOwned<T extends { projectId: Id<"projects"> }>(
   userId: Id<"users">,
 ): Promise<T> {
   if (!row) throw new Error("Not found");
-  const project = await ctx.db.get(row.projectId);
-  if (!project || project.ownerId !== userId) throw new Error("Not found");
+  if (!(await hasRowAccess(ctx, row, userId))) throw new Error("Not found");
   return row;
 }
 
 /* ── Sites ─────────────────────────────────────────────────────────────── */
 
-export const getSite = query({
+export const getSite = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return null;
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return null;
     return (
       (await ctx.db
         .query("sites")
@@ -76,12 +72,10 @@ export const getSite = query({
   },
 });
 
-export const createSite = mutation({
+export const createSite = orgMutation({
   args: { projectId: v.id("projects"), name: v.string() },
-  handler: async (ctx, { projectId, name }) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, name }, access) => {
+    const { userId, project } = await access.requireProject(projectId);
     const existing = await ctx.db
       .query("sites")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -152,15 +146,13 @@ export const updateSite = mutation({
 
 /* ── Pages ─────────────────────────────────────────────────────────────── */
 
-export const listPages = query({
+export const listPages = orgQuery({
   args: { siteId: v.id("sites") },
-  handler: async (ctx, { siteId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  handler: async (ctx, { siteId }, access) => {
     const site = await ctx.db.get(siteId);
     if (!site) return [];
-    const project = await ctx.db.get(site.projectId);
-    if (!project || project.ownerId !== userId) return [];
+    const scope = await access.ownedProject(site.projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("cmsPages")
       .withIndex("by_site", (q) => q.eq("siteId", siteId))
@@ -168,16 +160,10 @@ export const listPages = query({
   },
 });
 
-export const getPage = query({
+export const getPage = orgQuery({
   args: { id: v.id("cmsPages") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const page = await ctx.db.get(id);
-    if (!page) return null;
-    const project = await ctx.db.get(page.projectId);
-    if (!project || project.ownerId !== userId) return null;
-    return page;
+  handler: async (ctx, { id }, access) => {
+    return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
@@ -221,7 +207,7 @@ async function assertUniquePath(
   if (clash) throw new Error(`A page already exists at ${fullPath}`);
 }
 
-export const createPage = mutation({
+export const createPage = orgMutation({
   args: {
     siteId: v.id("sites"),
     title: v.string(),
@@ -229,12 +215,10 @@ export const createPage = mutation({
     parentId: v.optional(v.id("cmsPages")),
     pageType: v.optional(v.string()),
   },
-  handler: async (ctx, { siteId, title, slug, parentId, pageType }) => {
-    const userId = await requireUser(ctx);
+  handler: async (ctx, { siteId, title, slug, parentId, pageType }, access) => {
     const site = await ctx.db.get(siteId);
     if (!site) throw new Error("Not found");
-    const project = await ctx.db.get(site.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    const { userId } = await access.requireProject(site.projectId);
 
     const cleanSlug = normalizeSlug(slug);
     if (!cleanSlug) throw new Error("Slug is required");
@@ -454,15 +438,11 @@ export const deletePage = mutation({
 
 /* ── Revisions: draft autosave, publish, restore ───────────────────────── */
 
-export const listRevisions = query({
+export const listRevisions = orgQuery({
   args: { pageId: v.id("cmsPages") },
-  handler: async (ctx, { pageId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const page = await ctx.db.get(pageId);
+  handler: async (ctx, { pageId }, access) => {
+    const page = await access.ownedRow(await ctx.db.get(pageId));
     if (!page) return [];
-    const project = await ctx.db.get(page.projectId);
-    if (!project || project.ownerId !== userId) return [];
     const revs = await ctx.db
       .query("pageRevisions")
       .withIndex("by_page", (q) => q.eq("pageId", pageId))
@@ -471,16 +451,10 @@ export const listRevisions = query({
   },
 });
 
-export const getRevision = query({
+export const getRevision = orgQuery({
   args: { id: v.id("pageRevisions") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const rev = await ctx.db.get(id);
-    if (!rev) return null;
-    const project = await ctx.db.get(rev.projectId);
-    if (!project || project.ownerId !== userId) return null;
-    return rev;
+  handler: async (ctx, { id }, access) => {
+    return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
@@ -533,15 +507,12 @@ export const saveDraft = mutation({
 });
 
 /** Publish diagnostics: blocking issues + recommendations (§43, §115). */
-export const getPublishChecks = query({
+export const getPublishChecks = orgQuery({
   args: { pageId: v.id("cmsPages") },
-  handler: async (ctx, { pageId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const page = await ctx.db.get(pageId);
+  handler: async (ctx, { pageId }, access) => {
+    const page = await access.ownedRow(await ctx.db.get(pageId));
     if (!page) return null;
-    const project = await ctx.db.get(page.projectId);
-    if (!project || project.ownerId !== userId) return null;
+    const project = (await access.ownedProject(page.projectId))?.project;
 
     const blocking: string[] = [];
     const recommendations: string[] = [];
@@ -572,7 +543,8 @@ export const getPublishChecks = query({
         }
       }
     }
-    const seoDesc = page.seo?.metaDescription ?? project.description ?? undefined;
+    const seoDesc =
+      page.seo?.metaDescription ?? project?.description ?? undefined;
     if (!seoDesc) recommendations.push("Add a meta description (SEO).");
     if (page.title.length > 60)
       recommendations.push("Page title is long — search engines may truncate it.");
@@ -679,13 +651,11 @@ export const restoreRevision = mutation({
 
 /* ── Assets ────────────────────────────────────────────────────────────── */
 
-export const listAssets = query({
+export const listAssets = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("cmsAssets")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -693,7 +663,7 @@ export const listAssets = query({
   },
 });
 
-export const createAsset = mutation({
+export const createAsset = orgMutation({
   args: {
     projectId: v.id("projects"),
     type: v.union(
@@ -709,10 +679,8 @@ export const createAsset = mutation({
     title: v.optional(v.string()),
     source: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, args, access) => {
+    const { userId } = await access.requireProject(args.projectId);
     if (!/^https?:\/\//.test(args.url))
       throw new Error("Asset URL must be http(s)");
     const { projectId, ...rest } = args;
@@ -786,16 +754,10 @@ export const deleteAsset = mutation({
  * never copied into page content.
  */
 
-export const resolveCollection = query({
+export const resolveCollection = orgQuery({
   args: { id: v.id("collections") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const col = await ctx.db.get(id);
-    if (!col) return null;
-    const project = await ctx.db.get(col.projectId);
-    if (!project || project.ownerId !== userId) return null;
-    return col;
+  handler: async (ctx, { id }, access) => {
+    return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
@@ -811,15 +773,11 @@ export type ResolvedProduct = {
 };
 
 /** Live product facts for a productGrid block. Never stored on the page. */
-export const resolveProducts = query({
+export const resolveProducts = orgQuery({
   args: { collectionId: v.id("collections"), limit: v.optional(v.number()) },
-  handler: async (ctx, { collectionId, limit }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const col = await ctx.db.get(collectionId);
+  handler: async (ctx, { collectionId, limit }, access) => {
+    const col = await access.ownedRow(await ctx.db.get(collectionId));
     if (!col) return [];
-    const project = await ctx.db.get(col.projectId);
-    if (!project || project.ownerId !== userId) return [];
 
     const products = await ctx.db
       .query("products")
@@ -859,15 +817,13 @@ export const resolveProducts = query({
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 
-export const listNavigations = query({
+export const listNavigations = orgQuery({
   args: { siteId: v.id("sites") },
-  handler: async (ctx, { siteId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  handler: async (ctx, { siteId }, access) => {
     const site = await ctx.db.get(siteId);
     if (!site) return [];
-    const project = await ctx.db.get(site.projectId);
-    if (!project || project.ownerId !== userId) return [];
+    const scope = await access.ownedProject(site.projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("cmsNavigations")
       .withIndex("by_site", (q) => q.eq("siteId", siteId))
@@ -875,7 +831,7 @@ export const listNavigations = query({
   },
 });
 
-export const saveNavigation = mutation({
+export const saveNavigation = orgMutation({
   args: {
     siteId: v.id("sites"),
     name: v.string(),
@@ -890,12 +846,10 @@ export const saveNavigation = mutation({
       }),
     ),
   },
-  handler: async (ctx, { siteId, name, items }) => {
-    const userId = await requireUser(ctx);
+  handler: async (ctx, { siteId, name, items }, access) => {
     const site = await ctx.db.get(siteId);
     if (!site) throw new Error("Not found");
-    const project = await ctx.db.get(site.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    await access.requireProject(site.projectId);
 
     // navigation must reference real pages (§133.12)
     const pages = await ctx.db
@@ -934,15 +888,13 @@ export const saveNavigation = mutation({
 
 /* ── Redirects ─────────────────────────────────────────────────────────── */
 
-export const listRedirects = query({
+export const listRedirects = orgQuery({
   args: { siteId: v.id("sites") },
-  handler: async (ctx, { siteId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  handler: async (ctx, { siteId }, access) => {
     const site = await ctx.db.get(siteId);
     if (!site) return [];
-    const project = await ctx.db.get(site.projectId);
-    if (!project || project.ownerId !== userId) return [];
+    const scope = await access.ownedProject(site.projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("cmsRedirects")
       .withIndex("by_project", (q) => q.eq("projectId", site.projectId))
@@ -950,19 +902,17 @@ export const listRedirects = query({
   },
 });
 
-export const createRedirect = mutation({
+export const createRedirect = orgMutation({
   args: {
     siteId: v.id("sites"),
     fromPath: v.string(),
     to: v.string(),
     statusCode: v.union(v.literal(301), v.literal(302)),
   },
-  handler: async (ctx, { siteId, fromPath, to, statusCode }) => {
-    const userId = await requireUser(ctx);
+  handler: async (ctx, { siteId, fromPath, to, statusCode }, access) => {
     const site = await ctx.db.get(siteId);
     if (!site) throw new Error("Not found");
-    const project = await ctx.db.get(site.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    await access.requireProject(site.projectId);
 
     const from = fromPath.startsWith("/") ? fromPath : `/${fromPath}`;
     const toPath = to.startsWith("/") ? to : `/${to}`;

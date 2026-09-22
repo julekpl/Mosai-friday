@@ -1,15 +1,14 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 
 /** Metadata list of files attached to a project. */
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("projectFiles")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -27,7 +26,7 @@ export const generateUploadUrl = mutation({
 });
 
 /** Register an uploaded file on the project (after client upload finished). */
-export const attach = mutation({
+export const attach = orgMutation({
   args: {
     projectId: v.id("projects"),
     storageId: v.id("_storage"),
@@ -36,11 +35,8 @@ export const attach = mutation({
     sizeBytes: v.optional(v.number()),
     excerpt: v.optional(v.string()),
   },
-  handler: async (ctx, { projectId, ...rest }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, ...rest }, access) => {
+    const { userId } = await access.requireProject(projectId);
     return await ctx.db.insert("projectFiles", {
       projectId,
       ...rest,
@@ -59,15 +55,11 @@ export const getFileUrl = query({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("projectFiles") },
-  handler: async (ctx, { id }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not signed in");
-    const file = await ctx.db.get(id);
+  handler: async (ctx, { id }, access) => {
+    const file = await access.ownedRow(await ctx.db.get(id));
     if (!file) throw new Error("Not found");
-    const project = await ctx.db.get(file.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
     await ctx.storage.delete(file.storageId);
     await ctx.db.delete(id);
   },

@@ -3,11 +3,8 @@ import {
   httpAction,
   internalMutation,
   internalQuery,
-  mutation,
-  query,
 } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import type { Id } from "../_generated/dataModel";
+import { orgMutation, orgQuery } from "../guards";
 import { internal } from "../_generated/api";
 import {
   SOCIAL_PLATFORMS,
@@ -27,20 +24,12 @@ import {
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-async function requireUserSafe(ctx: Parameters<typeof getAuthUserId>[0]) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Not signed in");
-  return userId as Id<"users">;
-}
-
 /** Client-visible status: which platforms are configured + connected. */
-export const status = query({
+export const status = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
 
     const creds = await ctx.db
       .query("socialCredentials")
@@ -64,12 +53,10 @@ export const status = query({
 });
 
 /** Begin OAuth: create state, return the provider authorize URL. */
-export const start = mutation({
+export const start = orgMutation({
   args: { projectId: v.id("projects"), platform: v.string() },
-  handler: async (ctx, { projectId, platform }) => {
-    const userId = await requireUserSafe(ctx);
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, platform }, access) => {
+    const { userId } = await access.requireProject(projectId);
     if (!isSocialPlatform(platform)) throw new Error("Unknown platform");
 
     const env = socialPlatformEnv(platform);
@@ -292,12 +279,10 @@ export const storeCred = internalMutation({
 });
 
 /** Disconnect a platform: delete stored tokens. */
-export const disconnect = mutation({
+export const disconnect = orgMutation({
   args: { projectId: v.id("projects"), platform: v.string() },
-  handler: async (ctx, { projectId, platform }) => {
-    const userId = await requireUserSafe(ctx);
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, { projectId, platform }, access) => {
+    await access.requireProject(projectId);
     const cred = await ctx.db
       .query("socialCredentials")
       .withIndex("by_project_platform", (q) =>

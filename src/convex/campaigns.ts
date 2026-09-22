@@ -1,15 +1,11 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
-import { ownedRow, requireUser } from "./guards";
 
-export const list = query({
+export const list = orgQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(projectId);
-    if (!project || project.ownerId !== userId) return [];
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("campaigns")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -17,7 +13,7 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+export const create = orgMutation({
   args: {
     projectId: v.id("projects"),
     name: v.string(),
@@ -26,10 +22,8 @@ export const create = mutation({
     personaId: v.optional(v.id("personas")),
     contentId: v.optional(v.id("contentPieces")),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireUser(ctx);
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+  handler: async (ctx, args, access) => {
+    await access.requireProject(args.projectId);
     const { projectId, ...rest } = args;
     return await ctx.db.insert("campaigns", {
       projectId,
@@ -40,7 +34,7 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const update = orgMutation({
   args: {
     id: v.id("campaigns"),
     name: v.optional(v.string()),
@@ -57,9 +51,8 @@ export const update = mutation({
     personaId: v.optional(v.id("personas")),
     contentId: v.optional(v.id("contentPieces")),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    await requireUser(ctx);
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
@@ -68,11 +61,10 @@ export const update = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = orgMutation({
   args: { id: v.id("campaigns") },
-  handler: async (ctx, { id }) => {
-    await requireUser(ctx);
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
   },
