@@ -25,14 +25,6 @@ const ModuleRouter = lazy(() =>
 const AppShellWithProject = lazy(() =>
   import("./pages/App").then((m) => ({ default: m.AppShellWithProject })),
 );
-const Understand = lazy(() => import("./pages/app/Understand.tsx"));
-const Journeys = lazy(() => import("./pages/app/Journeys.tsx"));
-const Create = lazy(() => import("./pages/app/Create.tsx"));
-const Build = lazy(() => import("./pages/app/Build.tsx"));
-const Customers = lazy(() => import("./pages/app/Customers.tsx"));
-const Promote = lazy(() => import("./pages/app/Promote.tsx"));
-const Sell = lazy(() => import("./pages/app/Sell.tsx"));
-const Grow = lazy(() => import("./pages/app/Grow.tsx"));
 const Billing = lazy(() => import("./pages/app/Billing.tsx"));
 const AppIndex = lazy(() => import("./pages/AppIndex.tsx"));
 const Storefront = lazy(() => import("./components/storefront/StorefrontApp.tsx"));

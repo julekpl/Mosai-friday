@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -453,7 +453,11 @@ function TopicsTab({
   onNext: () => void;
 }) {
   const gaps = useQuery(api.contentPlanning.listGaps, { projectId }) ?? [];
-  const topics = (useQuery(api.contentPlanning.listTopics, { projectId }) ?? []) as TopicRow[];
+  const topicsRaw = useQuery(api.contentPlanning.listTopics, { projectId });
+  const topics = useMemo(
+    () => (topicsRaw ?? []) as TopicRow[],
+    [topicsRaw],
+  );
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
   const suggest = useAction(api.ai.suggestTopics);
@@ -526,7 +530,7 @@ function TopicsTab({
     }
   };
 
-  const runResearch = async (t: TopicRow) => {
+  const runResearch = async (t: TopicRow, researchedAt: number) => {
     if (researching) return;
     setResearching(t._id);
     try {
@@ -537,7 +541,7 @@ function TopicsTab({
       await updateTopic({
         id: t._id,
         research: hits,
-        researchedAt: Date.now(),
+        researchedAt,
         status: "researched",
       });
       toast.success(`${hits.length} findings from ${new Set(hits.map((h) => h.source)).size} sources`);
@@ -694,7 +698,7 @@ function TopicsTab({
                       size="sm"
                       variant="outline"
                       className="h-7 font-mono text-caption"
-                      onClick={() => void runResearch(t)}
+                      onClick={() => void runResearch(t, Date.now())}
                       disabled={researching !== null}
                     >
                       {researching === t._id ? (
@@ -906,24 +910,26 @@ function PieceEditor({
   const storedDoc = useQuery(api.contentPlanning.getDoc, { pieceId: piece._id });
 
   const [doc, setDoc] = useState<Y.Doc | null>(null);
-  const [initialHtml, setInitialHtml] = useState<string | undefined>(undefined);
+  const initializedRef = useRef(false);
 
   // Create + hydrate the Y.Doc exactly once per opened piece: apply the
-  // stored snapshot when there is one, otherwise seed from the piece body.
+  // stored snapshot when there is one. Seed text (no snapshot) is derived
+  // below so the effect never has to set a second piece of state.
   useEffect(() => {
-    if (storedDoc === undefined) return; // still loading
+    if (storedDoc === undefined || initializedRef.current) return; // still loading
+    initializedRef.current = true;
     const ydoc = new Y.Doc();
     if (storedDoc?.snapshot) {
       Y.applyUpdate(ydoc, new Uint8Array(storedDoc.snapshot));
-    } else if (piece.body) {
-      setInitialHtml(piece.body);
     }
     setDoc(ydoc);
     return () => {
+      initializedRef.current = false;
       ydoc.destroy();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storedDoc === undefined]);
+  }, [storedDoc]);
+
+  const initialHtml = storedDoc && !storedDoc.snapshot ? piece.body : undefined;
 
   const topic = piece.topicId ? topics.find((t) => t._id === piece.topicId) : undefined;
   const persona = personas.find((p) => p._id === piece.personaId);

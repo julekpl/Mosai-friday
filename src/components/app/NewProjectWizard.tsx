@@ -226,18 +226,6 @@ export function NewProjectWizard() {
 
   const normalizedUrl = normalizeWebsiteUrl(websiteInput);
 
-  const addCompetitor = (raw: string) => {
-    const v = raw.trim();
-    if (!v) return;
-    if (competitors.some((c) => c.value.toLowerCase() === v.toLowerCase())) return;
-    if (looksLikeUrl(v)) {
-      const n = normalizeWebsiteUrl(v);
-      setCompetitors((c) => [...c, { type: "website", value: n ?? v }]);
-    } else {
-      setCompetitors((c) => [...c, { type: "gmb", value: v }]);
-    }
-  };
-
   /* Run scraper + SerpApi GMB lookup, then prefill the "what" step. */
   const runScan = async () => {
     const jobs: Promise<void>[] = [];

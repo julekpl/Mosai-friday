@@ -49,6 +49,9 @@ function Carousel({
   children,
   ...props
 }: React.ComponentProps<"div"> & CarouselProps) {
+  // `setApi` only publishes the embla instance to an optional parent callback;
+  // alias it so the effect isn't mistaken for a state update.
+  const publishApi = setApi
   const [carouselRef, api] = useEmblaCarousel(
     {
       ...opts,
@@ -87,18 +90,22 @@ function Carousel({
   )
 
   React.useEffect(() => {
-    if (!api || !setApi) return
-    setApi(api)
-  }, [api, setApi])
+    if (!api || !publishApi) return
+    publishApi(api)
+  }, [api, publishApi])
 
   React.useEffect(() => {
     if (!api) return
-    onSelect(api)
+    // Defer the initial sync to the next frame so the effect body itself does
+    // not trigger a cascading render, then keep state live via embla events.
+    const frame = requestAnimationFrame(() => onSelect(api))
     api.on("reInit", onSelect)
     api.on("select", onSelect)
 
     return () => {
-      api?.off("select", onSelect)
+      cancelAnimationFrame(frame)
+      api.off("reInit", onSelect)
+      api.off("select", onSelect)
     }
   }, [api, onSelect])
 

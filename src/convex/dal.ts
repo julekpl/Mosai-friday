@@ -101,6 +101,13 @@ const PROJECT_TABLES = [
  * index names ("by_project", "by_build", …) and field names are validated
  * against the live schema, so a typo fails loudly in tests.
  */
+
+/** Loose shape for the untyped `db.query(table).withIndex(...)` callback.
+ *  The cascade runs over tables named at runtime, so the query builder is
+ *  untyped (the `db` handle above); this keeps the callback parameter typed
+ *  without an `any` escape hatch. */
+type IndexQuery = { eq(field: string, value: unknown): IndexQuery };
+
 export async function cascadeDeleteProject(
   ctx: MutationCtx,
   projectId: Id<"projects">,
@@ -111,14 +118,14 @@ export async function cascadeDeleteProject(
   const byProject = (table: string) =>
     db
       .query(table)
-      .withIndex("by_project", (q: any) => q.eq("projectId", projectId))
+      .withIndex("by_project", (q: IndexQuery) => q.eq("projectId", projectId))
       .collect();
 
   // 1. Child tables keyed to a parent row (no by_project index).
   for (const piece of await byProject("contentPieces")) {
     for (const doc of await db
       .query("contentDocs")
-      .withIndex("by_piece", (q: any) => q.eq("pieceId", piece._id))
+      .withIndex("by_piece", (q: IndexQuery) => q.eq("pieceId", piece._id))
       .collect()) {
       await del(doc._id);
     }
@@ -126,7 +133,7 @@ export async function cascadeDeleteProject(
   for (const build of await byProject("builds")) {
     for (const msg of await db
       .query("buildMessages")
-      .withIndex("by_build", (q: any) => q.eq("buildId", build._id))
+      .withIndex("by_build", (q: IndexQuery) => q.eq("buildId", build._id))
       .collect()) {
       await del(msg._id);
     }
@@ -134,14 +141,14 @@ export async function cascadeDeleteProject(
   for (const product of await byProject("products")) {
     for (const media of await db
       .query("productMedia")
-      .withIndex("by_product", (q: any) => q.eq("productId", product._id))
+      .withIndex("by_product", (q: IndexQuery) => q.eq("productId", product._id))
       .collect()) {
       await del(media._id);
     }
   }
   for (const row of await db
     .query("personaMessages")
-    .withIndex("by_project_persona", (q: any) => q.eq("projectId", projectId))
+    .withIndex("by_project_persona", (q: IndexQuery) => q.eq("projectId", projectId))
     .collect()) {
       await del(row._id);
   }

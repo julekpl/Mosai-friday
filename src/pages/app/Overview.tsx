@@ -25,11 +25,7 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
-import {
-  MosaicMark,
-  moduleTileBg,
-  moduleTileText,
-} from "@/components/mosaic";
+import { moduleTileBg, moduleTileText } from "@/components/mosaic";
 import {
   DATA_PROVIDERS,
   ModuleEmpty,
@@ -48,7 +44,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 const MODULE_CARDS = [
@@ -121,11 +116,9 @@ const COMMS_INFLUENCE_OPTIONS = [
 
 function CommsDialog({
   projectId,
-  open,
   onOpenChange,
 }: {
   projectId: Id<"projects">;
-  open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
   const { snapshot } = useProjectSnapshot(projectId, { skipFiles: true });
@@ -239,7 +232,6 @@ function CommsDialog({
 function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
   const comms = useQuery(api.communications.list, { projectId }) ?? [];
   const update = useMutation(api.communications.update);
-  const removeComms = useMutation(api.communications.remove);
   const [open, setOpen] = useState(false);
 
   return (
@@ -306,7 +298,7 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <CommsDialog projectId={projectId} open={open} onOpenChange={setOpen} />
+        <CommsDialog projectId={projectId} onOpenChange={setOpen} />
       </Dialog>
     </section>
   );

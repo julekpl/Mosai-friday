@@ -63,7 +63,7 @@ function ConnectionsPanel({
   const connect = async (platform: string) => {
     try {
       const { authorizeUrl } = await start({ projectId, platform });
-      window.location.href = authorizeUrl;
+      window.location.assign(authorizeUrl);
     } catch (e) {
       toast.error(`Could not start ${PLATFORM_LABEL[platform] ?? platform} connection`, {
         description: e instanceof Error ? e.message : "Try again.",
@@ -775,12 +775,17 @@ export default function Promote({ projectId }: { projectId: Id<"projects"> }) {
                   </div>
                 ))}
             </div>
-          )}
-        </TabsContent>
+          )}        </TabsContent>
       </Tabs>
+      <AiVariantsDialog
+        projectId={projectId}
+        open={openAi}
+        onOpenChange={setOpenAi}
+      />
     </div>
   );
 }
+
 
 function CampaignForm({
   projectId,

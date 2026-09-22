@@ -47,7 +47,7 @@ async function requireOwnedProject(
   if (!project || project.ownerId !== userId) return { ok: false };
   const site = await ctx.db
     .query("sites")
-    .withIndex("by_project", (q: any) => q.eq("projectId", projectId))
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .first();
   return { ok: true, site };
 }
@@ -60,11 +60,11 @@ async function resolveProductFacts(
   const [variants, media] = await Promise.all([
     ctx.db
       .query("productVariants")
-      .withIndex("by_product", (q: any) => q.eq("productId", productId))
+      .withIndex("by_product", (q) => q.eq("productId", productId))
       .collect() as Promise<VariantDoc[]>,
     ctx.db
       .query("productMedia")
-      .withIndex("by_product", (q: any) => q.eq("productId", productId))
+      .withIndex("by_product", (q) => q.eq("productId", productId))
       .collect() as Promise<MediaDoc[]>,
   ]);
   const def = variants.find((v) => v.isDefault) ?? variants[0];
@@ -90,20 +90,20 @@ export const listShopProducts = query({
 
     let products = await ctx.db
       .query("products")
-      .withIndex("by_project", (q: any) => q.eq("projectId", projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
 
     // Storefront shows only active products — drafts are not for sale.
-    products = products.filter((p: any) => p.status === "active");
+    products = products.filter((p) => p.status === "active");
     if (collectionId) {
-      products = products.filter((p: any) =>
+      products = products.filter((p) =>
         p.collectionIds?.includes(collectionId),
       );
     }
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
       products = products.filter(
-        (p: any) =>
+        (p) =>
           p.title.toLowerCase().includes(q) ||
           p.productType?.toLowerCase().includes(q) ||
           p.tags?.some((t: string) => t.toLowerCase().includes(q)),
@@ -111,7 +111,7 @@ export const listShopProducts = query({
     }
 
     const resolved: StorefrontProduct[] = [];
-    for (const p of products as any[]) {
+    for (const p of products) {
       const { def, primary } = await resolveProductFacts(ctx, p._id);
       if (
         availability === "in_stock" &&
@@ -164,7 +164,7 @@ export const listShopCollections = query({
     if (!owned.ok) return [];
     return await ctx.db
       .query("collections")
-      .withIndex("by_project", (q: any) => q.eq("projectId", projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
   },
 });
@@ -176,9 +176,9 @@ export const getShopCollection = query({
     if (!owned.ok) return null;
     const cols = await ctx.db
       .query("collections")
-      .withIndex("by_project", (q: any) => q.eq("projectId", projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
-    return cols.find((c: any) => c.slug === slug) ?? null;
+    return cols.find((c) => c.slug === slug) ?? null;
   },
 });
 
@@ -192,10 +192,10 @@ export const getShopProduct = query({
 
     const products = await ctx.db
       .query("products")
-      .withIndex("by_project", (q: any) => q.eq("projectId", projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
     const product = products.find(
-      (p: any) => p.slug === slug && p.status === "active",
+      (p) => p.slug === slug && p.status === "active",
     );
     if (!product) return null;
 
@@ -208,7 +208,7 @@ export const getShopProduct = query({
     const collectionIds: Id<"collections">[] = product.collectionIds ?? [];
     const related = products
       .filter(
-        (p: any) =>
+        (p) =>
           p._id !== product._id &&
           p.status === "active" &&
           (p.collectionIds ?? []).some((c: Id<"collections">) =>
@@ -218,7 +218,7 @@ export const getShopProduct = query({
       .slice(0, 4);
 
     const relatedResolved = [];
-    for (const p of related as any[]) {
+    for (const p of related) {
       const { def, primary } = await resolveProductFacts(ctx, p._id);
       relatedResolved.push({
         productId: p._id,
@@ -289,7 +289,7 @@ export const getPublishedPage = query({
 
     const page = await ctx.db
       .query("cmsPages")
-      .withIndex("by_site_path", (q: any) =>
+      .withIndex("by_site_path", (q) =>
         q.eq("siteId", site._id).eq("fullPath", clean),
       )
       .first();
@@ -302,7 +302,7 @@ export const getPublishedPage = query({
     return {
       kind: "page" as const,
       page: { title: page.title, fullPath: page.fullPath, seo: page.seo ?? null },
-      document: (revision as any).document,
+      document: revision.document,
     };
   },
 });

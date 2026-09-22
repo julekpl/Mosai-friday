@@ -383,7 +383,7 @@ export const editSelection = action({
     personaName: v.optional(v.string()),
     instruction: v.optional(v.string()),
   },
-  handler: async (ctx, { op, selectionHtml, surroundingContext, project, personaName, instruction }) => {
+  handler: async (ctx, { op, selectionHtml, surroundingContext, project, personaName }) => {
     await requireActionUser(ctx);
     const text = await complete(
       op === "expand"

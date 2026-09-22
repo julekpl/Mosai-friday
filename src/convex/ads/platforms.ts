@@ -1,6 +1,4 @@
 
-import type { Id } from "../_generated/dataModel";
-
 /** The four ad platforms MOSAI Ads manages. */
 export type Platform = "google" | "meta" | "tiktok" | "chatgpt";
 

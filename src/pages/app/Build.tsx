@@ -12,7 +12,6 @@ import {
   Globe,
   Loader2,
   Plus,
-  Rocket,
   Sparkles,
   Target,
   Trash2,
@@ -27,10 +26,7 @@ import {
 } from "@/components/app/module-kit";
 import { useProjectSnapshot } from "@/hooks/use-project-snapshot";
 import { SitePanel } from "@/components/cms/SitePanel";
-import {
-  BuildIdeaScreen,
-  BuildWorkspace,
-} from "@/components/build/BuildWorkspace";
+import { BuildWorkspace } from "@/components/build/BuildWorkspace";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -689,7 +685,6 @@ function PagesTab({ build }: { build: BuildRow }) {
 export default function Build({ projectId }: { projectId: Id<"projects"> }) {
   const builds = useQuery(api.builds.list, { projectId }) ?? [];
   const remove = useMutation(api.builds.remove);
-  const update = useMutation(api.builds.update);
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"builds"> | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuildRow | null>(null);
@@ -741,7 +736,6 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
     // Lovable/Caffeine-style workspace: chat left, live preview right.
     return (
       <BuildWorkspace
-        projectId={projectId}
         build={{
           _id: selected._id,
           name: selected.name,

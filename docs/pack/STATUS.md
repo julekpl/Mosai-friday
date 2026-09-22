@@ -12,6 +12,10 @@ the §3 codegen row reflects it.
 **Updated the same day by T1.3:** the post-T1.2 typecheck baseline is measured at
 **0 errors** (final also 0), the check is proven to really read `src/` with a
 planted-error probe, and no suppression was added; §1 and §3 reflect it.
+**Updated the same day by T1.4:** lint was re-measured at **82 errors / 29
+warnings** and driven to **0 errors / 25 warnings** without weakening
+`eslint.config.js`; the only remaining source `eslint-disable` is the documented
+`dal.ts` cascade handle (`Create.tsx`'s was removed), and §3 reflects it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -89,7 +93,7 @@ exactly Phase 1.
 | Tiptap peer conflict | **Resolved (T1.1).** `@tiptap/extension-collaboration-cursor@^2.26.2` was not imported anywhere in `src/` (the only collaboration import is `@tiptap/extension-collaboration`, in `src/components/app/ContentEditor.tsx`) and has been removed; the lockfile no longer contains it. |
 | Typecheck | **T1.3 (22 Sep 2026): 0 errors.** `bun tsc -b --noEmit` → exit 0 with codegen present, re-verified with the incremental cache wiped (`rm -rf node_modules/.tmp`) and with `--force`, and per project (`tsconfig.app.json`, `tsconfig.node.json`) → all exit 0, 0 errors. A planted `TS2322` was reported by `tsc`, proving the check reads `src/`. No `@ts-ignore`/`@ts-expect-error` anywhere; `as any` count unchanged (4, incl. the accepted `dal.ts` handle). |
 | Convex codegen | **Committed (T1.2, 22 Sep 2026).** `src/convex/_generated` is no longer git-ignored; `convex codegen` output is deterministic (regenerating leaves the 5 files byte-identical). `bun run check:codegen` regenerates with `convex codegen` and fails on drift (`git diff --exit-code`); `bun run codegen` regenerates by hand. `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
-| Lint | **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`). Measured during T1.1, which touched no source file; the pack's 79 was a different tree. T1.4 re-measures and owns the fixes. |
+| Lint | **0 errors / 25 warnings (T1.4, 22 Sep 2026).** Baseline re-measured on the current tree at **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`), so the pack's 79/25 was stale. All 82 errors fixed without adding a suppression or weakening `eslint.config.js`; source `eslint-disable` directives went **2 → 1** (only the documented `dal.ts` cascade handle remains). The 25 warnings are 21 Fast-Refresh `only-export-components` in shared modules and 4 generated-file headers — recorded and justified in `docs/tickets/T1.4-zero-lint-errors.md`. `bun run lint` exits 0. |
 | Tests / test runner / CI | **None.** `package.json` has no test script; no `.github/workflows`. |
 | Secret scanning | `.gitleaks.toml` exists; no CI job, no pre-commit hook, gitleaks not installed. |
 | Node/bun engines | **Pinned (T1.1):** `engines.node >= 22.12.0`, `engines.bun >= 1.3.0`, `.nvmrc` = `22`. |

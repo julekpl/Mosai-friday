@@ -532,7 +532,8 @@ export default function Journeys({
 }: {
   projectId: Id<"projects">;
 }) {
-  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
+  const journeysRaw = useQuery(api.journeys.list, { projectId });
+  const journeys = useMemo(() => journeysRaw ?? [], [journeysRaw]);
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const create = useMutation(api.journeys.create);
   const removeMap = useMutation(api.journeys.remove);

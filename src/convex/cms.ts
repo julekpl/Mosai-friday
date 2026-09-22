@@ -650,7 +650,7 @@ export const restoreRevision = mutation({
     const userId = await requireUser(ctx);
     const rev = await ctx.db.get(revisionId);
     if (!rev) throw new Error("Not found");
-    const page = await requireOwned(
+    await requireOwned(
       ctx,
       await ctx.db.get(rev.pageId) as Doc<"cmsPages"> | null,
       userId,

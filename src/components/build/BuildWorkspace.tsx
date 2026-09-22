@@ -66,12 +66,10 @@ function timeAgo(ts: number) {
 /* ── Idea screen (first-run, Lovable-style prompt) ──────────────────────── */
 
 export function BuildIdeaScreen({
-  projectId,
   buildId,
   idea,
   onDone,
 }: {
-  projectId: Id<"projects">;
   buildId: Id<"builds">;
   idea?: string;
   onDone: () => void;
@@ -330,11 +328,9 @@ function ChatPanel({
 
 function VersionsMenu({
   buildId,
-  projectId,
   onRestored,
 }: {
   buildId: Id<"builds">;
-  projectId: Id<"projects">;
   onRestored: () => void;
 }) {
   const versions = (useQuery(api.buildWorkspace.listVersions, { buildId }) ??
@@ -418,12 +414,10 @@ function VersionsMenu({
 /* ── The full workspace ─────────────────────────────────────────────────── */
 
 export function BuildWorkspace({
-  projectId,
   build,
   onBack,
   onManage,
 }: {
-  projectId: Id<"projects">;
   build: { _id: Id<"builds">; name: string; status: string; idea?: string };
   onBack: () => void;
   onManage?: () => void;
@@ -445,10 +439,6 @@ export function BuildWorkspace({
   const hasSite = preview?.site !== null && pages.length > 0;
   const publishable =
     pages.filter((p) => p.doc?.blocks && p.doc.blocks.length > 0).length;
-
-  useEffect(() => {
-    if (!activePath && pages.length > 0) setActivePath(pages[0].fullPath);
-  }, [pages, activePath]);
 
   const doPublish = async () => {
     setPublishing(true);
@@ -492,7 +482,6 @@ export function BuildWorkspace({
   if (!hasSite) {
     return (
       <BuildIdeaScreen
-        projectId={projectId}
         buildId={build._id}
         idea={build.idea}
         onDone={() => setMode("build")}
@@ -534,11 +523,7 @@ export function BuildWorkspace({
             </Badge>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <VersionsMenu
-              buildId={build._id}
-              projectId={projectId}
-              onRestored={() => undefined}
-            />
+            <VersionsMenu buildId={build._id} onRestored={() => undefined} />
             {onManage && (
               <Button
                 size="sm"

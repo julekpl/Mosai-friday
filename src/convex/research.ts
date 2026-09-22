@@ -259,7 +259,7 @@ export const researchTopic = action({
     personaContext: v.optional(v.string()), // sharpens ambiguous queries
     location: v.optional(v.string()), // local-news geotarget, e.g. "Austin, TX"
   },
-  handler: async (ctx, { query, personaContext, location }): Promise<ResearchHit[]> => {
+  handler: async (ctx, { query, location }): Promise<ResearchHit[]> => {
     await requireActionUser(ctx);
     const q = query.trim();
     if (!q) throw new Error("Empty research query");

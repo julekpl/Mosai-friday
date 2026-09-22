@@ -7,10 +7,6 @@ import {
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
-import {
-  fetchAllShopifyProducts,
-  fetchAllShopifyCollections,
-} from "../lib/cms/commerceConnector";
 
 /* ── Shopify READ connector (W5) — see CMS-CONNECTOR-CONTRACT.md ──────────
  *

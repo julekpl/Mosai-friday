@@ -73,15 +73,8 @@ export interface AdsProviderAdapter {
 
 /* ───────────────────────────── Google Ads ─────────────────────────────── */
 
-const GOOGLE_STATUS_MAP: Record<string, string> = {
-  ENABLED: "ACTIVE",
-  PAUSED: "PAUSED",
-  REMOVED: "REMOVED",
-  UNKNOWN: "UNKNOWN",
-};
-
 const googleAdapter: AdsProviderAdapter = {
-  async listAccounts(accessToken) {
+  async listAccounts() {
     // OAuth client for the Google Ads API: we need a developer token for the
     // real gRPC API. Without one we surface accounts via the OAuth tokeninfo
     // endpoint's project linkage — but the honest path is: developer token

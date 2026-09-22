@@ -21,18 +21,11 @@ import {
   Wand2,
   Heading2,
   Heading3,
-  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 /* ── AI selection menu state ──────────────────────────────────────────── */

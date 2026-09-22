@@ -24,8 +24,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/hooks/use-auth";
-import { StatusBadge } from "@/components/app/module-kit";
 
 const PLANS = [
   {
@@ -67,7 +65,6 @@ const PLANS = [
 ] as const;
 
 export default function Billing() {
-  const { user } = useAuth();
   const billing = useQuery(api.billing.currentPlan);
   const changePlan = useMutation(api.billing.changePlan);
   const cancelPlan = useMutation(api.billing.cancelPlan);

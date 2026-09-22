@@ -19,13 +19,6 @@ type PersonaSnapshot = {
   evidence?: string;
 };
 
-type StoredMessage = {
-  _id: Id<"personaMessages">;
-  mode: "persona" | "analyst";
-  role: "user" | "assistant";
-  content: string;
-};
-
 /**
  * Chat with a persona (talk to the buyer) or with an AI marketing analyst
  * about the persona. Threads are stored per mode.

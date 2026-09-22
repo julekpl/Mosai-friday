@@ -50,8 +50,6 @@ function parseJson<T>(text: string): T {
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
-type PlanOrBuild = "plan" | "build";
-
 async function requireOwnedBuild(
   ctx: ActionCtx,
   buildId: Id<"builds">,

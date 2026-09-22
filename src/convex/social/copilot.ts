@@ -130,7 +130,7 @@ export const suggestSchedule = action({
     platform: v.string(),
     body: v.string(),
   },
-  handler: async (ctx, { projectId, platform, body }) => {
+  handler: async (ctx, { platform, body }) => {
     const userId = (await getAuthUserId(ctx)) as Id<"users">;
     await ctx.runQuery(internal.billing.checkModule, {
       userId,

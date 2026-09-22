@@ -213,7 +213,7 @@ export const saveDoc = mutation({
     bodyText: v.optional(v.string()),
     bodyHtml: v.optional(v.string()),
   },
-  handler: async (ctx, { pieceId, snapshot, bodyText, bodyHtml }) => {
+  handler: async (ctx, { pieceId, snapshot, bodyHtml }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not signed in");
     const piece = await ctx.db.get(pieceId);

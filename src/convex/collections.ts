@@ -31,10 +31,9 @@ export const create = mutation({
     // project by passing a foreign projectId (review finding T0.6).
     const { project } = await requireProject(ctx, args.projectId);
     await assertModule(ctx, "sell");
-    const { projectId, ...rest } = args;
     return await ctx.db.insert("collections", {
+      ...args,
       projectId: project._id,
-      ...rest,
       createdAt: Date.now(),
     });
   },

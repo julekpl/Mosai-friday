@@ -65,7 +65,7 @@ export function SitePanel({
         </TabsTrigger>
       </TabsList>
       <TabsContent value="pages">
-        <PagesTab projectId={projectId} site={site} />
+        <PagesTab site={site} />
       </TabsContent>
       <TabsContent value="navigation">
         <NavigationTab site={site} />
@@ -85,13 +85,7 @@ export function SitePanel({
 
 /* ── Pages ─────────────────────────────────────────────────────────────── */
 
-function PagesTab({
-  projectId,
-  site,
-}: {
-  projectId: Id<"projects">;
-  site: SiteDoc;
-}) {
+function PagesTab({ site }: { site: SiteDoc }) {
   const pages = (useQuery(api.cms.listPages, { siteId: site._id }) ?? []) as PageDoc[];
   const createPage = useMutation(api.cms.createPage);
   const archive = useMutation(api.cms.archivePage);

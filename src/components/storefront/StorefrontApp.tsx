@@ -510,12 +510,6 @@ function ProductPage({ projectId, slug }: { projectId: Id<"projects">; slug: str
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState(0);
 
-  useEffect(() => {
-    if (data && selectedId === null) {
-      setSelectedId(defaultVariant?.variantId ?? null);
-    }
-  }, [data, selectedId, defaultVariant?.variantId]);
-
   if (data === undefined) {
     return <div className="h-96 animate-pulse rounded-md border bg-muted" />;
   }
@@ -523,7 +517,9 @@ function ProductPage({ projectId, slug }: { projectId: Id<"projects">; slug: str
     return <NotFoundView message="Product not found" />;
   }
 
-  const selected = data.variants.find((v) => v.variantId === selectedId) ?? defaultVariant;
+  const effectiveId = selectedId ?? defaultVariant?.variantId ?? null;
+  const selected =
+    data.variants.find((v) => v.variantId === effectiveId) ?? defaultVariant;
   const outOfStock = selected?.availability === "out_of_stock";
 
   return (

@@ -3,7 +3,6 @@ import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
-import { ensureFreshToken } from "./credentials";
 import { getAdapter } from "./adapters";
 import { isPlatform, type Platform } from "./platforms";
 import { internal } from "../_generated/api";

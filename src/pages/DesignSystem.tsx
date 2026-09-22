@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import {
   ArrowDownUp,
   ArrowUp,
-  ArrowUpDown,
   Bot,
   Calendar as CalendarIcon,
   Check,

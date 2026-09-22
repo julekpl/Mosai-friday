@@ -123,15 +123,14 @@ export function Reveal({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
+  const [shown, setShown] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
 
   useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
     const el = ref.current;
     if (!el) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setShown(true);
-      return;
-    }
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {

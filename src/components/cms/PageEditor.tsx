@@ -56,9 +56,11 @@ export function PageEditor({
   page: PageDoc;
   onBack: () => void;
 }) {
-  const revisions = (useQuery(api.cms.listRevisions, {
-    pageId: page._id,
-  }) ?? []) as RevisionDoc[];
+  const revisionsRaw = useQuery(api.cms.listRevisions, { pageId: page._id });
+  const revisions = useMemo(
+    () => (revisionsRaw ?? []) as RevisionDoc[],
+    [revisionsRaw],
+  );
 
   const saveDraft = useMutation(api.cms.saveDraft);
   const publish = useMutation(api.cms.publishPage);
@@ -89,16 +91,9 @@ export function PageEditor({
   } | null>(null);
   const [publishing, setPublishing] = useState(false);
 
-  const assets = (useQuery(api.cms.listAssets, {
-    projectId: page.projectId,
-  }) ?? []) as AssetDoc[];
-  const collections = (useQuery(api.collections.list, {
-    projectId: page.projectId,
-  }) ?? []) as CollectionDoc[];
-
   const undoStack = useRef<PageDocument[]>([]);
   const redoStack = useRef<PageDocument[]>([]);
-  const dirtyRef = useRef(false);
+  const [dirty, setDirty] = useState(false);
 
   const pushUndo = (prev: PageDocument) => {
     undoStack.current = [...undoStack.current.slice(-49), prev];
@@ -110,7 +105,7 @@ export function PageEditor({
       pushUndo(current);
       return fn(current);
     });
-    dirtyRef.current = true;
+    setDirty(true);
   };
 
   const undo = useCallback(() => {
@@ -120,7 +115,7 @@ export function PageEditor({
       redoStack.current.push(current);
       return prev;
     });
-    dirtyRef.current = true;
+    setDirty(true);
   }, []);
 
   const redo = useCallback(() => {
@@ -130,7 +125,7 @@ export function PageEditor({
       undoStack.current.push(current);
       return next;
     });
-    dirtyRef.current = true;
+    setDirty(true);
   }, []);
 
   // keyboard undo/redo (editor-session scope, §121)
@@ -148,12 +143,12 @@ export function PageEditor({
 
   // autosave — saves the draft, never publishes (§10, §134.4)
   useEffect(() => {
-    if (!dirtyRef.current) return;
+    if (!dirty) return;
     const t = setTimeout(async () => {
       setSaveState("saving");
       try {
         await saveDraft({ pageId: page._id, document: doc });
-        dirtyRef.current = false;
+        setDirty(false);
         setSaveState("saved");
       } catch (e) {
         setSaveState("error");
@@ -163,7 +158,7 @@ export function PageEditor({
       }
     }, 900);
     return () => clearTimeout(t);
-  }, [doc, page._id, saveDraft]);
+  }, [doc, dirty, page._id, saveDraft]);
 
   const addBlock = (type: string) => {
     const def = getBlockDef(type);
@@ -220,10 +215,10 @@ export function PageEditor({
 
   const openPublishDialog = async () => {
     // flush pending autosave first so checks see the latest document
-    if (dirtyRef.current) {
+    if (dirty) {
       try {
         await saveDraft({ pageId: page._id, document: doc });
-        dirtyRef.current = false;
+        setDirty(false);
       } catch {
         /* checks still run against the stored draft */
       }
@@ -239,7 +234,7 @@ export function PageEditor({
     setPublishing(true);
     try {
       await saveDraft({ pageId: page._id, document: doc });
-      dirtyRef.current = false;
+      setDirty(false);
       await publish({ pageId: page._id });
       toast.success("Published", {
         description: "This version is now live. Earlier versions stay in History.",
@@ -303,12 +298,12 @@ export function PageEditor({
           variant="outline"
           className={cn(
             "ml-2 font-mono text-caption",
-            page.status === "published" && dirtyRef.current
+            page.status === "published" && dirty
               ? "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber"
               : "",
           )}
         >
-          {page.status === "published" && dirtyRef.current
+          {page.status === "published" && dirty
             ? "draft changes"
             : page.status}
         </Badge>
