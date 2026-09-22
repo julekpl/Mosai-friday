@@ -2,7 +2,7 @@ import { query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
-import { validateDocument } from "../lib/cms/blocks";
+import { sanitizeDocument, validateDocument } from "../lib/cms/blocks";
 
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
  *
@@ -469,7 +469,7 @@ export const saveDraft = moduleMutation("build", {
     pageId: v.id("cmsPages"),
     document: documentValidator,
   },
-  handler: async (ctx, { pageId, document }) => {
+  handler: async (ctx, { pageId, document: input }) => {
     const userId = await requireUser(ctx);
     const page = await requireOwned(
       ctx,
@@ -477,6 +477,10 @@ export const saveDraft = moduleMutation("build", {
       userId,
     );
 
+    // T0.7: rich text is sanitized on SAVE with the same isomorphic
+    // allow-list the renderer uses — stored HTML must be clean HTML, not
+    // "clean only when a particular sink remembers to clean it".
+    const document = sanitizeDocument(input);
     const errors = validateDocument(document);
     if (errors.length) throw new Error(errors[0]);
 

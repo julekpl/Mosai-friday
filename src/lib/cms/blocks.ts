@@ -192,6 +192,8 @@ export function getBlockDef(type: string): BlockDef | undefined {
 }
 
 /** Schema-level validation at save time (blueprint §159). */
+import { sanitizeHtml } from "../sanitize";
+
 export function validateBlock(b: {
   type: string;
   version: number;
@@ -223,6 +225,26 @@ export function validateBlock(b: {
     }
   }
   return errors;
+}
+
+/**
+ * Sanitize-on-save (pack T0.7 remainder). The renderer already passes rich
+ * text through `sanitizeHtml` before injecting it, but a stored-XSS defence
+ * that only exists at render time leaves poisoned HTML in the database for
+ * the next consumer (export, public runtime, an unpatched sink). Every block
+ * property that holds an HTML string is therefore cleaned here — inside
+ * `validateDocument`'s caller, before validation — using the same isomorphic
+ * allow-list policy the renderer uses (`src/lib/sanitize.ts` needs no DOM, so
+ * it runs inside Convex). Plain-text properties are left byte-for-byte alone.
+ */
+export function sanitizeDocument(doc: PageDocument): PageDocument {
+  return {
+    ...doc,
+    blocks: doc.blocks.map((b) => {
+      if (typeof b.props.html !== "string") return b;
+      return { ...b, props: { ...b.props, html: sanitizeHtml(b.props.html) } };
+    }),
+  };
 }
 
 export function validateDocument(doc: {

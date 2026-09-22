@@ -45,9 +45,19 @@ export type { Plan };
 
 /** Self-serve plan switching is a local demo stand-in for Stripe Checkout.
  *  On a public deployment it would let any signed-in user grant themselves the
- *  top tier for free, so it is OFF unless explicitly enabled. Set
- *  PLAN_SELF_SERVE=true through the Keys / API keys UI to demo it locally. */
-export const SELF_SERVE_PLAN_CHANGES = process.env.PLAN_SELF_SERVE === "true";
+ *  top tier for free, so it is OFF unless explicitly enabled — and, since the
+ *  T0.3 review, enabling the flag alone is not enough: the runtime must also
+ *  be a development/test one. A production Convex deployment never reports
+ *  `development`/`test`, so PLAN_SELF_SERVE=true cannot open self-serve plan
+ *  changes there even if the variable is set (fail closed).
+ *
+ *  Local demo: set PLAN_SELF_SERVE=true through the Keys / API keys UI AND
+ *  run the deployment with NODE_ENV=development. */
+const SELF_SERVE_REQUESTED = process.env.PLAN_SELF_SERVE === "true";
+const NON_PRODUCTION_RUNTIME =
+  process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+export const SELF_SERVE_PLAN_CHANGES =
+  SELF_SERVE_REQUESTED && NON_PRODUCTION_RUNTIME;
 
 export const currentPlan = query({
   args: {},

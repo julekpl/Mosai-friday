@@ -24,9 +24,13 @@ import { isIP } from "node:net";
  * matters; the resolver check below already closes the documented attacks.
  */
 
-const DEFAULT_TIMEOUT_MS = 12_000;
-const DEFAULT_MAX_BYTES = 5_000_000;
-const DEFAULT_MAX_REDIRECTS = 5;
+/** T0.5 caps. Tighter than the review's original numbers (12 s / 5 MB / 5
+ *  hops): a user-supplied URL gets 10 seconds of wall clock, 1 MB of body and
+ *  3 redirect hops — enough for any HTML page or sitemap, small enough that a
+ *  slow or huge host cannot pin a worker. Callers may pass smaller values. */
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_BYTES = 1_000_000;
+const DEFAULT_MAX_REDIRECTS = 3;
 
 /** [network base, CIDR prefix] for IPv4 ranges that must never be reached. */
 const BLOCKED_V4: Array<[string, number]> = [
@@ -174,6 +178,20 @@ async function assertPublicHost(hostname: string): Promise<void> {
   }
 }
 
+/** Only text-like responses are read. An absent header stays allowed (many
+ *  small servers omit it and the body is still size/time capped); an
+ *  explicitly non-text type — a PDF, an image, a video — is refused before a
+ *  single body byte is consumed (T0.5 review: content-type allowlist). */
+const ALLOWED_CONTENT_TYPE =
+  /^(text\/[\w.+-]+|application\/(json|xml|[\w.+-]*\+(json|xml)))$/i;
+
+function contentTypeAllowed(raw: string | null): boolean {
+  if (raw === null) return true;
+  const type = raw.split(";", 1)[0].trim().toLowerCase();
+  if (type === "") return true;
+  return ALLOWED_CONTENT_TYPE.test(type);
+}
+
 async function readLimited(res: Response, maxBytes: number): Promise<string> {
   const body = res.body;
   if (!body) return "";
@@ -239,30 +257,51 @@ export async function safeFetch(
     await assertPublicHost(current.hostname);
 
     const controller = new AbortController();
+    // The timer stays armed while the BODY is read, not just the headers:
+    // a server that sends headers fast and then dribbles bytes forever used
+    // to escape the timeout entirely (T0.5 review finding).
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
     try {
-      res = await fetch(current.toString(), {
+      const res = await fetch(current.toString(), {
         headers: { accept: "*/*", ...headers },
         signal: controller.signal,
         redirect: "manual",
       });
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) throw new Error(`Redirect without a Location header (HTTP ${res.status})`);
+        current = new URL(location, current); // resolved then re-validated next hop
+        if (current.protocol !== "https:") {
+          throw new Error(`Refusing redirect to ${current.protocol}`);
+        }
+        continue;
+      }
+
+      const contentType = res.headers.get("content-type");
+      if (!contentTypeAllowed(contentType)) {
+        const type = (contentType ?? "").split(";", 1)[0].trim();
+        throw new Error(`Refusing content type "${type}" — only text-like responses are read.`);
+      }
+
+      let text: string;
+      try {
+        text = await readLimited(res, maxBytes);
+      } catch (err) {
+        if (controller.signal.aborted) {
+          throw new Error(`Request timed out after ${timeoutMs}ms reading ${current.hostname}`);
+        }
+        throw err;
+      }
+      return { status: res.status, ok: res.ok, text, url: current.toString() };
+    } catch (err) {
+      if (controller.signal.aborted && !(err instanceof Error && /timed out/.test(err.message))) {
+        throw new Error(`Request timed out after ${timeoutMs}ms reading ${current.hostname}`);
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
     }
-
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location");
-      if (!location) throw new Error(`Redirect without a Location header (HTTP ${res.status})`);
-      current = new URL(location, current); // resolved then re-validated next hop
-      if (current.protocol !== "https:") {
-        throw new Error(`Refusing redirect to ${current.protocol}`);
-      }
-      continue;
-    }
-
-    const text = await readLimited(res, maxBytes);
-    return { status: res.status, ok: res.ok, text, url: current.toString() };
   }
 
   throw new Error(`Too many redirects (> ${maxRedirects})`);

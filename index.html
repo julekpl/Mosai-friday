@@ -6,6 +6,19 @@
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    Content-Security-Policy, part 1 (pack T0.7). The HTTP server that ships
+    the built app (`main.ts`) sends the same directives PLUS
+    `default-src`/`script-src`/`frame-ancestors 'none'` — those cannot live in
+    a meta tag: Vite's dev server injects an inline React-refresh preamble and
+    the platform injects its own module scripts, so a meta `script-src` would
+    blank the development preview, and `frame-ancestors` is ignored in meta.
+    Keep the directive list in sync with `main.ts`.
+  -->
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="object-src 'none'; base-uri 'self'; form-action 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://*.convex.site; frame-src 'none'; worker-src 'self' blob:"
+  />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link

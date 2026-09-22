@@ -20,27 +20,31 @@
  * the CMS, commerce-variant and Build tables).
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { requireUser } from "./guards";
 
 // ── Authorized context helpers ─────────────────────────────────────────────
 
-/** Signed-in user. Throws "Not signed in" (fail closed). */
+/** Signed-in, non-anonymous user. Throws "Not signed in" (fail closed).
+ *
+ *  Delegates to `guards.requireUser` so the anonymous-account rejection
+ *  (T0.2) lives in ONE place: these helpers used to call `getAuthUserId`
+ *  directly, which kept a leftover `isAnonymous === true` session able to
+ *  reach every dal-guarded path (review finding on T0.2). */
 export async function userCtx(ctx: QueryCtx | MutationCtx) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Not signed in");
+  const userId = await requireUser(ctx);
   return { userId };
 }
 
-/** Authenticated user + project they own. Throws "Not signed in" or
- *  "Not found" (never leaks whether a foreign project id exists). */
+/** Authenticated user + project they own. Throws "Not signed in" (including
+ *  for anonymous guests — see `userCtx`) or "Not found" (never leaks whether
+ *  a foreign project id exists). */
 export async function projectCtx(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
 ) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Not signed in");
+  const userId = await requireUser(ctx);
   const project = await ctx.db.get(projectId);
   if (!project || project.ownerId !== userId) throw new Error("Not found");
   return { userId, project };

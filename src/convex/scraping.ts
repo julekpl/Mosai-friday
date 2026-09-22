@@ -24,7 +24,7 @@ import { safeFetch } from "./lib/safeFetch";
 const UA =
   "Mozilla/5.0 (compatible; MosaiBot/1.0; +https://mosai.app/bot)";
 
-async function fetchText(url: string, timeoutMs = 12_000): Promise<string> {
+async function fetchText(url: string, timeoutMs = 10_000): Promise<string> {
   // SSRF-guarded: HTTPS only, public hosts only, redirects re-validated,
   // bounded size and time. See lib/safeFetch.ts.
   const res = await safeFetch(url, {

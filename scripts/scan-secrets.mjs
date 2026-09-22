@@ -16,14 +16,17 @@
  * Never paste a real value into this file, a test, a ticket or a log.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join, relative, sep } from "node:path";
 
 const ROOT = process.cwd();
 const CONFIG_PATH = join(ROOT, ".gitleaks.toml");
 
 /** Directories and files that must never be scanned: dependencies, VCS data,
- *  build output, binary assets and the gitignored environment files (their
- *  values are local-only; the file itself is what `.gitignore` protects). */
+ *  build output, binary assets. `.env*` files are handled by tracked-file
+ *  rules below (T0.1 review: skipping every `.env*` file made the local scan
+ *  report clean while a TRACKED `.env.keys` still held private-key material —
+ *  gitleaks flagged it in CI, this scanner did not). */
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".vly", "coverage"]);
 const SKIP_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "ico",
@@ -54,9 +57,33 @@ function loadConfig(text) {
   return { rules, skipPatterns };
 }
 
-function shouldSkipPath(relPath, skipPatterns) {
+/**
+ * Every file git tracks in this working tree, or `null` when git is
+ * unavailable. `.env*` files are scanned **only when tracked**: an untracked
+ * `.env.local` is where local secrets legitimately live, but a tracked
+ * `.env.keys` is a committed credential and must fail the scan — the exact
+ * gap the T0.1 review found.
+ */
+function trackedFiles() {
+  const res = spawnSync(
+    "git",
+    // safe.directory: the repo may be owned by another user (containers);
+    // we only need the file list, never the objects.
+    ["-c", `safe.directory=${ROOT}`, "ls-files", "-z"],
+    { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (res.error || res.status !== 0) return null;
+  return new Set(res.stdout.split("\0").filter(Boolean));
+}
+
+function shouldSkipPath(relPath, skipPatterns, tracked) {
   if (relPath === ".env.example") return false;
-  if (/(^|\/)\.env(\.|$)/.test(relPath)) return true;
+  if (/(^|\/)\.env(\.|$)/.test(relPath)) {
+    // Without git we cannot prove trackedness; keep the historical
+    // local-only behaviour (skip) and say so loudly. CI always has git.
+    if (tracked === null) return true;
+    return !tracked.has(relPath);
+  }
   return skipPatterns.some((pattern) => {
     try {
       return new RegExp(pattern).test(relPath);
@@ -116,10 +143,17 @@ function main() {
     process.exit(1);
   }
 
+  const tracked = trackedFiles();
+  if (tracked === null) {
+    console.error(
+      "! git is unavailable — tracked-.env coverage is limited; .env* files are skipped as local-only.",
+    );
+  }
+
   const findings = [];
   for (const file of walk(ROOT)) {
     const relPath = relative(ROOT, file).split(sep).join("/");
-    if (shouldSkipPath(relPath, skipPatterns)) continue;
+    if (shouldSkipPath(relPath, skipPatterns, tracked)) continue;
     findings.push(...scanFile(file, rules));
   }
 
