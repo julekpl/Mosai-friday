@@ -50,6 +50,16 @@ memberships, roles and invitations are in the schema; an idempotent migration
 puts every existing project under its owner's personal organization; agency
 client links and last-owner protection are enforced by role guards; and 9 new
 unit tests prove both acceptance criteria. §1, §2b and §3 reflect it.
+**Updated the same day by T2.2:** tenancy now runs through `orgQuery` /
+`orgMutation` / `orgAction` in `guards.ts`, which resolve the caller's active
+organization membership and authorize a specific record; all **81** inline
+`project.ownerId !== userId` checks are gone, so a member of the owning
+organization can reach the project (and `projects.list` returns the
+organization's projects, not just the caller's own); `eslint.config.js` bans a
+raw `ctx.db` project lookup outside the data-access layer; the audit fails on an
+unscoped public function; and a **generated** cross-tenant suite (163 cases over
+every record-scoped public function, plus 2 structural) proves a foreign
+organization gets nothing and writes nothing. §1, §2b, §3 and §5 reflect it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -78,9 +88,26 @@ tables are added, every existing project is migrated under its owner's personal
 organization by an idempotent `internalMutation`, new projects are created
 inside that organization, roles are enforced through one capability map, agency
 client links are honoured, and an organization can never be left without an
-owner. Nine new unit tests prove the two acceptance criteria. T2.2 (org-scoped
-function builders, the raw-`ctx.db` lint ban and the generated cross-tenant
-suite) is next; `guards.requireProject` is deliberately still owner-based.
+owner. Nine new unit tests prove the two acceptance criteria.
+
+**T2.2 is done (22 Sep 2026):** the organization is now the tenant in the
+*authorization* path, not just in the schema. `guards.ts` exports the builders
+`orgQuery` / `orgMutation` / `orgAction`, which resolve the caller's active
+organization memberships once and hand the handler an `OrgAccess` object
+(`requireProject` / `ownedProject` / `ownedRow` / `requireOrganization`);
+`hasProjectAccess` is the one rule — active membership of the owning
+organization, with the owner fallback only for a row that predates T2.1's
+migration. The audit's **81** inline `project.ownerId !== userId` checks are all
+migrated (27 modules), so a teammate in the owning organization can reach the
+project, and `projects.list` returns the organization's projects rather than
+only the caller's own. Two gates keep it there: `eslint.config.js` makes a raw
+`ctx.db` project lookup an **error** outside the data-access layer, and
+`scripts/audit-public-functions.mjs` now **fails** on a public function that
+names a record (`v.id(...)`) without authorizing it (and on the inline pattern
+itself). A **generated** suite (`tests/unit/cross-tenant.generated.test.ts`, 163
+generated cases + 2 structural) proves a foreign-organization caller gets
+nothing and writes nothing for every record-scoped public function. T2.3
+(capability registry) is next; the builders resolve membership, not capability.
 
 `bun tsc -b --noEmit` is **clean** here. The pack's claim that a clean checkout
 produces 1,067 type errors is a *pre-codegen* measurement: `src/convex/_generated`
@@ -143,6 +170,7 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 
 | Ticket | Status | Evidence |
 |---|---|---|
+| **T2.2** org-scoped function builders, generated cross-tenant tests | ✅ **done** (22 Sep 2026) | `guards.ts` exports `orgQuery` / `orgMutation` / `orgAction` and the `OrgAccess` context (`requireProject` / `ownedProject` / `ownedRow` / `requireOrganization`); `hasProjectAccess` = active membership of the owning organization (owner fallback only for a pre-T2.1 row). All **81** inline `ownerId` checks migrated across 27 modules; `projects.list` is organization-scoped. `eslint.config.js` bans a raw `ctx.db` project lookup outside the data-access layer. Audit: 198 public functions, **191** guarded, **0** inline, 4 self-scoped REVIEW, exit 0 — the script now fails on an unscoped function that names a record, proven by `tests/unit/audit-gate.test.ts` (5 tests). Coverage: `function-registry.ts` + `cross-tenant.fixtures.ts` + `cross-tenant.generated.test.ts` — 198/198 public functions classified, 163 record-scoped ones each exercised by a foreign-organization caller that is verified to share no organization with the owner, asserting nothing written (per-table row counts) and nothing revealed. The suite found two real gaps (`buildChat.editPage`/`planSite`/`generateSite`, `sellAI.generateDescription`), both fixed. No allow-list entry added (still 3). See `docs/tickets/T2.2-org-scoped-function-builders.md`. |
 | **T2.1** organizations, memberships, roles, invitations | ✅ **done** (22 Sep 2026) | New tables `organizations` / `memberships` / `invitations` / `roles` / `agencyClientLinks` plus `projects.organizationId`; role capabilities in `lib/roles.ts`; `guards.requireOrganization` / `requireOrgRole`; module `organizations.ts` with invitations, role administration, last-owner protection and agency links; idempotent `internalMutation` migration; data-registry entries in `lib/dataRegistry.ts`. Proof: `tests/unit/organizations.test.ts` (9 tests) shows a pre-T2.1 project moving under its owner's personal organization on the first run and a no-op on the second, and the owner/admin/member capability matrix. No allow-list entry added; `requireProject` left owner-based (T2.2). See `docs/tickets/T2.1-organizations-memberships-roles-invitations.md`. |
 
 ---
@@ -155,14 +183,14 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 | Tiptap peer conflict | **Resolved (T1.1).** `@tiptap/extension-collaboration-cursor@^2.26.2` was not imported anywhere in `src/` (the only collaboration import is `@tiptap/extension-collaboration`, in `src/components/app/ContentEditor.tsx`) and has been removed; the lockfile no longer contains it. |
 | Typecheck | **T1.3 (22 Sep 2026): 0 errors.** `bun tsc -b --noEmit` → exit 0 with codegen present, re-verified with the incremental cache wiped (`rm -rf node_modules/.tmp`) and with `--force`, and per project (`tsconfig.app.json`, `tsconfig.node.json`) → all exit 0, 0 errors. A planted `TS2322` was reported by `tsc`, proving the check reads `src/`. No `@ts-ignore`/`@ts-expect-error` anywhere; `as any` count unchanged (4, incl. the accepted `dal.ts` handle). |
 | Convex codegen | **Committed (T1.2, 22 Sep 2026).** `src/convex/_generated` is no longer git-ignored; `convex codegen` output is deterministic (regenerating leaves the 5 files byte-identical). `bun run check:codegen` regenerates with `convex codegen` and fails on drift (`git diff --exit-code`); `bun run codegen` regenerates by hand. `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
-| Lint | **0 errors / 25 warnings (T1.4, 22 Sep 2026).** Baseline re-measured on the current tree at **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`), so the pack's 79/25 was stale. All 82 errors fixed without adding a suppression or weakening `eslint.config.js`; source `eslint-disable` directives went **2 → 1** (only the documented `dal.ts` cascade handle remains). The 25 warnings are 21 Fast-Refresh `only-export-components` in shared modules and 4 generated-file headers — recorded and justified in `docs/tickets/T1.4-zero-lint-errors.md`. `bun run lint` exits 0. |
+| Lint | **0 errors / 25 warnings (T1.4, 22 Sep 2026; T2.2 added a data-access rule without changing the count).** Baseline re-measured on the current tree at **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`), so the pack's 79/25 was stale. All 82 errors fixed without adding a suppression or weakening `eslint.config.js`; source `eslint-disable` directives went **2 → 1** (only the documented `dal.ts` cascade handle remains). The 25 warnings are 21 Fast-Refresh `only-export-components` in shared modules and 4 generated-file headers — recorded and justified in `docs/tickets/T1.4-zero-lint-errors.md`. `bun run lint` exits 0. **T2.2 (22 Sep 2026)** adds `no-restricted-syntax` for `src/convex/**/*.ts`: a bare `ctx.db.get(projectId)` or `ctx.db.query("projects")` is an error, ignored only for the data-access layer (`guards.ts`, `dal.ts`, `organizations.ts`, `projects.ts`, `billing.ts`, `lib/**`, `_generated/**`), so a feature module cannot authorize a project on its own. 0 errors / 25 warnings still. |
 | Tests / test runner / CI | **Added (T1.5, 22 Sep 2026).** Unit: `vitest.config.ts` + `src/convex/test.setup.ts` + `tests/unit/` (Vitest 5, `convex-test`, `@edge-runtime/vm`). Browser: `playwright.config.ts` + `tests/e2e/` (Playwright + `@axe-core/playwright`). Scripts: `test`, `test:unit`, `test:e2e`, `test:a11y`, `scan:secrets`, `check`. CI: `.github/workflows/ci.yml`, one job per concern (install · codegen · typecheck · lint · unit · security · e2e · a11y). Green on this tree: `bun run check` exit 0; `bun run test:e2e` 13 passed; `bun run test:a11y` **5 passed** (T1.8) — `/`, `/auth` and `/app` with zero serious/critical axe violations and no allow-list, plus a skip-link and a keyboard-only sign-in test. **R1–R12 land in T1.7 (done 22 Sep 2026):**`tests/unit/{phase0-regressions,safe-fetch,deletion-completeness,secret-scan,platform-detach}.test.ts`
 (33 unit tests) and `tests/e2e/{sanitized-html,no-platform-calls}.spec.ts` (3 browser tests).
-**T2.1 adds `tests/unit/organizations.test.ts` (9 tests) — 42 unit tests total.** `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
+**T2.1 added `tests/unit/organizations.test.ts` (9 tests).** **T2.2 adds `tests/unit/cross-tenant.generated.test.ts` (165: 163 generated + 2 structural, driven by `function-registry.ts` over every public function), `cross-tenant.fixtures.ts` and `audit-gate.test.ts` (5) — 9 files, 213 unit tests total** (212 pass, 1 `it.fails` = R4). Browser: 13 e2e + 5 a11y passed with `--workers=2`. `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
 | Secret scanning | **Wired (T1.5, 22 Sep 2026).** `scripts/scan-secrets.mjs` reads the custom rules from `.gitleaks.toml` and runs inside `bun run check`, so a planted secret fails locally; the CI `security` job also runs gitleaks over full history and the working tree, plus `bun audit --audit-level=high` (now a hard failure, T1.6) and `audit:functions`. The T1.5 ticket quoted a literal dummy `x-api-key` value in its proof table, which the `vly-email-otp-key` rule correctly matched — the doc line was redacted in T1.6 rather than allow-listing `docs/tickets/`. Still open: pre-commit hook and the history purge (owner). |
 | Dependency audit | **Clean (T1.6, 22 Sep 2026).** `bun audit` (and `--audit-level=high`) → **"No vulnerabilities found"**; was 1 critical + 4 high + 8 moderate + 2 low. Fixed: `@convex-dev/auth` 0.0.90 → **0.0.94** (moves the `@auth/core` peer to `^0.41.1`) with `@auth/core` pinned at **0.41.3** (GHSA-7rqj-j65f-68wh critical + GHSA-xmf8-cvqr-rfgj high + GHSA-x445-f3h2-j279 moderate), and a root `overrides` entry forcing `undici` to `^7.19.0`, which removes the vulnerable nested `undici@5.29.0` under `@ai-sdk/provider-utils` (GHSA-vrm6-8vpv-qv8q / GHSA-v9p9-hfj2-hcw8 / GHSA-vxpw-j846-p89q high + moderates/lows) and de-duplicates the tree to one `undici@7.29.1`. The pack's `react-router` (7.18.4) and `hono` (4.13.8) findings are stale — neither is flagged. Rationale, the no-in-range-fix analysis and the override's compensating control are in `docs/tickets/T1.6-vulnerable-dependencies.md`. |
 | Node/bun engines | **Pinned (T1.1):** `engines.node >= 22.12.0`, `engines.bun >= 1.3.0`, `.nvmrc` = `22`. |
-| Authorization audit | `bun run audit:functions` → exit 0. Reports 198 public functions scanned: **106 guarded by a shared helper** (up from 90 before T2.1's `organizations.ts`, whose functions all go through `requireUser`/`requireOrganization`/`requireOrgRole`), 81 via an inline `ownerId` check (to migrate in T2.2), and **8 worth a human look** (see §5). |
+| Authorization audit | `bun run audit:functions` → exit 0. Reports 198 public functions scanned: **191 authorize through a shared guard or the org access object (T2.2, up from 106), 0 via an inline `ownerId` check (was 81), and 4 worth a human look** — all four self-scoped with no record argument (see §5). Since T2.2 the script **fails** (exit 1) on a public function that has no sign-in check, that authorizes inline, or that names a record (`v.id(...)`) and never authorizes it; `tests/unit/audit-gate.test.ts` proves each of those exits non-zero against throwaway fixtures. `scripts/public-functions-allowlist.json` is unchanged at 3 entries. |
 
 ---
 
@@ -181,18 +209,18 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 
 ## 5. Open items this audit found that the pack does not list
 
-1. **8 public functions authenticate but never authorize** — `bun run audit:functions`
-   names them: `ads/copilot.setCopilotModel`, `billing.currentPlan`,
-   `files.generateUploadUrl`, `files.getFileUrl`, `projects.list`,
-   `social/copilot.draftVariants`, `social/copilot.suggestSchedule`,
-   `users.currentUser`. Most are self-scoped (own user row, own project list) or
-   admin-gated, but `files.getFileUrl` and `social/copilot.draftVariants` should
-   be confirmed by hand. `ads/copilot.copilotModel` was unauthenticated and now
-   requires sign-in.
-2. **81 public functions authorize inline** (`project.ownerId !== userId`) rather
-   than through `requireProject`. That is the pattern that produced the
-   `collections.create` bug: one forgotten line is a cross-tenant write. Migrate
-   them in T2.2; the audit script already reports them.
+1. **4 public functions authenticate but never authorize** (was 8 before T2.2;
+   `files.getFileUrl`, `projects.list`, `social/copilot.draftVariants` and
+   `social/copilot.suggestSchedule` now authorize through the org access object)
+   — `bun run audit:functions` names them: `ads/copilot.setCopilotModel`,
+   `billing.currentPlan`, `files.generateUploadUrl`, `users.currentUser`. All four
+   are self-scoped and take no record argument (own user row, own plan, an upload
+   URL, an admin-gated setting), which is why T2.2 left them as REVIEW warnings
+   while making "names a record but never authorizes it" a hard failure. Confirm
+   by hand if their shape changes.
+2. ~~81 public functions authorize inline~~ — **fixed in T2.2 (22 Sep 2026):**
+   the audit reports **0** inline `ownerId` checks, and the audit now fails on
+   the pattern, so a forgotten line is caught in CI rather than shipped.
 3. **The storefront is not actually public.** `storefront.ts` gates every query on
    `requireOwnedProject`, which returns nothing for a signed-out visitor. The
    pages under `/shop/:projectId/*` therefore only render for the owner. This

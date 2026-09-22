@@ -1,19 +1,37 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { orgMutation, orgQuery, requireUser } from "./guards";
+import type { Doc } from "./_generated/dataModel";
 import { cascadeDeleteProject } from "./dal";
 import { getOrCreatePersonalOrganization } from "./organizations";
 
-export const list = query({
+/**
+ * The projects the caller may open: every project owned by one of their active
+ * organizations (T2.2 — tenancy is the organization, not the creator), plus any
+ * legacy row that predates the T2.1 organization backfill and is therefore
+ * still keyed on its owner. Returns [] for a signed-out or anonymous caller, so
+ * a foreign-organization caller sees nothing.
+ */
+export const list = orgQuery({
   args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    return await ctx.db
+  handler: async (ctx, _args, access) => {
+    if (!access.userId) return [];
+    const byId = new Map<string, Doc<"projects">>();
+    for (const organizationId of access.organizationIds) {
+      const rows = await ctx.db
+        .query("projects")
+        .withIndex("by_organization", (q) =>
+          q.eq("organizationId", organizationId),
+        )
+        .collect();
+      for (const row of rows) byId.set(row._id, row);
+    }
+    const legacyOwned = await ctx.db
       .query("projects")
-      .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+      .withIndex("by_owner", (q) => q.eq("ownerId", access.userId!))
       .collect();
+    for (const row of legacyOwned) byId.set(row._id, row);
+    return [...byId.values()];
   },
 });
 

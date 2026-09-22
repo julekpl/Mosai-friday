@@ -36,6 +36,16 @@ const STRONG_GUARDS = /\b(require[A-Z]\w*|owned[A-Z]\w*|userCtx|projectCtx)\b|\b
  *  membership rule and is exactly the pattern that produced the
  *  `collections.create` cross-tenant write. */
 const INLINE_OWNERSHIP = /\.ownerId\s*(?:!==|===|!=|==)\s*\w+/;
+/** The org-scoped access object (T2.2). `access.require*` / `access.owned*`
+ *  authorize a specific record and already match STRONG_GUARDS; the identity
+ *  fields (`access.userId`, `access.organizationIds`) only establish who the
+ *  caller is, so they count as a guard for a function that has **no record id
+ *  argument** (a read path that returns an empty result for a signed-out
+ *  caller) and never for one that does. */
+const ORG_ACCESS = /\baccess\s*\.\s*(userId|organizationIds|require\w+|owned\w+)\b/;
+/** A `v.id(...)` argument means the function names a specific record, which it
+ *  must therefore authorize (audit heuristic — see the file header). */
+const RECORD_ARG = /\bv\s*\.\s*id\s*\(/;
 /** Helpers that authenticate but leave authorization to the caller. */
 const WEAK_GUARDS = /\b(getAuthUserId|maybeUser)\b/;
 
@@ -62,10 +72,13 @@ function walk(dir) {
   return out;
 }
 
-/** Split a module into top-level `export const <name> = <kind>(` declarations. */
+/** Split a module into top-level `export const <name> = <kind>(` declarations.
+ *  Internal declarations are boundaries too: a public function's body must not
+ *  swallow a neighbouring `internalQuery`'s `v.id(...)` arguments, or a
+ *  self-scoped read would look like it names a record. */
 function publicFunctions(source) {
   const decl =
-    /^export const (\w+) = (query|mutation|action|httpAction|orgQuery|orgMutation|orgAction)\s*\(/gm;
+    /^export const (\w+) = (query|mutation|action|httpAction|orgQuery|orgMutation|orgAction|internalQuery|internalMutation|internalAction)\s*\(/gm;
   const found = [];
   const hits = [...source.matchAll(decl)];
   for (let i = 0; i < hits.length; i++) {
@@ -90,6 +103,8 @@ const allowlist = existsSync(ALLOWLIST_PATH)
 const findings = [];
 const weak = [];
 const inline = [];
+/** Authenticates, names a specific record, and never authorizes it. */
+const unscoped = [];
 let guarded = 0;
 let total = 0;
 
@@ -104,6 +119,10 @@ for (const file of walk(CONVEX_DIR)) {
       guarded++;
       continue;
     }
+    if (ORG_ACCESS.test(fn.body) && !RECORD_ARG.test(fn.body)) {
+      guarded++;
+      continue;
+    }
     // An inline `project.ownerId !== userId` check bypasses organization
     // membership and is the pattern that produced the collections.create bug.
     // T2.2 migrated all 81 of them; from now on this is a hard failure.
@@ -112,7 +131,14 @@ for (const file of walk(CONVEX_DIR)) {
       continue;
     }
     if (WEAK_GUARDS.test(fn.body)) {
-      weak.push({ key, file: rel, line: fn.line, name: fn.name, kind: fn.kind });
+      const entry = { key, file: rel, line: fn.line, name: fn.name, kind: fn.kind };
+      // A function that names a record (`v.id(...)`) but only authenticates is
+      // unscoped: it will happily read or write another tenant's row. That is
+      // a failure, not a review note. A function with no record argument is
+      // self-scoped (``currentUser``, ``generateUploadUrl``, admin settings),
+      // so it stays a warning for a human to read.
+      if (RECORD_ARG.test(fn.body)) unscoped.push(entry);
+      else weak.push(entry);
       continue;
     }
     findings.push({ key, file: rel, line: fn.line, name: fn.name, kind: fn.kind });
@@ -122,7 +148,14 @@ for (const file of walk(CONVEX_DIR)) {
 if (process.argv.includes("--json")) {
   console.log(
     JSON.stringify(
-      { total, guarded, inlineOwnership: inline, authButNotAuthorized: weak, unguarded: findings },
+      {
+        total,
+        guarded,
+        inlineOwnership: inline,
+        authButNotAuthorized: weak,
+        unscopedRecords: unscoped,
+        unguarded: findings,
+      },
       null,
       2,
     ),
@@ -140,13 +173,19 @@ if (process.argv.includes("--json")) {
     console.log(`\n! authenticates but never authorizes — REVIEW (${weak.length}):`);
     for (const f of weak) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
   }
+  if (unscoped.length) {
+    console.log(
+      `\n✗ authenticates but never authorizes a named record — FAIL (${unscoped.length}); authorize the record with access.requireProject/ownedRow or requireProject/ownedRow:`,
+    );
+    for (const f of unscoped) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
+  }
   if (findings.length) {
     console.log(`\n✗ no sign-in check at all — FAIL (${findings.length}):`);
     for (const f of findings) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
   }
-  if (!findings.length && !inline.length) {
+  if (!findings.length && !inline.length && !unscoped.length) {
     console.log(`\n✓ every public function authenticates and authorizes (or is allow-listed)`);
   }
 }
 
-process.exit(findings.length || inline.length ? 1 : 0);
+process.exit(findings.length || inline.length || unscoped.length ? 1 : 0);

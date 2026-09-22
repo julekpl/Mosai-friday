@@ -34,7 +34,7 @@ check — not when the code merely looks finished (`AGENTS.md` §6).
 |---|---|---|---|
 | 0 | T0.1–T0.10 | 🔒 closed (code); four owner actions outstanding | G-P0 |
 | 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2 ✅ done · T1.3 ✅ done · T1.4 ✅ done · T1.5 ✅ done · T1.6 ✅ done · T1.7 ✅ done · T1.8 ✅ done | G-P1 |
-| 2 | T2.1–T2.16 | T2.1 ✅ done (22 Sep 2026) · T2.2–T2.16 create when reached | G-P2 |
+| 2 | T2.1–T2.16 | T2.1 ✅ done (22 Sep 2026) · T2.2 ✅ done (22 Sep 2026) · T2.3–T2.16 create when reached | G-P2 |
 | 3 | E3.1–E3.10 | create when reached | per add-on |
 
 Do not start a phase before the previous gate passes.
@@ -44,7 +44,7 @@ Do not start a phase before the previous gate passes.
 | Ticket | Status | File |
 |---|---|---|
 | T2.1 | ✅ **done** (22 Sep 2026) — organizations, memberships, roles, invitations; idempotent migration under each owner's personal organization; agency client links; last-owner protection. Proof: 9 new unit tests. | `docs/tickets/T2.1-organizations-memberships-roles-invitations.md` |
-| T2.2 | not started — org-scoped function builders and the generated cross-tenant suite | create when reached |
+| T2.2 | ✅ **done** (22 Sep 2026) — `orgQuery`/`orgMutation`/`orgAction` + `OrgAccess` in `guards.ts`; all 81 inline `ownerId` checks migrated (27 modules) so a member of the owning organization can reach the project; lint ban on raw `ctx.db` project reads; audit now fails on an unscoped public function; generated 163-case cross-tenant suite (every record-scoped public function) proving a foreign organization gets nothing and writes nothing. Proof: `tests/unit/cross-tenant.generated.test.ts` + `audit-gate.test.ts` (170 tests with the registry/fixture helpers). | `docs/tickets/T2.2-org-scoped-function-builders.md` |
 
 ## Phase 0 — remaining owner actions (not code)
 

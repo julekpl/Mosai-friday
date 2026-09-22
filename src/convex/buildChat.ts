@@ -54,14 +54,23 @@ async function requireOwnedBuild(
   ctx: ActionCtx,
   buildId: Id<"builds">,
 ): Promise<Doc<"builds">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Not signed in");
+  const anonymous = await ctx.runQuery(internal.guards.isAnonymousUser, {
+    userId,
+  });
+  if (anonymous) throw new Error("Not signed in");
   const build = (await ctx.runQuery(internal.buildInternals.getBuild, {
     id: buildId,
   })) as Doc<"builds"> | null;
   if (!build) throw new Error("Build not found");
-  const project = (await ctx.runQuery(internal.buildInternals.getProject, {
-    id: build.projectId,
+  // T2.2: authorize against the owning organization, not the project owner —
+  // a member of the owning org may edit the site, a foreign org may not.
+  const project = (await ctx.runQuery(internal.guards.projectAccessForAction, {
+    projectId: build.projectId,
+    userId,
   })) as Doc<"projects"> | null;
-  if (!project) throw new Error("Project not found");
+  if (!project) throw new Error("Not found");
   return build;
 }
 
@@ -70,13 +79,11 @@ async function requireOwnedBuild(
 export const planSite = action({
   args: { buildId: v.id("builds"), message: v.string() },
   handler: async (ctx, { buildId, message }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
     const build = await requireOwnedBuild(ctx, buildId);
     const project = (await ctx.runQuery(internal.buildInternals.getProject, {
       id: build.projectId,
     })) as Doc<"projects"> | null;
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    if (!project) throw new Error("Not found");
 
     await ctx.runMutation(internal.buildInternals.insertMessage, {
       buildId,
@@ -158,13 +165,11 @@ const SITE_GEN_PROPS = `Allowed props per block type:
 export const generateSite = action({
   args: { buildId: v.id("builds"), message: v.string() },
   handler: async (ctx, { buildId, message }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
     const build = await requireOwnedBuild(ctx, buildId);
     const project = (await ctx.runQuery(internal.buildInternals.getProject, {
       id: build.projectId,
     })) as Doc<"projects"> | null;
-    if (!project || project.ownerId !== userId) throw new Error("Not found");
+    if (!project) throw new Error("Not found");
 
     await ctx.runMutation(internal.buildInternals.insertMessage, {
       buildId,
@@ -323,8 +328,6 @@ export const editPage = action({
     pageId: v.optional(v.id("cmsPages")),
   },
   handler: async (ctx, { buildId, message, pageId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
     const build = await requireOwnedBuild(ctx, buildId);
 
     await ctx.runMutation(internal.buildInternals.insertMessage, {

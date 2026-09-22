@@ -34,15 +34,24 @@ test("control: the payloads really execute in this browser when unsanitized", as
   page,
 }) => {
   await page.goto("/");
-  const fired = await page.evaluate(async () => {
+  await page.evaluate(() => {
     const img = document.createElement("img");
     img.setAttribute("src", "definitely-not-an-image");
     img.setAttribute("onerror", 'window.__r7 = "control"');
     document.body.appendChild(img);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    return (window as unknown as { __r7?: string }).__r7 ?? null;
   });
-  expect(fired).toBe("control");
+  // Wait for the handler to fire instead of sleeping a fixed amount: the
+  // failed-image event is immediate on most hosts but can take seconds under
+  // load, which made this control flaky without changing what it proves.
+  const fired = await page
+    .waitForFunction(
+      () => (window as unknown as { __r7?: string }).__r7 === "control",
+      undefined,
+      { timeout: 10_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  expect(fired).toBe(true);
 });
 
 test("the shipped sanitizer strips every payload", async ({ page }) => {

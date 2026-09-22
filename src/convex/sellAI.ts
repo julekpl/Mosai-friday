@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { vly } from "../lib/vly-integrations";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { requireActionUser } from "./guards";
 
 /* ── M1 Sell AI actions — M1-BLUEPRINT §8/§9, SELL-ARCHITECTURE §6 ────────
@@ -76,8 +77,15 @@ export const generateDescription = action({
     }),
   },
   handler: async (ctx, args) => {
-    await requireActionUser(ctx);
+    const userId = await requireActionUser(ctx);
     void productContextOf;
+    // T2.2: authorize the project before spending a provider call. A member of
+    // another organization must not be able to bill this project's AI budget.
+    const authorized = await ctx.runQuery(
+      internal.guards.projectAccessForAction,
+      { projectId: args.projectId, userId },
+    );
+    if (!authorized) throw new Error("Not found");
 
     if (args.mode === "fill_missing") {
       const existing = args.currentDescription?.trim() ?? "";
