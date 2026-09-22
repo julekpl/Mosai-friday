@@ -1,6 +1,7 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
+import { orgRoleValidator } from "./lib/roles";
 
 // default user roles. can add / remove based on the project as needed
 export const ROLES = {
@@ -45,6 +46,103 @@ const schema = defineSchema(
       deletionRequestedAt: v.optional(v.number()),
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
+    // ── MOSAI: organizations, memberships, roles and invitations (T2.1) ──
+    // Tenancy starts here. Every project belongs to exactly one organization;
+    // a user reaches a project through an active membership in its
+    // organization. Personal organizations are the default (one per user) and
+    // are created by the idempotent migration in `organizations.ts`.
+
+    organizations: defineTable({
+      name: v.string(),
+      // personal = a solo workspace (exactly one per user); business = a
+      // company workspace; agency = a workspace that manages client orgs.
+      kind: v.union(
+        v.literal("personal"),
+        v.literal("business"),
+        v.literal("agency"),
+      ),
+      ownerId: v.id("users"),
+      slug: v.optional(v.string()),
+      // Set on personal organizations and unique per user: exactly one
+      // personal organization per user. `getOrCreatePersonalOrganization`
+      // resolves through this index, which is what makes the migration
+      // idempotent rather than duplicating workspaces.
+      personalFor: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_owner", ["ownerId"])
+      .index("by_personal_for", ["personalFor"]),
+
+    memberships: defineTable({
+      organizationId: v.id("organizations"),
+      userId: v.id("users"),
+      role: orgRoleValidator,
+      // active = can act; invited = reserved seat before acceptance;
+      // suspended = kept for audit but denied access.
+      status: v.union(
+        v.literal("active"),
+        v.literal("invited"),
+        v.literal("suspended"),
+      ),
+      invitedBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_user", ["userId"])
+      .index("by_organization_user", ["organizationId", "userId"]),
+
+    invitations: defineTable({
+      organizationId: v.id("organizations"),
+      email: v.string(), // normalized lowercase; the invited identity
+      role: orgRoleValidator,
+      // Single-use, server-generated. Only ever returned to the inviting
+      // owner/admin (there is no email gateway yet — no send is claimed).
+      token: v.string(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("revoked"),
+        v.literal("expired"),
+      ),
+      invitedBy: v.id("users"),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+      acceptedAt: v.optional(v.number()),
+      acceptedBy: v.optional(v.id("users")),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_email", ["email"])
+      .index("by_token", ["token"]),
+
+    // Canonical role registry, seeded idempotently from lib/roles.ts. Code
+    // enforces through `roleCan`; this table is the auditable record the UI,
+    // export and tests read so a role's capabilities are never a mystery.
+    roles: defineTable({
+      key: v.string(), // owner | admin | member
+      name: v.string(),
+      rank: v.number(),
+      capabilities: v.array(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }).index("by_key", ["key"]),
+
+    // Agency workspaces manage client organizations. A link grants the agency
+    // visibility of a client org; it is revoked, never deleted, so the trail
+    // survives. See E3.9 for the client-driven consent flow.
+    agencyClientLinks: defineTable({
+      agencyId: v.id("organizations"), // must be kind === "agency"
+      clientId: v.id("organizations"), // personal or business
+      status: v.union(v.literal("active"), v.literal("revoked")),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      revokedAt: v.optional(v.number()),
+    })
+      .index("by_agency", ["agencyId"])
+      .index("by_client", ["clientId"])
+      .index("by_agency_client", ["agencyId", "clientId"]),
+
     // ── MOSAI: the spine. Everything hangs off projects. ─────────────────
 
     projects: defineTable({
@@ -69,6 +167,10 @@ const schema = defineSchema(
       goals: v.optional(v.array(v.string())),
       kpis: v.optional(v.array(v.string())),
       channels: v.optional(v.array(v.string())),
+      // The organization this project belongs to (T2.1). Optional only so the
+      // migration can backfill pre-organization projects; every project
+      // created after T2.1 is written with its owner's personal organization.
+      organizationId: v.optional(v.id("organizations")),
       // Result of the last onboarding website scan (scraper + SerpApi)
       websiteScan: v.optional(
         v.object({
@@ -102,7 +204,8 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("by_owner", ["ownerId"])
-      .index("by_owner_name", ["ownerId", "name"]),
+      .index("by_owner_name", ["ownerId", "name"])
+      .index("by_organization", ["organizationId"]),
 
     personas: defineTable({
       projectId: v.id("projects"),

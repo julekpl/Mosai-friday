@@ -34,10 +34,17 @@ check — not when the code merely looks finished (`AGENTS.md` §6).
 |---|---|---|---|
 | 0 | T0.1–T0.10 | 🔒 closed (code); four owner actions outstanding | G-P0 |
 | 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2 ✅ done · T1.3 ✅ done · T1.4 ✅ done · T1.5 ✅ done · T1.6 ✅ done · T1.7 ✅ done · T1.8 ✅ done | G-P1 |
-| 2 | T2.1–T2.16 | create when reached | G-P2 |
+| 2 | T2.1–T2.16 | T2.1 ✅ done (22 Sep 2026) · T2.2–T2.16 create when reached | G-P2 |
 | 3 | E3.1–E3.10 | create when reached | per add-on |
 
 Do not start a phase before the previous gate passes.
+
+## Phase 2 — progress
+
+| Ticket | Status | File |
+|---|---|---|
+| T2.1 | ✅ **done** (22 Sep 2026) — organizations, memberships, roles, invitations; idempotent migration under each owner's personal organization; agency client links; last-owner protection. Proof: 9 new unit tests. | `docs/tickets/T2.1-organizations-memberships-roles-invitations.md` |
+| T2.2 | not started — org-scoped function builders and the generated cross-tenant suite | create when reached |
 
 ## Phase 0 — remaining owner actions (not code)
 

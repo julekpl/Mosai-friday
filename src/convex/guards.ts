@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { PLAN_MODULES, DEFAULT_PLAN, type Plan } from "./billing";
+import { roleCan, type OrgCapability } from "./lib/roles";
 
 /**
  * True when the account is a leftover anonymous (guest) session.
@@ -88,6 +89,55 @@ export async function requireProject(
   const project = await ctx.db.get(projectId);
   if (!project || project.ownerId !== userId) throw new Error("Not found");
   return { userId, project };
+}
+
+/** Active membership lookup by (organization, user). Returns null when the
+ *  user is not an active member — callers must treat that as "Not found". */
+export async function membershipFor(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+  userId: Id<"users">,
+) {
+  return await ctx.db
+    .query("memberships")
+    .withIndex("by_organization_user", (q) =>
+      q.eq("organizationId", organizationId).eq("userId", userId),
+    )
+    .unique();
+}
+
+/** Authenticate + authorize an organization id for the current user.
+ *  Throws "Not found" for a foreign organization or a caller with no active
+ *  membership, so a function can never confirm that a foreign org id exists. */
+export async function requireOrganization(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+) {
+  const userId = await requireUser(ctx);
+  const organization = await ctx.db.get(organizationId);
+  if (!organization) throw new Error("Not found");
+  const membership = await membershipFor(ctx, organizationId, userId);
+  if (!membership || membership.status !== "active") {
+    throw new Error("Not found");
+  }
+  return { userId, organization, membership };
+}
+
+/** `requireOrganization` plus a capability check. This is the guard every
+ *  organization mutation uses — a role that lacks the capability is rejected
+ *  here, in one reviewed place, not inline in each handler. */
+export async function requireOrgRole(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+  capability: OrgCapability,
+) {
+  const context = await requireOrganization(ctx, organizationId);
+  if (!roleCan(context.membership.role, capability)) {
+    throw new Error(
+      "Your role in this organization does not allow that action.",
+    );
+  }
+  return context;
 }
 
 /** Entitlement check for module mutations. Reads plan from user record —

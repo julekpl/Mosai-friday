@@ -45,6 +45,11 @@ fixed; and every layout (landing, auth, app shell) has a skip link to `#main-con
 The dated `KNOWN_VIOLATIONS` baseline in `tests/e2e/a11y.spec.ts` is **deleted** —
 axe now fails on any serious/critical violation on `/`, `/auth` and `/app` with
 **no allow-list**. §1 and §3 reflect it.
+**Updated the same day by T2.1:** Phase 2 has begun — organizations,
+memberships, roles and invitations are in the schema; an idempotent migration
+puts every existing project under its owner's personal organization; agency
+client links and last-owner protection are enforced by role guards; and 9 new
+unit tests prove both acceptance criteria. §1, §2b and §3 reflect it.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -66,6 +71,16 @@ test still red** — it is
 marked `blocked` on T0.4, not weakened or deleted. The remaining Phase 0 items
 all need an owner action (key rotation, choosing an email provider) or a
 decision, not code.
+
+Phase 2 (the shared spine) has begun. **T2.1 is done (22 Sep 2026):** the
+`organizations`, `memberships`, `invitations`, `roles` and `agencyClientLinks`
+tables are added, every existing project is migrated under its owner's personal
+organization by an idempotent `internalMutation`, new projects are created
+inside that organization, roles are enforced through one capability map, agency
+client links are honoured, and an organization can never be left without an
+owner. Nine new unit tests prove the two acceptance criteria. T2.2 (org-scoped
+function builders, the raw-`ctx.db` lint ban and the generated cross-tenant
+suite) is next; `guards.requireProject` is deliberately still owner-based.
 
 `bun tsc -b --noEmit` is **clean** here. The pack's claim that a clean checkout
 produces 1,067 type errors is a *pre-codegen* measurement: `src/convex/_generated`
@@ -124,6 +139,14 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 
 ---
 
+## 2b. Phase 2 — ticket by ticket
+
+| Ticket | Status | Evidence |
+|---|---|---|
+| **T2.1** organizations, memberships, roles, invitations | ✅ **done** (22 Sep 2026) | New tables `organizations` / `memberships` / `invitations` / `roles` / `agencyClientLinks` plus `projects.organizationId`; role capabilities in `lib/roles.ts`; `guards.requireOrganization` / `requireOrgRole`; module `organizations.ts` with invitations, role administration, last-owner protection and agency links; idempotent `internalMutation` migration; data-registry entries in `lib/dataRegistry.ts`. Proof: `tests/unit/organizations.test.ts` (9 tests) shows a pre-T2.1 project moving under its owner's personal organization on the first run and a no-op on the second, and the owner/admin/member capability matrix. No allow-list entry added; `requireProject` left owner-based (T2.2). See `docs/tickets/T2.1-organizations-memberships-roles-invitations.md`. |
+
+---
+
 ## 3. Phase 1 baseline — verified now
 
 | Item | State (verified) |
@@ -133,7 +156,9 @@ against them — eleven green guards, plus R4 which is deliberately red and mark
 | Typecheck | **T1.3 (22 Sep 2026): 0 errors.** `bun tsc -b --noEmit` → exit 0 with codegen present, re-verified with the incremental cache wiped (`rm -rf node_modules/.tmp`) and with `--force`, and per project (`tsconfig.app.json`, `tsconfig.node.json`) → all exit 0, 0 errors. A planted `TS2322` was reported by `tsc`, proving the check reads `src/`. No `@ts-ignore`/`@ts-expect-error` anywhere; `as any` count unchanged (4, incl. the accepted `dal.ts` handle). |
 | Convex codegen | **Committed (T1.2, 22 Sep 2026).** `src/convex/_generated` is no longer git-ignored; `convex codegen` output is deterministic (regenerating leaves the 5 files byte-identical). `bun run check:codegen` regenerates with `convex codegen` and fails on drift (`git diff --exit-code`); `bun run codegen` regenerates by hand. `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
 | Lint | **0 errors / 25 warnings (T1.4, 22 Sep 2026).** Baseline re-measured on the current tree at **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`), so the pack's 79/25 was stale. All 82 errors fixed without adding a suppression or weakening `eslint.config.js`; source `eslint-disable` directives went **2 → 1** (only the documented `dal.ts` cascade handle remains). The 25 warnings are 21 Fast-Refresh `only-export-components` in shared modules and 4 generated-file headers — recorded and justified in `docs/tickets/T1.4-zero-lint-errors.md`. `bun run lint` exits 0. |
-| Tests / test runner / CI | **Added (T1.5, 22 Sep 2026).** Unit: `vitest.config.ts` + `src/convex/test.setup.ts` + `tests/unit/` (Vitest 5, `convex-test`, `@edge-runtime/vm`). Browser: `playwright.config.ts` + `tests/e2e/` (Playwright + `@axe-core/playwright`). Scripts: `test`, `test:unit`, `test:e2e`, `test:a11y`, `scan:secrets`, `check`. CI: `.github/workflows/ci.yml`, one job per concern (install · codegen · typecheck · lint · unit · security · e2e · a11y). Green on this tree: `bun run check` exit 0; `bun run test:e2e` 13 passed; `bun run test:a11y` **5 passed** (T1.8) — `/`, `/auth` and `/app` with zero serious/critical axe violations and no allow-list, plus a skip-link and a keyboard-only sign-in test. **R1–R12 land in T1.7 (done 22 Sep 2026):** `tests/unit/{phase0-regressions,safe-fetch,deletion-completeness,secret-scan,platform-detach}.test.ts` (33 unit tests) and `tests/e2e/{sanitized-html,no-platform-calls}.spec.ts` (3 browser tests). `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
+| Tests / test runner / CI | **Added (T1.5, 22 Sep 2026).** Unit: `vitest.config.ts` + `src/convex/test.setup.ts` + `tests/unit/` (Vitest 5, `convex-test`, `@edge-runtime/vm`). Browser: `playwright.config.ts` + `tests/e2e/` (Playwright + `@axe-core/playwright`). Scripts: `test`, `test:unit`, `test:e2e`, `test:a11y`, `scan:secrets`, `check`. CI: `.github/workflows/ci.yml`, one job per concern (install · codegen · typecheck · lint · unit · security · e2e · a11y). Green on this tree: `bun run check` exit 0; `bun run test:e2e` 13 passed; `bun run test:a11y` **5 passed** (T1.8) — `/`, `/auth` and `/app` with zero serious/critical axe violations and no allow-list, plus a skip-link and a keyboard-only sign-in test. **R1–R12 land in T1.7 (done 22 Sep 2026):**`tests/unit/{phase0-regressions,safe-fetch,deletion-completeness,secret-scan,platform-detach}.test.ts`
+(33 unit tests) and `tests/e2e/{sanitized-html,no-platform-calls}.spec.ts` (3 browser tests).
+**T2.1 adds `tests/unit/organizations.test.ts` (9 tests) — 42 unit tests total.** `vitest.config.ts` aliases `@vly-ai/integrations` to `tests/unit/stubs/` because the platform SDK reads `document` at import time and cannot load under `edge-runtime`. |
 | Secret scanning | **Wired (T1.5, 22 Sep 2026).** `scripts/scan-secrets.mjs` reads the custom rules from `.gitleaks.toml` and runs inside `bun run check`, so a planted secret fails locally; the CI `security` job also runs gitleaks over full history and the working tree, plus `bun audit --audit-level=high` (now a hard failure, T1.6) and `audit:functions`. The T1.5 ticket quoted a literal dummy `x-api-key` value in its proof table, which the `vly-email-otp-key` rule correctly matched — the doc line was redacted in T1.6 rather than allow-listing `docs/tickets/`. Still open: pre-commit hook and the history purge (owner). |
 | Dependency audit | **Clean (T1.6, 22 Sep 2026).** `bun audit` (and `--audit-level=high`) → **"No vulnerabilities found"**; was 1 critical + 4 high + 8 moderate + 2 low. Fixed: `@convex-dev/auth` 0.0.90 → **0.0.94** (moves the `@auth/core` peer to `^0.41.1`) with `@auth/core` pinned at **0.41.3** (GHSA-7rqj-j65f-68wh critical + GHSA-xmf8-cvqr-rfgj high + GHSA-x445-f3h2-j279 moderate), and a root `overrides` entry forcing `undici` to `^7.19.0`, which removes the vulnerable nested `undici@5.29.0` under `@ai-sdk/provider-utils` (GHSA-vrm6-8vpv-qv8q / GHSA-v9p9-hfj2-hcw8 / GHSA-vxpw-j846-p89q high + moderates/lows) and de-duplicates the tree to one `undici@7.29.1`. The pack's `react-router` (7.18.4) and `hono` (4.13.8) findings are stale — neither is flagged. Rationale, the no-in-range-fix analysis and the override's compensating control are in `docs/tickets/T1.6-vulnerable-dependencies.md`. |
 | Node/bun engines | **Pinned (T1.1):** `engines.node >= 22.12.0`, `engines.bun >= 1.3.0`, `.nvmrc` = `22`. |

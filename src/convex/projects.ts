@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireUser } from "./guards";
 import { cascadeDeleteProject } from "./dal";
+import { getOrCreatePersonalOrganization } from "./organizations";
 
 export const list = query({
   args: {},
@@ -51,9 +52,13 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
+    // Every new project lands in the owner's personal organization (T2.1).
+    // Idempotent, so a user who already has a personal workspace reuses it.
+    const organizationId = await getOrCreatePersonalOrganization(ctx, userId);
     return await ctx.db.insert("projects", {
       ...args,
       ownerId: userId,
+      organizationId,
       createdAt: Date.now(),
     });
   },

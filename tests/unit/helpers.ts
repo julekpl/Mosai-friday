@@ -27,11 +27,17 @@ export type Tenant = {
 /** Insert a real user row and return an identity-scoped backend for it. */
 export async function seedUser(
   t: TestBackend,
-  opts: { plan?: string; isAnonymous?: boolean } = {},
+  opts: {
+    plan?: string;
+    isAnonymous?: boolean;
+    email?: string;
+    name?: string;
+  } = {},
 ): Promise<Tenant> {
   const userId = await t.run((ctx) =>
     ctx.db.insert("users", {
-      name: "Test user",
+      name: opts.name ?? "Test user",
+      email: opts.email,
       plan: opts.plan ?? "free",
       isAnonymous: opts.isAnonymous ?? false,
     }),
