@@ -10,6 +10,12 @@
 node_modules
 dist
 
+# ── Test artifacts (Vitest / Playwright, pack T1.5) ─────────────────────
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
 # src/convex/_generated is COMMITTED (ticket T1.2, decided 22 Sep 2026).
 # Convex's own guidance is to check the bindings in so the project typechecks
 # and runs without first running `convex dev`. Do not add it back here; the

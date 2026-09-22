@@ -64,9 +64,13 @@ bun run check:codegen     # fail if the committed bindings have drifted (T1.2)
 bun run lint              # eslint
 bun run audit:functions   # public-function authorization audit (must exit 0)
 
-# Planned by ticket T1.5 — not available yet:
-#   bun run check           # typecheck + lint + unit + secret scan
-#   bun run test:e2e        # Playwright critical journeys
+# Test tooling and CI (ticket T1.5, 22 Sep 2026):
+bun run check             # typecheck + lint + unit + secret scan + function audit
+bun run test              # unit tests (Vitest + convex-test)
+bun run test:e2e          # Playwright browser journeys
+bun run test:a11y         # axe gate on the key pages
+bun run scan:secrets      # working-tree secret scan (reads .gitleaks.toml)
+bunx playwright install --with-deps chromium   # browser for e2e/a11y
 ```
 
 The hosting platform re-runs codegen and `tsc -b --noEmit` after every agent
