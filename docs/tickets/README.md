@@ -33,7 +33,7 @@ check — not when the code merely looks finished (`AGENTS.md` §6).
 | Phase | Tickets | Files | Gate |
 |---|---|---|---|
 | 0 | T0.1–T0.10 | 🔒 closed (code); four owner actions outstanding | G-P0 |
-| 1 | T1.1–T1.8 | `T1.1`–`T1.8` below | G-P1 |
+| 1 | T1.1–T1.8 | T1.1 ✅ done · T1.2–T1.8 not started | G-P1 |
 | 2 | T2.1–T2.16 | create when reached | G-P2 |
 | 3 | E3.1–E3.10 | create when reached | per add-on |
 
@@ -48,7 +48,7 @@ Tracked here because they block G-P0 and only the owner can close them:
 | Revoke the OTP email API key; re-key dotenvx; purge history with `git filter-repo` | T0.1 | ⬜ waiting on owner |
 | Choose the transactional email provider + sending domain, then implement `EmailGateway` and remove the platform toolbar | T0.8 | ⬜ waiting on owner decision |
 | Confirm whether the exposed secrets were issued by the platform (and whether the platform stays for any production service) | T0.1 / ADR-9 | ⬜ waiting on owner |
-| Decide the authoritative package manager (bun today, npm in the blueprint's commands) | T1.1 | ⬜ waiting on owner |
+| Decide the authoritative package manager (bun today, npm in the blueprint's commands) | T1.1 | ✅ decided: **bun** (22 Sep 2026) — lockfile consolidated, runtime pinned |
 
 ## Phase 0 — code that is still open
 

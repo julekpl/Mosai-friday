@@ -3,7 +3,9 @@
 **Audited:** 22 September 2026, against the working tree (baseline `da87ab7` plus
 the changes listed below). **Method:** read the code, ran
 `bun convex dev --once && bun tsc -b --noEmit` (exit 0), ran
-`bun run audit:functions` (exit 0).
+`bun run audit:functions` (exit 0). **Updated the same day by T1.1:** the
+package-manager question is decided (bun) and recorded in §6; the §3 rows for the
+lockfile, the Tiptap peer conflict and the runtime pin now reflect the fix.
 
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
@@ -68,14 +70,14 @@ exactly Phase 1.
 
 | Item | State (verified) |
 |---|---|
-| Package manager | **Both `bun.lock` and `package-lock.json` are present.** The platform uses bun. T1.1 must pick one and delete the other. |
-| Tiptap peer conflict | **Still present:** `@tiptap/extension-collaboration-cursor@^2.26.2` sits next to Tiptap 3 packages in `package.json`. |
-| Typecheck | `bun tsc -b --noEmit` → **exit 0** (with codegen present). |
+| Package manager | **bun is authoritative (T1.1, 22 Sep 2026).** `package-lock.json` is deleted; `bun.lock` is the only lockfile and was regenerated from a clean `node_modules`. `rm -rf node_modules && bun install --frozen-lockfile` exits 0 with no peer warnings. |
+| Tiptap peer conflict | **Resolved (T1.1).** `@tiptap/extension-collaboration-cursor@^2.26.2` was not imported anywhere in `src/` (the only collaboration import is `@tiptap/extension-collaboration`, in `src/components/app/ContentEditor.tsx`) and has been removed; the lockfile no longer contains it. |
+| Typecheck | `bun tsc -b --noEmit` → **exit 0** (with codegen present; re-verified after T1.1). |
 | Convex codegen | `bun convex dev --once` → succeeds against `julekpl:mosai-another:dev`. |
-| Lint | Not re-measured this session; ticket T1.4 must record the current count. |
+| Lint | **82 errors / 29 warnings** (82 = 49 `no-unused-vars` + 22 `no-explicit-any` + 11 `react-hooks/*`). Measured during T1.1, which touched no source file; the pack's 79 was a different tree. T1.4 re-measures and owns the fixes. |
 | Tests / test runner / CI | **None.** `package.json` has no test script; no `.github/workflows`. |
 | Secret scanning | `.gitleaks.toml` exists; no CI job, no pre-commit hook, gitleaks not installed. |
-| Node/npm engines | Not pinned. |
+| Node/bun engines | **Pinned (T1.1):** `engines.node >= 22.12.0`, `engines.bun >= 1.3.0`, `.nvmrc` = `22`. |
 | Authorization audit | `bun run audit:functions` → exit 0. Reports 90 functions guarded by a shared helper, 81 via an inline `ownerId` check (to migrate in T2.2), and **8 worth a human look** (see §5). |
 
 ---
@@ -128,7 +130,7 @@ These are the pack's open questions, unchanged:
 | 5 | Is the app builder for the same small-business audience, or for startups and agencies? | defaults, pricing |
 | 6 | Where does a generated app's backend live, and how does a customer take it away? | G6, export promise |
 | 7 | Is "Conductor" the enterprise SEO/AI-search platform? | `09` |
-| 8 | **Which package manager is authoritative — bun (what the platform runs today) or npm (what the blueprint's commands assume)?** | T1.1, and every command in `AGENTS.md` |
+| 8 | Which package manager is authoritative — bun (what the platform runs today) or npm (what the blueprint's commands assume)? | ✅ **Answered in T1.1 (22 Sep 2026): bun.** `bun.lock` is the only lockfile, the runtime is pinned in `engines` + `.nvmrc`, and `AGENTS.md` §4 is the authoritative command list. Every `npm ci` / `npm run …` in the blueprint and `10-build-backlog.md` is to be read as its bun equivalent; no further ticket is needed. |
 
 Non-blocking: agency billing owner, dashboard localization and RTL scope, TikTok
 organic posting, data-residency promise, SMS/WhatsApp, SSO.

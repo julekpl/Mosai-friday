@@ -50,11 +50,13 @@ Stack: React 19, TypeScript, Vite, React Router 7 (`BrowserRouter`), Convex
 
 ## 4. Commands
 
-**This repository runs on bun.** Do not introduce npm/pnpm/yarn commands while
-`bun.lock` is the lockfile the platform uses (ticket T1.1 decides the final
-package manager; until then, bun is authoritative here).
+**This repository runs on bun** — decided in ticket T1.1 (22 September 2026) and
+recorded in `docs/pack/STATUS.md` §6. `bun.lock` is the only lockfile; do not add
+npm/pnpm/yarn commands, and do not reintroduce `package-lock.json`. The runtime is
+pinned to Node 22 in `package.json` `engines` and `.nvmrc`.
 
 ```bash
+bun install               # install from bun.lock (`bun install --frozen-lockfile` in CI)
 bun convex dev --once     # Convex codegen — run after ANY change under src/convex/
 bun tsc -b --noEmit       # typecheck
 bun run lint              # eslint
