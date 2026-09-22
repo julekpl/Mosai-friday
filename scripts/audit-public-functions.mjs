@@ -50,7 +50,7 @@ const RECORD_ARG = /\bv\s*\.\s*id\s*\(/;
 const WEAK_GUARDS = /\b(getAuthUserId|maybeUser)\b/;
 
 /** Every wrapper that produces a public Convex function, including the T2.2
- *  org-scoped builders. */
+ *  org-scoped builders and the T2.3 capability-enforcing module builders. */
 const PUBLIC_KINDS = [
   "query",
   "mutation",
@@ -59,7 +59,16 @@ const PUBLIC_KINDS = [
   "orgQuery",
   "orgMutation",
   "orgAction",
+  "moduleQuery",
+  "moduleMutation",
+  "moduleAction",
 ];
+
+/** A module-scoped declaration (T2.3). The builder already authenticates and
+ *  enforces the module capability, so this audit only has to check that the
+ *  handler scopes its data — `scripts/audit-module-capabilities.mjs` owns the
+ *  capability question. */
+const MODULE_DECL = /^export const \w+ = module(Query|Mutation|Action)\s*\(/m;
 
 function walk(dir) {
   const out = [];
@@ -77,8 +86,7 @@ function walk(dir) {
  *  swallow a neighbouring `internalQuery`'s `v.id(...)` arguments, or a
  *  self-scoped read would look like it names a record. */
 function publicFunctions(source) {
-  const decl =
-    /^export const (\w+) = (query|mutation|action|httpAction|orgQuery|orgMutation|orgAction|internalQuery|internalMutation|internalAction)\s*\(/gm;
+  const decl =	  /^export const (\w+) = (query|mutation|action|httpAction|orgQuery|orgMutation|orgAction|moduleQuery|moduleMutation|moduleAction|internalQuery|internalMutation|internalAction)\s*\(/gm;
   const found = [];
   const hits = [...source.matchAll(decl)];
   for (let i = 0; i < hits.length; i++) {
@@ -105,6 +113,8 @@ const weak = [];
 const inline = [];
 /** Authenticates, names a specific record, and never authorizes it. */
 const unscoped = [];
+/** Declares a module capability but never scopes the data it returns. */
+const moduleUngated = [];
 let guarded = 0;
 let total = 0;
 
@@ -115,6 +125,17 @@ for (const file of walk(CONVEX_DIR)) {
     total++;
     const key = `${rel}::${fn.name}`;
     if (allowlist[key]) continue;
+    if (MODULE_DECL.test(fn.body)) {
+      // The module builder authenticates and checks the capability before the
+      // handler runs; what is left to prove is that the handler scopes its
+      // data (a record id, or the capability-aware access object).
+      if (RECORD_ARG.test(fn.body) || ORG_ACCESS.test(fn.body) || STRONG_GUARDS.test(fn.body)) {
+        guarded++;
+        continue;
+      }
+      moduleUngated.push({ key, file: rel, line: fn.line, name: fn.name, kind: fn.kind });
+      continue;
+    }
     if (STRONG_GUARDS.test(fn.body)) {
       guarded++;
       continue;
@@ -154,6 +175,7 @@ if (process.argv.includes("--json")) {
         inlineOwnership: inline,
         authButNotAuthorized: weak,
         unscopedRecords: unscoped,
+        moduleWithoutDataScope: moduleUngated,
         unguarded: findings,
       },
       null,
@@ -173,6 +195,13 @@ if (process.argv.includes("--json")) {
     console.log(`\n! authenticates but never authorizes — REVIEW (${weak.length}):`);
     for (const f of weak) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
   }
+  if (moduleUngated.length) {
+    console.log(
+      `\n✗ module function declares a capability but never scopes its data — FAIL (${moduleUngated.length}); take a record id or use the capability-aware access object:`,
+    );
+    for (const f of moduleUngated)
+      console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
+  }
   if (unscoped.length) {
     console.log(
       `\n✗ authenticates but never authorizes a named record — FAIL (${unscoped.length}); authorize the record with access.requireProject/ownedRow or requireProject/ownedRow:`,
@@ -183,9 +212,11 @@ if (process.argv.includes("--json")) {
     console.log(`\n✗ no sign-in check at all — FAIL (${findings.length}):`);
     for (const f of findings) console.log(`  ${f.file}:${f.line}  ${f.kind} ${f.name}`);
   }
-  if (!findings.length && !inline.length && !unscoped.length) {
+  if (!findings.length && !inline.length && !unscoped.length && !moduleUngated.length) {
     console.log(`\n✓ every public function authenticates and authorizes (or is allow-listed)`);
   }
 }
 
-process.exit(findings.length || inline.length || unscoped.length ? 1 : 0);
+process.exit(
+  findings.length || inline.length || unscoped.length || moduleUngated.length ? 1 : 0,
+);

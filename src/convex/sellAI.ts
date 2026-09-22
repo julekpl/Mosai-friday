@@ -2,10 +2,9 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import { moduleAction, requireActionUser } from "./guards";
 import { vly } from "../lib/vly-integrations";
 import type { Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
-import { requireActionUser } from "./guards";
 
 /* ── M1 Sell AI actions — M1-BLUEPRINT §8/§9, SELL-ARCHITECTURE §6 ────────
  *
@@ -62,7 +61,7 @@ async function productContextOf(
 /** Proposal for a product description. Refuses when a real description
  *  already exists unless mode:"improve" — and improve never overwrites
  *  server-side; it returns a proposal for review. */
-export const generateDescription = action({
+export const generateDescription = moduleAction("sell", {
   args: {
     projectId: v.id("projects"),
     title: v.string(),
@@ -77,15 +76,12 @@ export const generateDescription = action({
     }),
   },
   handler: async (ctx, args) => {
-    const userId = await requireActionUser(ctx);
     void productContextOf;
-    // T2.2: authorize the project before spending a provider call. A member of
-    // another organization must not be able to bill this project's AI budget.
-    const authorized = await ctx.runQuery(
-      internal.guards.projectAccessForAction,
-      { projectId: args.projectId, userId },
-    );
-    if (!authorized) throw new Error("Not found");
+    // T2.2 authorized the project; T2.3's `moduleAction` enforces `sell.edit`
+    // for the acting organization's plan and the caller's role BEFORE the
+    // provider call (the builder resolves the tenant from `projectId`), so a
+    // member of another organization (or a locked plan) cannot bill this
+    // project's AI budget.
 
     if (args.mode === "fill_missing") {
       const existing = args.currentDescription?.trim() ?? "";

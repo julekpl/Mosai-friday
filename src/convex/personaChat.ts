@@ -1,7 +1,7 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
-export const list = orgQuery({
+export const list = moduleQuery("understand", {
   args: { projectId: v.id("projects"), personaId: v.id("personas") },
   handler: async (ctx, { projectId, personaId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -16,7 +16,7 @@ export const list = orgQuery({
 });
 
 /** Persist one user/assistant exchange produced by ai.personaChat. */
-export const append = orgMutation({
+export const append = moduleMutation("understand", {
   args: {
     projectId: v.id("projects"),
     personaId: v.id("personas"),
@@ -51,7 +51,7 @@ export const append = orgMutation({
   },
 });
 
-export const clear = orgMutation({
+export const clear = moduleMutation("understand", {
   args: {
     projectId: v.id("projects"),
     personaId: v.id("personas"),

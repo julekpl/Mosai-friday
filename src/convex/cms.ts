@@ -1,6 +1,6 @@
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { hasRowAccess, orgMutation, orgQuery, requireUser } from "./guards";
+import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
 import { validateDocument } from "../lib/cms/blocks";
 
@@ -58,7 +58,7 @@ async function requireOwned<T extends { projectId: Id<"projects"> }>(
 
 /* ── Sites ─────────────────────────────────────────────────────────────── */
 
-export const getSite = orgQuery({
+export const getSite = moduleQuery("build", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -72,7 +72,10 @@ export const getSite = orgQuery({
   },
 });
 
-export const createSite = orgMutation({
+export const createSite = moduleMutation("build", {
+  // Creating the site is `manage` (organization-level setup), not ordinary
+  // editing: a member keeps editing pages, an admin/owner brings the site up.
+  capability: "build.manage",
   args: { projectId: v.id("projects"), name: v.string() },
   handler: async (ctx, { projectId, name }, access) => {
     const { userId, project } = await access.requireProject(projectId);
@@ -120,7 +123,8 @@ export const createSite = orgMutation({
   },
 });
 
-export const updateSite = mutation({
+export const updateSite = moduleMutation("build", {
+  capability: "build.manage",
   args: {
     id: v.id("sites"),
     name: v.optional(v.string()),
@@ -146,7 +150,7 @@ export const updateSite = mutation({
 
 /* ── Pages ─────────────────────────────────────────────────────────────── */
 
-export const listPages = orgQuery({
+export const listPages = moduleQuery("build", {
   args: { siteId: v.id("sites") },
   handler: async (ctx, { siteId }, access) => {
     const site = await ctx.db.get(siteId);
@@ -160,7 +164,7 @@ export const listPages = orgQuery({
   },
 });
 
-export const getPage = orgQuery({
+export const getPage = moduleQuery("build", {
   args: { id: v.id("cmsPages") },
   handler: async (ctx, { id }, access) => {
     return await access.ownedRow(await ctx.db.get(id));
@@ -207,7 +211,7 @@ async function assertUniquePath(
   if (clash) throw new Error(`A page already exists at ${fullPath}`);
 }
 
-export const createPage = orgMutation({
+export const createPage = moduleMutation("build", {
   args: {
     siteId: v.id("sites"),
     title: v.string(),
@@ -271,7 +275,7 @@ export const createPage = orgMutation({
   },
 });
 
-export const updatePage = mutation({
+export const updatePage = moduleMutation("build", {
   args: {
     id: v.id("cmsPages"),
     title: v.optional(v.string()),
@@ -387,7 +391,8 @@ export const updatePage = mutation({
   },
 });
 
-export const archivePage = mutation({
+export const archivePage = moduleMutation("build", {
+  capability: "build.publish",
   args: { id: v.id("cmsPages") },
   handler: async (ctx, { id }) => {
     const userId = await requireUser(ctx);
@@ -409,7 +414,7 @@ export const archivePage = mutation({
   },
 });
 
-export const deletePage = mutation({
+export const deletePage = moduleMutation("build", {
   args: { id: v.id("cmsPages") },
   handler: async (ctx, { id }) => {
     const userId = await requireUser(ctx);
@@ -438,7 +443,7 @@ export const deletePage = mutation({
 
 /* ── Revisions: draft autosave, publish, restore ───────────────────────── */
 
-export const listRevisions = orgQuery({
+export const listRevisions = moduleQuery("build", {
   args: { pageId: v.id("cmsPages") },
   handler: async (ctx, { pageId }, access) => {
     const page = await access.ownedRow(await ctx.db.get(pageId));
@@ -451,7 +456,7 @@ export const listRevisions = orgQuery({
   },
 });
 
-export const getRevision = orgQuery({
+export const getRevision = moduleQuery("build", {
   args: { id: v.id("pageRevisions") },
   handler: async (ctx, { id }, access) => {
     return await access.ownedRow(await ctx.db.get(id));
@@ -459,7 +464,7 @@ export const getRevision = orgQuery({
 });
 
 /** Autosave: writes the draft revision in place. Never publishes (§10). */
-export const saveDraft = mutation({
+export const saveDraft = moduleMutation("build", {
   args: {
     pageId: v.id("cmsPages"),
     document: documentValidator,
@@ -507,7 +512,7 @@ export const saveDraft = mutation({
 });
 
 /** Publish diagnostics: blocking issues + recommendations (§43, §115). */
-export const getPublishChecks = orgQuery({
+export const getPublishChecks = moduleQuery("build", {
   args: { pageId: v.id("cmsPages") },
   handler: async (ctx, { pageId }, access) => {
     const page = await access.ownedRow(await ctx.db.get(pageId));
@@ -554,7 +559,10 @@ export const getPublishChecks = orgQuery({
 });
 
 /** Publish: promote draft → published atomically; prior revision superseded. */
-export const publishPage = mutation({
+export const publishPage = moduleMutation("build", {
+  // `publish`: making a page live is the state change the product promises is
+  // real, so it is gated separately from editing it.
+  capability: "build.publish",
   args: { pageId: v.id("cmsPages") },
   handler: async (ctx, { pageId }) => {
     const userId = await requireUser(ctx);
@@ -616,7 +624,7 @@ export const publishPage = mutation({
 });
 
 /** Restore = new draft from an old revision; history is never overwritten. */
-export const restoreRevision = mutation({
+export const restoreRevision = moduleMutation("build", {
   args: { revisionId: v.id("pageRevisions") },
   handler: async (ctx, { revisionId }) => {
     const userId = await requireUser(ctx);
@@ -651,7 +659,7 @@ export const restoreRevision = mutation({
 
 /* ── Assets ────────────────────────────────────────────────────────────── */
 
-export const listAssets = orgQuery({
+export const listAssets = moduleQuery("build", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -663,7 +671,7 @@ export const listAssets = orgQuery({
   },
 });
 
-export const createAsset = orgMutation({
+export const createAsset = moduleMutation("build", {
   args: {
     projectId: v.id("projects"),
     type: v.union(
@@ -693,7 +701,7 @@ export const createAsset = orgMutation({
   },
 });
 
-export const updateAsset = mutation({
+export const updateAsset = moduleMutation("build", {
   args: {
     id: v.id("cmsAssets"),
     altText: v.optional(v.string()),
@@ -714,7 +722,7 @@ export const updateAsset = mutation({
 });
 
 /** Deletion is blocked while any revision references the asset (§28). */
-export const deleteAsset = mutation({
+export const deleteAsset = moduleMutation("build", {
   args: { id: v.id("cmsAssets") },
   handler: async (ctx, { id }) => {
     const userId = await requireUser(ctx);
@@ -754,7 +762,7 @@ export const deleteAsset = mutation({
  * never copied into page content.
  */
 
-export const resolveCollection = orgQuery({
+export const resolveCollection = moduleQuery("build", {
   args: { id: v.id("collections") },
   handler: async (ctx, { id }, access) => {
     return await access.ownedRow(await ctx.db.get(id));
@@ -773,7 +781,7 @@ export type ResolvedProduct = {
 };
 
 /** Live product facts for a productGrid block. Never stored on the page. */
-export const resolveProducts = orgQuery({
+export const resolveProducts = moduleQuery("build", {
   args: { collectionId: v.id("collections"), limit: v.optional(v.number()) },
   handler: async (ctx, { collectionId, limit }, access) => {
     const col = await access.ownedRow(await ctx.db.get(collectionId));
@@ -817,7 +825,7 @@ export const resolveProducts = orgQuery({
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 
-export const listNavigations = orgQuery({
+export const listNavigations = moduleQuery("build", {
   args: { siteId: v.id("sites") },
   handler: async (ctx, { siteId }, access) => {
     const site = await ctx.db.get(siteId);
@@ -831,7 +839,8 @@ export const listNavigations = orgQuery({
   },
 });
 
-export const saveNavigation = orgMutation({
+export const saveNavigation = moduleMutation("build", {
+  capability: "build.manage",
   args: {
     siteId: v.id("sites"),
     name: v.string(),
@@ -888,7 +897,7 @@ export const saveNavigation = orgMutation({
 
 /* ── Redirects ─────────────────────────────────────────────────────────── */
 
-export const listRedirects = orgQuery({
+export const listRedirects = moduleQuery("build", {
   args: { siteId: v.id("sites") },
   handler: async (ctx, { siteId }, access) => {
     const site = await ctx.db.get(siteId);
@@ -902,7 +911,8 @@ export const listRedirects = orgQuery({
   },
 });
 
-export const createRedirect = orgMutation({
+export const createRedirect = moduleMutation("build", {
+  capability: "build.manage",
   args: {
     siteId: v.id("sites"),
     fromPath: v.string(),
@@ -943,7 +953,8 @@ export const createRedirect = orgMutation({
   },
 });
 
-export const deleteRedirect = mutation({
+export const deleteRedirect = moduleMutation("build", {
+  capability: "build.manage",
   args: { id: v.id("cmsRedirects") },
   handler: async (ctx, { id }) => {
     const userId = await requireUser(ctx);

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { orgAction } from "./guards";
+import { moduleAction } from "./guards";
 import type { Id } from "./_generated/dataModel";
 
 /* ── Shopify READ connector (W5) — see CMS-CONNECTOR-CONTRACT.md ──────────
@@ -237,7 +237,9 @@ export const upsertExternalCollection = internalMutation({
 /** Link products to their Shopify collections — see applyCollectionMembership. */
 
 /** Full catalog sync. Returns counts; throws readable errors to the client. */
-export const syncCatalog = orgAction({
+export const syncCatalog = moduleAction("sell", {
+  // An external write to the provider's catalog: `publish`, not `edit`.
+  capability: "sell.publish",
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     await access.requireProject(projectId);

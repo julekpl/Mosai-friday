@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { orgAction } from "../guards";
+import { moduleAction } from "../guards";
 import { vly } from "../../lib/vly-integrations";
 import { isSocialPlatform, SOCIAL_PLATFORM_META } from "./platforms";
 
@@ -36,7 +36,8 @@ async function complete(
 
 /* ── 1. Platform variants: one approved source → drafts per platform ──── */
 
-export const draftVariants = orgAction({
+export const draftVariants = moduleAction("promote", {
+  recordArg: "projectId",
   args: {
     projectId: v.id("projects"),
     contentId: v.optional(v.id("contentPieces")),
@@ -46,11 +47,9 @@ export const draftVariants = orgAction({
     platforms: v.array(v.string()),
   },
   handler: async (ctx, args, access) => {
+    // `moduleAction("promote", …)` already enforced `promote.edit` for the
+    // acting organization's plan and the caller's role before this handler ran.
     const { userId } = await access.requireProject(args.projectId);
-    await ctx.runQuery(internal.billing.checkModule, {
-      userId,
-      module: "promote",
-    });
 
     const platforms = args.platforms.filter(isSocialPlatform);
     if (platforms.length === 0) throw new Error("No valid platforms selected");
@@ -123,18 +122,15 @@ export const draftVariants = orgAction({
 
 /* ── 2. Best-time suggestion per platform (advice, never auto-scheduling) ─ */
 
-export const suggestSchedule = orgAction({
+export const suggestSchedule = moduleAction("promote", {
+  recordArg: "projectId",
   args: {
     projectId: v.id("projects"),
     platform: v.string(),
     body: v.string(),
   },
   handler: async (ctx, { projectId, platform, body }, access) => {
-    const { userId } = await access.requireProject(projectId);
-    await ctx.runQuery(internal.billing.checkModule, {
-      userId,
-      module: "promote",
-    });
+    await access.requireProject(projectId);
     if (!isSocialPlatform(platform)) throw new Error("Unknown platform");
 
     const label = SOCIAL_PLATFORM_META[platform].label;

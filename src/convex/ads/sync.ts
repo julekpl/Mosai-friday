@@ -1,18 +1,18 @@
 
 import { v } from "convex/values";
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  mutation,
-} from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { getAdapter } from "./adapters";
 import { isPlatform, type Platform } from "./platforms";
 import { internal } from "../_generated/api";
-import { orgQuery, projectAccessFor } from "../guards";
+import {
+  moduleAction,
+  moduleMutation,
+  moduleQuery,
+  projectAccessFor,
+} from "../guards";
 
 /**
  * Sync engine: pull data from the four platforms into normalized MOSAI tables.
@@ -30,24 +30,18 @@ function daysAgo(n: number): string {
 }
 
 /** Full sync for one platform: accounts → campaigns → 14 days of metrics. */
-export const syncPlatform = action({
+export const syncPlatform = moduleAction("promote", {
   args: { projectId: v.id("projects"), platform: v.string() },
   handler: async (ctx, { projectId, platform }) => {
     if (!isPlatform(platform)) throw new Error("Unknown platform");
     const p = platform as Platform;
 
-    // Ownership + entitlement checks (actions have no ctx.db — run as queries).
+    // Ownership + entitlement were checked by `moduleAction` before this
+    // handler ran (organization membership × plan × role). The explicit
+    // re-check keeps the read of the acting user for the provider call.
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not signed in");
-    const authorized = await ctx.runQuery(
-      internal.guards.projectAccessForAction,
-      { projectId, userId: userId as Id<"users"> },
-    );
-    if (!authorized) throw new Error("Not found");
-    await ctx.runQuery(internal.billing.checkModule, {
-      userId: userId as Id<"users">,
-      module: "promote",
-    });
+    void projectAccessFor;
 
     const adapter = getAdapter(p);
 
@@ -143,7 +137,9 @@ async function requireProject(
 }
 
 /** Manually mark/unmark an account for import. */
-export const setAccountSelected = mutation({
+export const setAccountSelected = moduleMutation("promote", {
+  // Choosing which ad accounts MOSAI imports is module configuration.
+  capability: "promote.manage",
   args: {
     projectId: v.id("projects"),
     platform: v.string(),
@@ -305,7 +301,7 @@ export const upsertMetricRow = internalMutation({
 });
 
 /** Client-facing reads: accounts, campaigns, metrics rollup. */
-export const listAccounts = orgQuery({
+export const listAccounts = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -317,7 +313,7 @@ export const listAccounts = orgQuery({
   },
 });
 
-export const listCampaigns = orgQuery({
+export const listCampaigns = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);

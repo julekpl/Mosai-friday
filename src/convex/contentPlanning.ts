@@ -1,9 +1,9 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
 /* ── Content gaps ─────────────────────────────────────────────────────── */
 
-export const listGaps = orgQuery({
+export const listGaps = moduleQuery("create", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -15,7 +15,7 @@ export const listGaps = orgQuery({
   },
 });
 
-export const createGap = orgMutation({
+export const createGap = moduleMutation("create", {
   args: {
     projectId: v.id("projects"),
     personaId: v.optional(v.id("personas")),
@@ -40,7 +40,7 @@ export const createGap = orgMutation({
   },
 });
 
-export const updateGap = orgMutation({
+export const updateGap = moduleMutation("create", {
   args: {
     id: v.id("contentGaps"),
     title: v.optional(v.string()),
@@ -62,7 +62,7 @@ export const updateGap = orgMutation({
   },
 });
 
-export const removeGap = orgMutation({
+export const removeGap = moduleMutation("create", {
   args: { id: v.id("contentGaps") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
@@ -73,7 +73,7 @@ export const removeGap = orgMutation({
 
 /* ── Researched topics ────────────────────────────────────────────────── */
 
-export const listTopics = orgQuery({
+export const listTopics = moduleQuery("create", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -85,7 +85,7 @@ export const listTopics = orgQuery({
   },
 });
 
-export const createTopic = orgMutation({
+export const createTopic = moduleMutation("create", {
   args: {
     projectId: v.id("projects"),
     gapId: v.optional(v.id("contentGaps")),
@@ -114,7 +114,7 @@ export const createTopic = orgMutation({
   },
 });
 
-export const updateTopic = orgMutation({
+export const updateTopic = moduleMutation("create", {
   args: {
     id: v.id("contentTopics"),
     title: v.optional(v.string()),
@@ -151,7 +151,7 @@ export const updateTopic = orgMutation({
   },
 });
 
-export const removeTopic = orgMutation({
+export const removeTopic = moduleMutation("create", {
   args: { id: v.id("contentTopics") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
@@ -162,7 +162,7 @@ export const removeTopic = orgMutation({
 
 /* ── Collaborative doc snapshots (Yjs state per content piece) ────────── */
 
-export const getDoc = orgQuery({
+export const getDoc = moduleQuery("create", {
   args: { pieceId: v.id("contentPieces") },
   handler: async (ctx, { pieceId }, access) => {
     const piece = await access.ownedRow(await ctx.db.get(pieceId));
@@ -175,7 +175,7 @@ export const getDoc = orgQuery({
   },
 });
 
-export const saveDoc = orgMutation({
+export const saveDoc = moduleMutation("create", {
   args: {
     pieceId: v.id("contentPieces"),
     snapshot: v.bytes(),

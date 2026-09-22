@@ -1,9 +1,9 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 import { isSocialPlatform } from "./social/platforms";
 import { getSocialAdapter } from "./social/adapters";
 
-export const list = orgQuery({
+export const list = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -15,7 +15,7 @@ export const list = orgQuery({
   },
 });
 
-export const create = orgMutation({
+export const create = moduleMutation("promote", {
   args: {
     projectId: v.id("projects"),
     channel: v.string(), // facebook | instagram | linkedin | x | tiktok
@@ -50,7 +50,7 @@ export const create = orgMutation({
   },
 });
 
-export const update = orgMutation({
+export const update = moduleMutation("promote", {
   args: {
     id: v.id("posts"),
     body: v.optional(v.string()),
@@ -84,7 +84,7 @@ export const update = orgMutation({
   },
 });
 
-export const remove = orgMutation({
+export const remove = moduleMutation("promote", {
   args: { id: v.id("posts") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));

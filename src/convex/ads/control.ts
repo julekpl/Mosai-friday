@@ -4,7 +4,7 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getAdapter } from "./adapters";
 import { isPlatform, type Platform } from "./platforms";
-import { assertModule, orgAction, orgMutation, orgQuery } from "../guards";
+import { moduleAction, moduleMutation, moduleQuery } from "../guards";
 
 /**
  * Change control: nothing touches a live ad platform without a drafted
@@ -15,7 +15,7 @@ import { assertModule, orgAction, orgMutation, orgQuery } from "../guards";
  */
 
 /** Create a change request (draft). The UI and the copilot both land here. */
-export const createDraft = orgMutation({
+export const createDraft = moduleMutation("promote", {
   args: {
     projectId: v.id("projects"),
     platform: v.string(),
@@ -33,7 +33,6 @@ export const createDraft = orgMutation({
     origin: v.union(v.literal("user"), v.literal("copilot")),
   },
   handler: async (ctx, args, access) => {
-    await assertModule(ctx, "promote");
     const { userId } = await access.requireProject(args.projectId);
     if (!isPlatform(args.platform)) throw new Error("Unknown platform");
     if (args.kind === "set_daily_budget") {
@@ -64,10 +63,12 @@ export const createDraft = orgMutation({
 });
 
 /** Approve a draft. This is the human gate — nothing executes without it. */
-export const approve = orgMutation({
+export const approve = moduleMutation("promote", {
+  // Approving a change authorizes the spend it will cause, so the approval
+  // itself carries the `spend` capability the execution needs.
+  capability: "promote.spend",
   args: { id: v.id("adsChangeRequests") },
   handler: async (ctx, { id }, access) => {
-    await assertModule(ctx, "promote");
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     if (row.status !== "draft") throw new Error("Only drafts can be approved");
@@ -82,10 +83,9 @@ export const approve = orgMutation({
 });
 
 /** Reject a draft. */
-export const reject = orgMutation({
+export const reject = moduleMutation("promote", {
   args: { id: v.id("adsChangeRequests") },
   handler: async (ctx, { id }, access) => {
-    await assertModule(ctx, "promote");
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     if (row.status !== "draft") throw new Error("Only drafts can be rejected");
@@ -95,14 +95,14 @@ export const reject = orgMutation({
 
 /** Execute an approved change against the provider. Records a receipt either
  *  way; the receipt is immutable (insert-only). */
-export const execute = orgAction({
+export const execute = moduleAction("promote", {
+  // Executing an approved change is an external transfer of the tenant's
+  // money: only an owner holds `promote.spend` (an admin may approve, not
+  // execute — the spend is what needs the owner).
+  capability: "promote.spend",
   args: { id: v.id("adsChangeRequests") },
   handler: async (ctx, { id }, access) => {
     const userId = await access.requireUser();
-    await ctx.runQuery(internal.billing.checkModule, {
-      userId,
-      module: "promote",
-    });
     const row = await ctx.runQuery(internal.ads.control.getChange, { id });
     if (!row) throw new Error("Not found");
     await access.requireProject(row.projectId);
@@ -164,7 +164,7 @@ export const execute = orgAction({
 });
 
 /** List change requests (drafts first) + executions receipts. */
-export const listChanges = orgQuery({
+export const listChanges = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -177,7 +177,7 @@ export const listChanges = orgQuery({
   },
 });
 
-export const listExecutions = orgQuery({
+export const listExecutions = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);

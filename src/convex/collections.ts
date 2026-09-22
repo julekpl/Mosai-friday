@@ -1,10 +1,9 @@
-import { orgMutation, orgQuery } from "./guards";
-import { assertModule } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
 /* ── M1 Collections — reference products, never own them ───────────────── */
 
-export const list = orgQuery({
+export const list = moduleQuery("sell", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -16,18 +15,18 @@ export const list = orgQuery({
   },
 });
 
-export const create = orgMutation({
+export const create = moduleMutation("sell", {
   args: {
     projectId: v.id("projects"),
     title: v.string(),
     description: v.optional(v.string()),
   },
   handler: async (ctx, args, access) => {
-    // Ownership first: `assertModule` only checks the plan, so without this
-    // any signed-in user could insert a collection into somebody else's
-    // project by passing a foreign projectId (review finding T0.6).
+    // `access.requireProject` authorizes the record AND (inside a module
+    // builder) enforces `sell.edit` for the acting organization's plan and the
+    // caller's role, so a foreign projectId and a locked module both fail here
+    // before anything is inserted (review finding T0.6 / T2.3).
     const { project } = await access.requireProject(args.projectId);
-    await assertModule(ctx, "sell");
     return await ctx.db.insert("collections", {
       ...args,
       projectId: project._id,
@@ -36,14 +35,13 @@ export const create = orgMutation({
   },
 });
 
-export const update = orgMutation({
+export const update = moduleMutation("sell", {
   args: {
     id: v.id("collections"),
     title: v.optional(v.string()),
     description: v.optional(v.string()),
   },
   handler: async (ctx, { id, ...patch }, access) => {
-    await assertModule(ctx, "sell");
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     const clean = Object.fromEntries(
@@ -55,10 +53,9 @@ export const update = orgMutation({
 
 /** Deleting a collection de-references it from products — never touches
  *  the products themselves (M1-BLUEPRINT §5). */
-export const remove = orgMutation({
+export const remove = moduleMutation("sell", {
   args: { id: v.id("collections") },
   handler: async (ctx, { id }, access) => {
-    await assertModule(ctx, "sell");
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
 

@@ -6,11 +6,12 @@ import {
 } from "../_generated/server";
 import type { GenericActionCtx } from "convex/server";
 import type { AnyDataModel } from "convex/server";
-import { orgAction, orgMutation } from "../guards";
+import { moduleAction, moduleMutation } from "../guards";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { getSocialAdapter } from "./adapters";
 import { isSocialPlatform } from "./platforms";
+import { capabilityMessage } from "../lib/capabilities";
 
 /**
  * Execution engine for the social queue.
@@ -25,7 +26,10 @@ import { isSocialPlatform } from "./platforms";
 /* ── Scheduling (mutations — user-facing gate) ────────────────────────── */
 
 /** Schedule a draft. This is the explicit human action that arms the post. */
-export const schedule = orgMutation({
+export const schedule = moduleMutation("promote", {
+  // Scheduling commits the post to be published by the queue worker, so it
+  // carries the same `publish` capability as publishing it right now.
+  capability: "promote.publish",
   args: {
     id: v.id("posts"),
     scheduledFor: v.number(),
@@ -42,7 +46,7 @@ export const schedule = orgMutation({
 });
 
 /** Unschedule: pull a scheduled post back to draft. */
-export const unschedule = orgMutation({
+export const unschedule = moduleMutation("promote", {
   args: { id: v.id("posts") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
@@ -53,14 +57,11 @@ export const unschedule = orgMutation({
 });
 
 /** Publish now — only drafts, explicit user action. */
-export const publishNow = orgAction({
+export const publishNow = moduleAction("promote", {
+  // Sending a post to a live platform is the `publish` verb.
+  capability: "promote.publish",
   args: { id: v.id("posts") },
   handler: async (ctx, { id }, access) => {
-    const userId = await access.requireUser();
-    await ctx.runQuery(internal.billing.checkModule, {
-      userId,
-      module: "promote",
-    });
     const post = await ctx.runQuery(internal.social.executor.getPost, { id });
     if (!post) throw new Error("Not found");
     await access.requireProject(post.projectId);
@@ -166,6 +167,28 @@ async function publishOne(
       errorDetail: `Unknown platform "${post.channel}"`,
     });
     return { ok: false, error: `Unknown platform "${post.channel}"` };
+  }
+
+  // T2.3 — the job respects the entitlement. Disabling Promote does not let a
+  // queued post slip out: the capability is resolved from the **organization's
+  // plan** (a job has no user role), and the post records why instead of ever
+  // claiming it was sent. This is the "jobs change consistently" half of the
+  // T2.3 acceptance: tests/unit/entitlements.test.ts proves it.
+  const gate = await ctx.runQuery(internal.guards.capabilityStateForProject, {
+    projectId: post.projectId,
+    capability: "promote.publish",
+  });
+  if (!gate || gate.state !== "included") {
+    const reason =
+      (gate &&
+        capabilityMessage(gate, { module: "promote", action: "publish" })) ??
+      "Promote is not available for this project.";
+    const err = `Not published — ${reason}`;
+    await ctx.runMutation(internal.social.executor.markFailed, {
+      id: postId,
+      errorDetail: err,
+    });
+    return { ok: false, error: err };
   }
 
   const credId = (await ctx.runQuery(internal.social.credentials.getCredId, {

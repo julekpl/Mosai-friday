@@ -1,10 +1,11 @@
 "use node";
 
 import { v } from "convex/values";
-import { action, type ActionCtx } from "./_generated/server";
+import { type ActionCtx } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { moduleAction } from "./guards";
 import { vly } from "../lib/vly-integrations";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
@@ -71,12 +72,16 @@ async function requireOwnedBuild(
     userId,
   })) as Doc<"projects"> | null;
   if (!project) throw new Error("Not found");
+  // T2.3: the capability itself is enforced by `moduleAction("build", …)` when
+  // it resolves the build record, before this handler runs. This helper stays
+  // for the ownership read the handler needs (projectId, the build row).
   return build;
 }
 
 /* ── Plan mode: propose a page plan from idea + project context ─────────── */
 
-export const planSite = action({
+export const planSite = moduleAction("build", {
+  recordArg: "buildId",
   args: { buildId: v.id("builds"), message: v.string() },
   handler: async (ctx, { buildId, message }) => {
     const build = await requireOwnedBuild(ctx, buildId);
@@ -162,7 +167,8 @@ const SITE_GEN_PROPS = `Allowed props per block type:
 - divider: {} · spacer: {height:number}
 - productGrid: collectionId (omit), columns`;
 
-export const generateSite = action({
+export const generateSite = moduleAction("build", {
+  recordArg: "buildId",
   args: { buildId: v.id("builds"), message: v.string() },
   handler: async (ctx, { buildId, message }) => {
     const build = await requireOwnedBuild(ctx, buildId);
@@ -321,7 +327,8 @@ Latest instruction: ${message}`,
 
 /* ── Build mode: iterative chat edit of one page ────────────────────────── */
 
-export const editPage = action({
+export const editPage = moduleAction("build", {
+  recordArg: "buildId",
   args: {
     buildId: v.id("builds"),
     message: v.string(),

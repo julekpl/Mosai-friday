@@ -6,18 +6,26 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 /**
- * T2.2 — the CI gate really fails on an unscoped public function.
+ * T2.2 / T2.3 — the CI gates really fail on an unscoped or ungated function.
  *
- * `bun run audit:functions` runs `scripts/audit-public-functions.mjs` inside
- * `bun run check` and in CI. This test runs that exact script against
- * throwaway convex modules so the gate is proven to fire, not just observed to
- * pass on today's tree:
+ * `bun run audit:functions` and `bun run audit:capabilities` run inside
+ * `bun run check` and in CI. These tests run those exact scripts against
+ * throwaway convex modules so the gates are proven to fire, not just observed
+ * to pass on today's tree:
  *
- *  - a public function with no sign-in check at all → exit 1;
- *  - a public function that only authenticates but names a record → exit 1;
- *  - the pre-T2.2 inline `project.ownerId !== userId` check → exit 1;
- *  - an `orgQuery` read path that authorizes through the org access object and
- *    names no record → exit 0.
+ *  T2.2 — authorization:
+ *   - a public function with no sign-in check at all → exit 1;
+ *   - a public function that only authenticates but names a record → exit 1;
+ *   - the pre-T2.2 inline `project.ownerId !== userId` check → exit 1;
+ *   - an `orgQuery` read that authorizes through the org access object → exit 0.
+ *
+ *  T2.3 — module capabilities:
+ *   - a module function declared with a plain `query` → exit 1;
+ *   - a module function that names no record and never checks the capability →
+ *     exit 1;
+ *   - a convex file the registry does not classify → exit 1;
+ *   - a library file that exports a public function → exit 1;
+ *   - a module function gated by its builder and a record argument → exit 0.
  *
  * Nothing here touches the real `src/convex`; each fixture is written to its
  * own temp directory, the same pattern the secret-scan test uses.
@@ -25,6 +33,14 @@ import { afterAll, describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const AUDIT = join(ROOT, "scripts", "audit-public-functions.mjs");
+const CAPABILITY_AUDIT = join(
+  ROOT,
+  "scripts",
+  "audit-module-capabilities.mjs",
+);
+/** The capability gate imports the registry (`src/convex/lib/capabilities.ts`),
+ *  so it must run under bun, not plain node. */
+const BUN = process.env.BUN_BIN ?? "bun";
 
 const dirs: string[] = [];
 
@@ -36,8 +52,24 @@ function withModule(source: string): string {
   return dir;
 }
 
+/** A throwaway tree with the named convex files. */
+function withCapabilityTree(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "mosai-capability-"));
+  dirs.push(dir);
+  for (const [name, source] of Object.entries(files)) {
+    const full = join(dir, "src", "convex", name);
+    mkdirSync(join(dir, "src", "convex"), { recursive: true });
+    writeFileSync(full, source);
+  }
+  return dir;
+}
+
 function runAudit(dir: string) {
   return spawnSync(process.execPath, [AUDIT], { cwd: dir, encoding: "utf8" });
+}
+
+function runCapabilityAudit(dir: string) {
+  return spawnSync(BUN, [CAPABILITY_AUDIT], { cwd: dir, encoding: "utf8" });
 }
 
 afterAll(() => {
@@ -139,5 +171,112 @@ export const list = orgQuery({
     const result = runAudit(dir);
 
     expect(result.status, result.stdout + result.stderr).toBe(0);
+  });
+});
+
+describe("T2.3 — module capability gate", () => {
+  it("passes on the real tree", () => {
+    const result = runCapabilityAudit(ROOT);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain(
+      "every module function enforces a capability",
+    );
+  });
+
+  it("fails a module function declared with a plain query", () => {
+    const dir = withCapabilityTree({
+      "builds.ts": `import { v } from "convex/values";
+import { query } from "./_generated/server";
+import { requireProject } from "./guards";
+
+export const list = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProject(ctx, projectId);
+    return [];
+  },
+});
+`,
+    });
+
+    const result = runCapabilityAudit(dir);
+
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toContain("src/convex/builds.ts::list");
+    expect(result.stdout).toContain("moduleQuery");
+  });
+
+  it("fails a module function that names no record and never checks the capability", () => {
+    const dir = withCapabilityTree({
+      "builds.ts": `import { v } from "convex/values";
+import { moduleMutation } from "./guards";
+
+export const rebuild = moduleMutation("build", {
+  args: { note: v.string() },
+  handler: async (_ctx, { note }, access) => {
+    await access.requireUser();
+    return note;
+  },
+});
+`,
+    });
+
+    const result = runCapabilityAudit(dir);
+
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toContain("neither names a record");
+  });
+
+  it("fails an unclassified convex file, so a new file cannot escape the gate", () => {
+    const dir = withCapabilityTree({
+      "someNewModule.ts": "export const nothing = 1;\n",
+    });
+
+    const result = runCapabilityAudit(dir);
+
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toContain("unclassified convex file");
+  });
+
+  it("fails a library file that exports a public function", () => {
+    const dir = withCapabilityTree({
+      "buildInternals.ts": `import { v } from "convex/values";
+import { moduleQuery } from "./guards";
+
+export const leak = moduleQuery("build", {
+  args: { projectId: v.id("projects") },
+  handler: async (_ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    return scope ? [] : [];
+  },
+});
+`,
+    });
+
+    const result = runCapabilityAudit(dir);
+
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toContain("exports a public function");
+  });
+
+  it("passes a module function gated by its builder and a record argument", () => {
+    const dir = withCapabilityTree({
+      "builds.ts": `import { v } from "convex/values";
+import { moduleMutation } from "./guards";
+
+export const create = moduleMutation("build", {
+  args: { projectId: v.id("projects"), name: v.string() },
+  handler: async (_ctx, { projectId, name }, access) => {
+    await access.requireProject(projectId);
+    return name;
+  },
+});
+`,
+    });
+
+    const result = runCapabilityAudit(dir);
+
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain("1 enforce a capability");
   });
 });

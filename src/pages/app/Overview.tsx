@@ -46,62 +46,56 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
+/** Presentation only (icon, copy). Whether a module is unlocked is decided by
+ *  the server's capability matrix, never by a tier column here. */
 const MODULE_CARDS = [
   {
     to: "understand",
     icon: Search,
     name: "Understand",
     desc: "Personas, buyer profiles, journeys and evidence",
-    tier: null,
   },
   {
     to: "journeys",
     icon: Route,
     name: "Journeys",
     desc: "Journey maps — stages, lanes and the experience curve",
-    tier: null,
   },
   {
     to: "create",
     icon: PenTool,
     name: "Create",
     desc: "Gaps, topics, briefs and content generation",
-    tier: null,
   },
   {
     to: "build",
     icon: Blocks,
     name: "Build",
     desc: "Websites & apps from personas, with SEO/WCAG checks",
-    tier: "starter",
   },
   {
     to: "customers",
     icon: Users,
     name: "Customers",
     desc: "CRM, consent, segments — owned here, not by a vendor",
-    tier: "starter",
   },
   {
     to: "promote",
     icon: Megaphone,
     name: "Promote",
     desc: "Campaigns, social scheduling, ads",
-    tier: "starter",
   },
   {
     to: "sell",
     icon: ShoppingBag,
     name: "Sell",
     desc: "Products and product feeds for ads + website",
-    tier: "growth",
   },
   {
     to: "grow",
     icon: TrendingUp,
     name: "Grow",
     desc: "Insights with source & freshness, no blended scores",
-    tier: "scale",
   },
 ] as const;
 
@@ -561,7 +555,9 @@ export default function Overview({
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {MODULE_CARDS.map((m, i) => {
-              const locked = m.tier !== null && !modules.includes(m.to);
+              // `modules` is the server's resolved `included` list for this
+              // project's organization and the caller's role.
+              const locked = !modules.includes(m.to);
               return (
                 <Link
                   key={m.to}

@@ -1,17 +1,23 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { userCtx, cascadeDeleteProject } from "./dal";
+import {
+  DEFAULT_PLAN,
+  PLANS,
+  PLAN_MODULES,
+  isPlan,
+  modulesForPlan,
+  type Plan,
+} from "./lib/capabilities";
 
-export const PLANS = ["free", "starter", "growth", "scale"] as const;
-export type Plan = (typeof PLANS)[number];
-
-/** Launch posture: new / plan-less users start on "free" — the same fallback
- *  every read AND write path uses, so the UI can never show a module the
- *  server would deny. Demo/testing mode: use the plan switcher in Billing.
- *  (Blueprint review §8.4: the old split — "scale" on reads, "free" on
- *  writes — rendered modules the server refused.) */
-export const DEFAULT_PLAN: Plan = "free";
+/* Plans and the plan→module matrix live in the capability registry
+ * (`lib/capabilities.ts`) since T2.3 — one source of truth shared by the
+ * guards, the audit, the tests and the UI. Re-exported here so existing import
+ * sites (and the Phase 0 regressions that assert against `PLAN_MODULES.free`)
+ * keep working. */
+export { DEFAULT_PLAN, PLANS, PLAN_MODULES };
+export type { Plan };
 
 /** Self-serve plan switching is a local demo stand-in for Stripe Checkout.
  *  On a public deployment it would let any signed-in user grant themselves the
@@ -19,70 +25,31 @@ export const DEFAULT_PLAN: Plan = "free";
  *  PLAN_SELF_SERVE=true through the Keys / API keys UI to demo it locally. */
 export const SELF_SERVE_PLAN_CHANGES = process.env.PLAN_SELF_SERVE === "true";
 
-/** What each plan unlocks. Single source of truth for entitlements —
- *  module UIs and mutations must call hasModule, never hardcode plan names. */
-export const PLAN_MODULES: Record<Plan, string[]> = {
-  free: ["understand", "journeys", "create"],
-  starter: ["understand", "journeys", "create", "build", "customers", "promote"],
-  growth: [
-    "understand",
-    "journeys",
-    "create",
-    "build",
-    "customers",
-    "promote",
-    "sell",
-  ],
-  scale: [
-    "understand",
-    "journeys",
-    "create",
-    "build",
-    "customers",
-    "promote",
-    "sell",
-    "grow",
-  ],
-};
-
 export const currentPlan = query({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
     const user = await ctx.db.get(userId);
-    const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
+    const plan = (user?.plan && isPlan(user.plan) ? user.plan : DEFAULT_PLAN) satisfies Plan;
     return {
       plan,
       status: user?.planStatus ?? "active",
-      modules: PLAN_MODULES[plan] ?? PLAN_MODULES.free,
+      // The plan's modules, straight from the registry — the client never
+      // hardcodes a tier list (that duplication is what T2.3 removed).
+      modules: [...modulesForPlan(plan)],
       stripeCustomerId: user?.stripeCustomerId,
       selfServePlanChanges: SELF_SERVE_PLAN_CHANGES,
     };
   },
 });
 
-/* The entitlement guard for mutations lives in `guards.ts` only. A second
- * copy used to exist here and fell back to a different default plan, so
- * whether a mutation was allowed depended on which one it imported.
- * (MOSAI pack T0.3 / G21.) Import `assertModule` from "./guards". */
-
-/** Entitlement check callable from actions (which have no ctx.db).
- *  Throws when the user's plan lacks the module. */
-export const checkModule = internalQuery({
-  args: { userId: v.id("users"), module: v.string() },
-  handler: async (ctx, { userId, module }) => {
-    const user = await ctx.db.get(userId);
-    const plan = (user?.plan ?? DEFAULT_PLAN) as Plan;
-    const mods = PLAN_MODULES[plan] ?? PLAN_MODULES.free;
-    if (!mods.includes(module)) {
-      throw new Error(
-        `Your current plan does not include "${module}". Upgrade to unlock it.`,
-      );
-    }
-    return true;
-  },
-});
+/* `assertModule` used to live in `guards.ts` and `checkModule` here: both read
+ * the CALLER's plan, so a teammate on a personal `free` plan was locked out of
+ * the add-ons their organization pays for. T2.3 replaced both with the module
+ * builders (`moduleQuery`/`moduleMutation`/`moduleAction`) and the org's plan
+ * in `lib/capabilities.ts` + `guards.ts`. Nothing callable from a client
+ * decides entitlements any more. */
 
 /** Local plan mirror change. When STRIPE_SECRET_KEY is configured this should
  *  be replaced by a Stripe Checkout + webhook path.

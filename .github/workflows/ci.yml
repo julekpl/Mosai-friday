@@ -130,6 +130,13 @@ jobs:
       - name: Public-function authorization audit
         run: bun run audit:functions
 
+      # T2.3: every module function must enforce a capability from
+      # `src/convex/lib/capabilities.ts` (or be a documented exemption there).
+      # Runs `bun scripts/audit-module-capabilities.mjs`, which imports the
+      # registry, so it needs bun rather than plain node.
+      - name: Module capability audit
+        run: bun run audit:capabilities
+
       - name: Dependency audit (high and above)
         run: bun audit --audit-level=high
 

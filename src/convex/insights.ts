@@ -1,7 +1,7 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
-export const list = orgQuery({
+export const list = moduleQuery("grow", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -13,7 +13,7 @@ export const list = orgQuery({
   },
 });
 
-export const create = orgMutation({
+export const create = moduleMutation("grow", {
   args: {
     projectId: v.id("projects"),
     kind: v.union(
@@ -42,7 +42,7 @@ export const create = orgMutation({
   },
 });
 
-export const update = orgMutation({
+export const update = moduleMutation("grow", {
   args: {
     id: v.id("insights"),
     title: v.optional(v.string()),
@@ -62,7 +62,7 @@ export const update = orgMutation({
   },
 });
 
-export const remove = orgMutation({
+export const remove = moduleMutation("grow", {
   args: { id: v.id("insights") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));

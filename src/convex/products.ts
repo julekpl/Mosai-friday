@@ -1,5 +1,4 @@
-import { mutation, query } from "./_generated/server";
-import { assertModule, orgMutation, orgQuery, ownedRow, requireUser } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
@@ -21,7 +20,7 @@ function slugify(title: string) {
 /* ── Queries ─────────────────────────────────────────────────────────── */
 
 /** Products + variants + media + readiness in one reactive call. */
-export const listWithReadiness = orgQuery({
+export const listWithReadiness = moduleQuery("sell", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -67,12 +66,10 @@ export const listWithReadiness = orgQuery({
 });
 
 /** Single product bundle for the inspector. */
-export const getWithDetail = query({
+export const getWithDetail = moduleQuery("sell", {
   args: { id: v.id("products") },
-  handler: async (ctx, { id }) => {
-    const userId = await requireUser(ctx);
-    const product = (await ownedRow(
-      ctx,
+  handler: async (ctx, { id }, access) => {
+    const product = (await access.ownedRow(
       await ctx.db.get(id),
     )) as Doc<"products"> | null;
     if (!product) return null;
@@ -86,7 +83,6 @@ export const getWithDetail = query({
         .withIndex("by_product", (q) => q.eq("productId", id))
         .collect(),
     ]);
-    void userId;
     return {
       ...product,
       variants,
@@ -104,7 +100,7 @@ export const getWithDetail = query({
 /* ── Mutations ────────────────────────────────────────────────────────── */
 
 /** Create a product. Always creates exactly one default variant. */
-export const create = orgMutation({
+export const create = moduleMutation("sell", {
   args: {
     projectId: v.id("projects"),
     title: v.string(),
@@ -119,7 +115,8 @@ export const create = orgMutation({
     identifierStatus: v.optional(v.string()),
   },
   handler: async (ctx, args, access) => {
-    await assertModule(ctx, "sell");
+    // The module builder already enforced `sell.edit` against the acting
+    // organization's plan and the caller's role; this is the record check.
     await access.requireProject(args.projectId);
 
     const now = Date.now();
@@ -181,7 +178,7 @@ export const create = orgMutation({
 
 /** Update product merchandising fields (never commerce facts — those live
  *  on variants and are updated via variants.updateDefault). */
-export const update = mutation({
+export const update = moduleMutation("sell", {
   args: {
     id: v.id("products"),
     title: v.optional(v.string()),
@@ -202,9 +199,8 @@ export const update = mutation({
       }),
     ),
   },
-  handler: async (ctx, { id, ...patch }) => {
-    await assertModule(ctx, "sell");
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id, ...patch }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
 
     const clean = Object.fromEntries(
@@ -228,11 +224,10 @@ export const update = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = moduleMutation("sell", {
   args: { id: v.id("products") },
-  handler: async (ctx, { id }) => {
-    await assertModule(ctx, "sell");
-    const row = await ownedRow(ctx, await ctx.db.get(id));
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
 
     // Transactional-ish cleanup: variants, media, then product

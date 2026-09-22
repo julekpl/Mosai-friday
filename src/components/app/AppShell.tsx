@@ -40,6 +40,10 @@ import { Separator } from "@/components/ui/separator";
 import { MosaicMark, moduleTileBg, moduleTileText } from "@/components/mosaic";
 import { SkipLink } from "@/components/SkipLink";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  capabilityStateLabel,
+  useModuleEntitlements,
+} from "@/hooks/use-module-entitlements";
 import { cn } from "@/lib/utils";
 
 const modules = [
@@ -66,12 +70,13 @@ export function AppShell({
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const current = projects.find((p) => p._id === projectId) ?? projects[0];
-  // Entitlements come from the server (billing.currentPlan → PLAN_MODULES).
-  // The client never hardcodes plan tiers, so the UI cannot show a module
-  // the server would refuse (blueprint: one capability registry).
-  const billing = useQuery(api.billing.currentPlan);
-  const plan = billing?.plan ?? "free";
-  const unlockedModules = billing?.modules;
+  // Entitlements come from the server, resolved for THIS project's
+  // organization and the caller's role (`entitlements.matrix`, T2.3). The
+  // client never hardcodes plan tiers or module lists, so the sidebar cannot
+  // offer a module the guards would refuse — and cannot hide one the
+  // organization has paid for.
+  const entitlements = useModuleEntitlements(projectId);
+  const plan = entitlements.plan ?? "free";
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -149,9 +154,8 @@ export function AppShell({
           </p>
           {modules.map((m) => {
             // While the entitlement query is loading, render without locks.
-            const locked = unlockedModules
-              ? !unlockedModules.includes(m.to)
-              : false;
+            const state = entitlements.stateOf(m.to);
+            const locked = state !== null && state !== "included";
             const inner = (
               <>
                 <m.icon
@@ -168,12 +172,12 @@ export function AppShell({
                 <span className={cn(locked && "text-muted-foreground/50")}>
                   {m.label}
                 </span>
-                {locked && (
+                {locked && state && (
                   <Badge
                     variant="outline"
                     className="ml-auto font-mono text-caption text-terminal-amber"
                   >
-                    upgrade
+                    {capabilityStateLabel(state)}
                   </Badge>
                 )}
               </>

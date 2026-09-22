@@ -5,7 +5,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { copilotDefaultModel } from "./platforms";
-import { orgAction, orgMutation, orgQuery, requireUser } from "../guards";
+import { moduleAction, moduleMutation, moduleQuery, requireUser } from "../guards";
 
 /**
  * Ads Copilot: AI analyst over the project's normalized ad data.
@@ -59,7 +59,7 @@ export const setCopilotModel = mutation({
 });
 
 /** Chat history for the copilot panel. */
-export const listMessages = orgQuery({
+export const listMessages = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -73,7 +73,7 @@ export const listMessages = orgQuery({
 });
 
 /** Clear the copilot thread. */
-export const clearMessages = orgMutation({
+export const clearMessages = moduleMutation("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     await access.requireProject(projectId);
@@ -107,7 +107,7 @@ type CopilotCampaign = {
 
 type CopilotHistory = Array<{ role: "user" | "assistant"; content: string }>;
 
-export const ask = orgAction({
+export const ask = moduleAction("promote", {
   args: {
     projectId: v.id("projects"),
     message: v.string(),
@@ -117,11 +117,9 @@ export const ask = orgAction({
     { projectId, message },
     access,
   ): Promise<{ reply: string; changeRequestId: Id<"adsChangeRequests"> | undefined }> => {
-    const userId = await access.requireUser();
-    await ctx.runQuery(internal.billing.checkModule, {
-      userId,
-      module: "promote",
-    });
+    // The module builder already enforced `promote.edit` for the acting
+    // organization's plan and the caller's role (T2.3) — the old plan-only
+    // `checkModule` read the CALLER's plan and is gone.
     const { project } = await access.requireProject(projectId);
     const trimmed = message.trim();
     if (!trimmed) throw new Error("Empty message");

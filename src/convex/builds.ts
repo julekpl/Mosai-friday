@@ -1,4 +1,4 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
 const blueprintStep = v.object({
@@ -16,7 +16,7 @@ const blueprintValidator = v.object({
   generatedAt: v.number(),
 });
 
-export const list = orgQuery({
+export const list = moduleQuery("build", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -28,14 +28,14 @@ export const list = orgQuery({
   },
 });
 
-export const get = orgQuery({
+export const get = moduleQuery("build", {
   args: { id: v.id("builds") },
   handler: async (ctx, { id }, access) => {
     return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
-export const create = orgMutation({
+export const create = moduleMutation("build", {
   args: {
     projectId: v.id("projects"),
     name: v.string(),
@@ -62,7 +62,7 @@ export const create = orgMutation({
   },
 });
 
-export const update = orgMutation({
+export const update = moduleMutation("build", {
   args: {
     id: v.id("builds"),
     name: v.optional(v.string()),
@@ -95,7 +95,7 @@ export const update = orgMutation({
   },
 });
 
-export const setStepStatus = orgMutation({
+export const setStepStatus = moduleMutation("build", {
   args: {
     id: v.id("builds"),
     stepIndex: v.number(),
@@ -117,7 +117,7 @@ export const setStepStatus = orgMutation({
   },
 });
 
-export const remove = orgMutation({
+export const remove = moduleMutation("build", {
   args: { id: v.id("builds") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));

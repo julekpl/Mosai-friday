@@ -1,9 +1,8 @@
 import type { ComponentType, ReactNode } from "react";
 import { useParams, Navigate } from "react-router";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/app/AppShell";
+import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
 import Overview from "./app/Overview";
 import Understand from "./app/Understand";
 import Journeys from "./app/Journeys";
@@ -14,7 +13,9 @@ import Promote from "./app/Promote";
 import Sell from "./app/Sell";
 import Grow from "./app/Grow";
 
-/** Module dispatch table — module ids match PLAN_MODULES keys in billing.ts. */
+/** Module dispatch table — module ids are the capability registry's ids
+ *  (`src/convex/lib/capabilities.ts`), the same ones the guards and the
+ *  entitlements query speak. */
 const MODULES: Record<
   string,
   ComponentType<{ projectId: Id<"projects"> }>
@@ -41,22 +42,32 @@ export function AppShellWithProject({ children }: { children: ReactNode }) {
 
 export default function AppHome() {
   const { projectId } = useParams<{ projectId: string }>();
-  const billing = useQuery(api.billing.currentPlan);
+  const entitlements = useModuleEntitlements(projectId as Id<"projects"> | undefined);
   if (!projectId) return <Navigate to="/dashboard" replace />;
-  return <Overview projectId={projectId as Id<"projects">} modules={billing?.modules ?? []} />;
+  return (
+    <Overview
+      projectId={projectId as Id<"projects">}
+      modules={entitlements.included}
+    />
+  );
 }
 
 export function ModuleRouter() {
   const { projectId, module } = useParams<{ projectId: string; module: string }>();
-  const billing = useQuery(api.billing.currentPlan);
+  // The route gate reads the same server resolution the guards enforce
+  // (organization plan × caller role), so disabling an add-on changes the
+  // route, the nav, the queries and the mutations together. A non-`included`
+  // state (today always `locked`) sends the visitor to the plan screen rather
+  // than rendering a module the server would refuse.
+  const entitlements = useModuleEntitlements(projectId as Id<"projects"> | undefined);
 
   if (!projectId || !module) return <Navigate to="/dashboard" replace />;
 
   const Component = MODULES[module];
   if (!Component) return <Navigate to={`/app/${projectId}`} replace />;
 
-  // Plan gate: modules not in the entitlement list go to billing.
-  if (billing && !billing.modules.includes(module)) {
+  const state = entitlements.stateOf(module);
+  if (state !== null && state !== "included") {
     return <Navigate to="/app/billing" replace />;
   }
 

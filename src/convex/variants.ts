@@ -1,12 +1,11 @@
-import { mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertModule, ownedRow } from "./guards";
+import { moduleMutation } from "./guards";
 import type { Doc } from "./_generated/dataModel";
 
 /* ── M1 Variants — purchasable facts live here (M1-BLUEPRINT §1) ───────── */
 
 /** Update the default variant's facts (simple-product UX writes here). */
-export const updateDefault = mutation({
+export const updateDefault = moduleMutation("sell", {
   args: {
     productId: v.id("products"),
     priceCents: v.optional(v.number()),
@@ -32,9 +31,8 @@ export const updateDefault = mutation({
       ),
     ),
   },
-  handler: async (ctx, { productId, ...patch }) => {
-    await assertModule(ctx, "sell");
-    const product = await ownedRow(ctx, await ctx.db.get(productId));
+  handler: async (ctx, { productId, ...patch }, access) => {
+    const product = await access.ownedRow(await ctx.db.get(productId));
     if (!product) throw new Error("Not found");
 
     const variants = await ctx.db
@@ -58,7 +56,7 @@ export const updateDefault = mutation({
 
 /** Add an explicit variant. Demotes the previous default if this is the
  *  first explicit variant and the product was previously simple. */
-export const addExplicit = mutation({
+export const addExplicit = moduleMutation("sell", {
   args: {
     productId: v.id("products"),
     title: v.string(),
@@ -72,10 +70,8 @@ export const addExplicit = mutation({
     sku: v.optional(v.string()),
     gtin: v.optional(v.string()),
   },
-  handler: async (ctx, { productId, ...args }) => {
-    await assertModule(ctx, "sell");
-    const product = (await ownedRow(
-      ctx,
+  handler: async (ctx, { productId, ...args }, access) => {
+    const product = (await access.ownedRow(
       await ctx.db.get(productId),
     )) as Doc<"products"> | null;
     if (!product) throw new Error("Not found");

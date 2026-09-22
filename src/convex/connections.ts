@@ -1,6 +1,7 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { projectCtx } from "./dal";
+import { moduleMutation, moduleQuery } from "./guards";
 
 const PROVIDERS = [
   "ga4",
@@ -22,10 +23,13 @@ const isProvider = (provider: string): provider is Provider =>
  * lifecycle state. Provider-specific OAuth/token flows remain authoritative;
  * this table must never be used to manufacture a connected state.
  */
-export const list = query({
+export const list = moduleQuery("grow", {
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    await projectCtx(ctx, projectId);
+  handler: async (ctx, { projectId }, access) => {
+    // T2.2 authorized the project through the org access object; T2.3 adds the
+    // Grow capability, so a plan without the add-on reads nothing.
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
     return await ctx.db
       .query("connections")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -38,10 +42,15 @@ export const list = query({
  * writes "authorizing", not "connected". A provider-specific callback must
  * verify credentials before a row may become connected.
  */
-export const beginAuthorization = mutation({
+export const beginAuthorization = moduleMutation("grow", {
+  // Connecting a provider changes the module's setup.
+  capability: "grow.manage",
   args: { projectId: v.id("projects"), provider: v.string() },
-  handler: async (ctx, { projectId, provider }) => {
-    await projectCtx(ctx, projectId);
+  handler: async (ctx, { projectId, provider }, access) => {
+    // Was `dal.projectCtx`, which compared `project.ownerId` inline: a teammate
+    // in the owning organization was refused (T2.2 leftover, fixed here with
+    // the defect regression in tests/unit/entitlements.test.ts).
+    await access.requireProject(projectId);
     if (!isProvider(provider)) throw new Error("Unsupported provider");
 
     const existing = await ctx.db
@@ -134,10 +143,11 @@ export const markNeedsAttention = internalMutation({
 });
 
 /** Disconnect preserves the connection record and its last-known state. */
-export const disconnect = mutation({
+export const disconnect = moduleMutation("grow", {
+  capability: "grow.manage",
   args: { projectId: v.id("projects"), provider: v.string() },
-  handler: async (ctx, { projectId, provider }) => {
-    await projectCtx(ctx, projectId);
+  handler: async (ctx, { projectId, provider }, access) => {
+    await access.requireProject(projectId);
     if (!isProvider(provider)) throw new Error("Unsupported provider");
 
     const existing = await ctx.db

@@ -1,4 +1,4 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
 const journeyStage = v.object({
@@ -7,7 +7,7 @@ const journeyStage = v.object({
   answer: v.optional(v.string()),
 });
 
-export const list = orgQuery({
+export const list = moduleQuery("understand", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -19,14 +19,14 @@ export const list = orgQuery({
   },
 });
 
-export const get = orgQuery({
+export const get = moduleQuery("understand", {
   args: { id: v.id("personas") },
   handler: async (ctx, { id }, access) => {
     return await access.ownedRow(await ctx.db.get(id));
   },
 });
 
-export const create = orgMutation({
+export const create = moduleMutation("understand", {
   args: {
     projectId: v.id("projects"),
     name: v.string(),
@@ -50,7 +50,7 @@ export const create = orgMutation({
   },
 });
 
-export const update = orgMutation({
+export const update = moduleMutation("understand", {
   args: {
     id: v.id("personas"),
     name: v.optional(v.string()),
@@ -72,7 +72,7 @@ export const update = orgMutation({
   },
 });
 
-export const remove = orgMutation({
+export const remove = moduleMutation("understand", {
   args: { id: v.id("personas") },
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { httpAction } from "../_generated/server";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { orgMutation, orgQuery } from "../guards";
+import { moduleMutation, moduleQuery } from "../guards";
 import {
   PLATFORMS,
   exchangeCodeForTokens,
@@ -24,7 +24,7 @@ import {
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 /** Client-visible status: which platforms are configured + connected. */
-export const status = orgQuery({
+export const status = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
@@ -51,7 +51,9 @@ export const status = orgQuery({
 });
 
 /** Begin OAuth: create state, return the provider authorize URL. */
-export const start = orgMutation({
+export const start = moduleMutation("promote", {
+  // Connecting or disconnecting a provider changes the module's setup.
+  capability: "promote.manage",
   args: { projectId: v.id("projects"), platform: v.string() },
   handler: async (ctx, { projectId, platform }, access) => {
     const { userId } = await access.requireProject(projectId);
@@ -217,7 +219,8 @@ export const storeCred = internalMutation({
 });
 
 /** Disconnect a platform: delete stored tokens. */
-export const disconnect = orgMutation({
+export const disconnect = moduleMutation("promote", {
+  capability: "promote.manage",
   args: { projectId: v.id("projects"), platform: v.string() },
   handler: async (ctx, { projectId, platform }, access) => {
     await access.requireProject(projectId);

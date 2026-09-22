@@ -1,8 +1,8 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { query, type QueryCtx } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { projectAccessFor } from "./guards";
+import { moduleQuery, type OrgAccess } from "./guards";
+import type { CapabilityKey } from "./lib/capabilities";
 
 /* ── Storefront read model (svelte-commerce pattern) ──────────────────────
  *
@@ -41,12 +41,16 @@ export type StorefrontProduct = {
 async function requireOwnedProject(
   ctx: QueryCtx,
   projectId: Id<"projects">,
+  access: OrgAccess,
+  capability?: CapabilityKey,
 ): Promise<{ ok: true; site: Doc<"sites"> | null } | { ok: false }> {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) return { ok: false };
-  if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
-    return { ok: false };
-  }
+  // `access` carries the module capability (T2.3): the shop reads under Sell
+  // and a published CMS page under Build, so a plan without the add-on — or a
+  // role without the action — reads nothing instead of shop data. A foreign
+  // organization still gets nothing (the capability resolves to
+  // `unavailable` when the caller is not an active member of the owner).
+  const scope = await access.ownedProject(projectId, capability);
+  if (!scope) return { ok: false };
   const site = await ctx.db
     .query("sites")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -77,7 +81,7 @@ async function resolveProductFacts(
 
 /* ── Shop listing: search, availability filter, sort (§55, §56) ────────── */
 
-export const listShopProducts = query({
+export const listShopProducts = moduleQuery("sell", {
   args: {
     projectId: v.id("projects"),
     collectionId: v.optional(v.id("collections")),
@@ -86,8 +90,12 @@ export const listShopProducts = query({
     sort: v.optional(v.string()), // featured | price_asc | price_desc | title
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { projectId, collectionId, search, availability, sort, limit }) => {
-    const owned = await requireOwnedProject(ctx, projectId);
+  handler: async (
+    ctx,
+    { projectId, collectionId, search, availability, sort, limit },
+    access,
+  ) => {
+    const owned = await requireOwnedProject(ctx, projectId, access);
     if (!owned.ok) return [];
 
     let products = await ctx.db
@@ -159,10 +167,10 @@ export const listShopProducts = query({
 
 /* ── Collections rail + collection page ────────────────────────────────── */
 
-export const listShopCollections = query({
+export const listShopCollections = moduleQuery("sell", {
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const owned = await requireOwnedProject(ctx, projectId);
+  handler: async (ctx, { projectId }, access) => {
+    const owned = await requireOwnedProject(ctx, projectId, access);
     if (!owned.ok) return [];
     return await ctx.db
       .query("collections")
@@ -171,10 +179,10 @@ export const listShopCollections = query({
   },
 });
 
-export const getShopCollection = query({
+export const getShopCollection = moduleQuery("sell", {
   args: { projectId: v.id("projects"), slug: v.string() },
-  handler: async (ctx, { projectId, slug }) => {
-    const owned = await requireOwnedProject(ctx, projectId);
+  handler: async (ctx, { projectId, slug }, access) => {
+    const owned = await requireOwnedProject(ctx, projectId, access);
     if (!owned.ok) return null;
     const cols = await ctx.db
       .query("collections")
@@ -186,10 +194,10 @@ export const getShopCollection = query({
 
 /* ── Product detail: variants, gallery, handoff URL ────────────────────── */
 
-export const getShopProduct = query({
+export const getShopProduct = moduleQuery("sell", {
   args: { projectId: v.id("projects"), slug: v.string() },
-  handler: async (ctx, { projectId, slug }) => {
-    const owned = await requireOwnedProject(ctx, projectId);
+  handler: async (ctx, { projectId, slug }, access) => {
+    const owned = await requireOwnedProject(ctx, projectId, access);
     if (!owned.ok) return null;
 
     const products = await ctx.db
@@ -269,10 +277,12 @@ export const getShopProduct = query({
 
 /* ── Published CMS page at an arbitrary storefront path (§48, §49) ─────── */
 
-export const getPublishedPage = query({
+export const getPublishedPage = moduleQuery("sell", {
   args: { projectId: v.id("projects"), path: v.string() },
-  handler: async (ctx, { projectId, path }) => {
-    const owned = await requireOwnedProject(ctx, projectId);
+  handler: async (ctx, { projectId, path }, access) => {
+    // A published CMS page belongs to Build, not Sell, so this read overrides
+    // the file's module default with the capability it actually needs.
+    const owned = await requireOwnedProject(ctx, projectId, access, "build.view");
     if (!owned.ok) return null;
     const site = owned.site;
     if (!site) return null;
@@ -311,10 +321,10 @@ export const getPublishedPage = query({
 
 /* ── Site header facts (name, theme) ───────────────────────────────────── */
 
-export const getShopSite = query({
+export const getShopSite = moduleQuery("sell", {
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const owned = await requireOwnedProject(ctx, projectId);
+  handler: async (ctx, { projectId }, access) => {
+    const owned = await requireOwnedProject(ctx, projectId, access);
     if (!owned.ok) return null;
     if (!owned.site) return null;
     const { name, theme, seoDefaults, status } = owned.site;

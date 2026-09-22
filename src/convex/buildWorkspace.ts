@@ -1,4 +1,4 @@
-import { orgMutation, orgQuery } from "./guards";
+import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
@@ -12,7 +12,7 @@ import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
 /* ── Live preview data: site + pages + current draft documents ─────────── */
 
-export const getPreviewData = orgQuery({
+export const getPreviewData = moduleQuery("build", {
   args: { buildId: v.id("builds") },
   handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
@@ -57,7 +57,7 @@ export const getPreviewData = orgQuery({
   },
 });
 
-export const listMessages = orgQuery({
+export const listMessages = moduleQuery("build", {
   args: { buildId: v.id("builds") },
   handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
@@ -71,7 +71,7 @@ export const listMessages = orgQuery({
   },
 });
 
-export const clearChat = orgMutation({
+export const clearChat = moduleMutation("build", {
   args: { buildId: v.id("builds") },
   handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
@@ -85,7 +85,7 @@ export const clearChat = orgMutation({
   },
 });
 
-export const listVersions = orgQuery({
+export const listVersions = moduleQuery("build", {
   args: { buildId: v.id("builds") },
   handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);
@@ -101,7 +101,7 @@ export const listVersions = orgQuery({
 });
 
 /** Restore = copy every snapshot page back into fresh draft revisions. */
-export const restoreVersion = orgMutation({
+export const restoreVersion = moduleMutation("build", {
   args: { versionId: v.id("buildVersions") },
   handler: async (ctx, { versionId }, access) => {
     const version = await access.ownedRow(await ctx.db.get(versionId));
@@ -154,7 +154,10 @@ export const restoreVersion = orgMutation({
 });
 
 /** Publish: promote every page draft through the canonical revision path. */
-export const publishSite = orgMutation({
+export const publishSite = moduleMutation("build", {
+  // Publishing a site is the `publish` verb: an admin may do it, a member
+  // may keep editing, and nobody publishes on a plan without Build.
+  capability: "build.publish",
   args: { buildId: v.id("builds") },
   handler: async (ctx, { buildId }, access) => {
     const build = await ctx.db.get(buildId);

@@ -25,47 +25,40 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const PLANS = [
+/** Presentation only. Which modules each plan includes is **not** listed here:
+ *  it comes from the capability registry over `entitlements.plans`, so the card
+ *  cannot promise a module the guards would refuse (T2.3). Prices move to
+ *  Stripe in T2.4. */
+const PLAN_CARDS = [
   {
     id: "free",
     name: "Free",
     price: "€0",
     blurb: "Understand + Create. See if the workflow fits.",
-    modules: ["Understand", "Create"],
   },
   {
     id: "starter",
     name: "Starter",
     price: "€29/mo",
     blurb: "Everything to launch: build, customers, promote.",
-    modules: ["Understand", "Create", "Build", "Customers", "Promote"],
   },
   {
     id: "growth",
     name: "Growth",
     price: "€79/mo",
     blurb: "Add commerce: sell products with feeds.",
-    modules: ["Understand", "Create", "Build", "Customers", "Promote", "Sell"],
   },
   {
     id: "scale",
     name: "Scale",
     price: "€199/mo",
     blurb: "The full growth OS with insights and recommendations.",
-    modules: [
-      "Understand",
-      "Create",
-      "Build",
-      "Customers",
-      "Promote",
-      "Sell",
-      "Grow",
-    ],
   },
 ] as const;
 
 export default function Billing() {
   const billing = useQuery(api.billing.currentPlan);
+  const planCatalog = useQuery(api.entitlements.plans);
   const changePlan = useMutation(api.billing.changePlan);
   const cancelPlan = useMutation(api.billing.cancelPlan);
   const deleteAccount = useMutation(api.billing.deleteAccount);
@@ -148,8 +141,10 @@ export default function Billing() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {PLANS.map((p) => {
+        {PLAN_CARDS.map((p) => {
           const isCurrent = p.id === currentPlan;
+          const cardModules =
+            planCatalog?.find((entry) => entry.id === p.id)?.modules ?? [];
           return (
             <Card
               key={p.id}
@@ -177,12 +172,12 @@ export default function Billing() {
               <CardContent className="px-4">
                 <p className="font-mono text-metric">{p.price}</p>
                 <ul className="mt-3 space-y-1">
-                  {p.modules.map((m) => (
+                  {cardModules.map((m) => (
                     <li
-                      key={m}
+                      key={m.id}
                       className="flex items-center gap-1.5 font-mono text-caption text-muted-foreground"
                     >
-                      <Check className="size-3 text-terminal-green" /> {m}
+                      <Check className="size-3 text-terminal-green" /> {m.label}
                     </li>
                   ))}
                 </ul>

@@ -1,10 +1,10 @@
-import { orgQuery } from "../guards";
+import { moduleQuery } from "../guards";
 import { v } from "convex/values";
 import { buildGoogleFeed, feedToXml } from "./feed";
 
 /* ── Sell module read model — readiness summary + feed projection ──────── */
 
-export const feedStatus = orgQuery({
+export const feedStatus = moduleQuery("sell", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
     const scope = await access.ownedProject(projectId);
