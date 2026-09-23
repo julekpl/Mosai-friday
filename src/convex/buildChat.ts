@@ -5,8 +5,8 @@ import { type ActionCtx } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { moduleAction } from "./guards";
-import { vly } from "../lib/vly-integrations";
+import { consumeAiQuotaForAction, moduleAction, requireActionUser } from "./guards";
+import { modelComplete } from "./lib/modelGateway";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
 
 /* ── Build workspace brain (Lovable/Caffeine-style chat builder) ──────────
@@ -23,23 +23,32 @@ import { validateDocument, type PageDocument } from "../lib/cms/blocks";
  */
 
 async function complete(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  agentId: string,
   system: string,
   user: string,
-  opts: { temperature?: number; maxTokens?: number } = {},
+  opts: { temperature?: number; maxTokens?: number; validateOutput?: (text: string) => void } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
+  const result = await modelComplete({
+    ctx,
+    userId,
+    projectId,
+    agentId,
+    promptVersion: "v1",
+    autonomy: "draft",
+    contextSources: ["build.context", "request.context"],
     model: "gpt-4o-mini",
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
     ],
     temperature: opts.temperature ?? 0.7,
-    maxTokens: opts.maxTokens ?? 1600,
+    maxOutputTokens: opts.maxTokens ?? 1600,
+    validateOutput: opts.validateOutput,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
+  return result.text;
 }
 
 function parseJson<T>(text: string): T {
@@ -49,6 +58,25 @@ function parseJson<T>(text: string): T {
   if (start === -1 || end === -1)
     throw new Error("AI returned an unreadable response");
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
+}
+
+function validateGeneratedSitePlan(text: string): void {
+  const value = parseJson<{
+    pages?: { name?: unknown; sections?: { type?: unknown; props?: unknown }[] }[];
+  }>(text);
+  const usable = (value.pages ?? []).some((page) => {
+    if (typeof page?.name !== "string" || !Array.isArray(page.sections)) return false;
+    const blocks = page.sections
+      .filter((section) => typeof section?.type === "string")
+      .map((section, index) => ({
+        id: `validation-${index}`,
+        type: section.type as string,
+        version: 1,
+        props: (section.props ?? {}) as Record<string, unknown>,
+      }));
+    return blocks.length > 0 && validateDocument({ schemaVersion: 1, blocks }).length === 0;
+  });
+  if (!usable) throw new Error("invalid site plan");
 }
 
 async function requireOwnedBuild(
@@ -85,6 +113,8 @@ export const planSite = moduleAction("build", {
   args: { buildId: v.id("builds"), message: v.string() },
   handler: async (ctx, { buildId, message }) => {
     const build = await requireOwnedBuild(ctx, buildId);
+    const userId = await requireActionUser(ctx);
+    await consumeAiQuotaForAction(ctx, userId);
     const project = (await ctx.runQuery(internal.buildInternals.getProject, {
       id: build.projectId,
     })) as Doc<"projects"> | null;
@@ -107,7 +137,7 @@ export const planSite = moduleAction("build", {
       .map((m) => `${m.role === "user" ? "User" : "MOSAI"}: ${m.content}`)
       .join("\n");
 
-    const text = await complete(
+    const text = await complete(ctx, userId, build.projectId, "build.site_plan_chat",
       `You are MOSAI's build copilot in PLAN mode. You shape website strategy with the user before anything is generated. Be concrete and business-grounded; never generic.
 Return ONLY valid JSON:
 {
@@ -122,7 +152,10 @@ Conversation so far:
 ${transcript}
 
 User's latest message: ${message}`,
-      { temperature: 0.6, maxTokens: 1200 },
+      { temperature: 0.6, maxTokens: 1200, validateOutput: (output) => {
+        const value = parseJson<{ reply?: unknown; pages?: unknown }>(output);
+        if (typeof value.reply !== "string" || !Array.isArray(value.pages)) throw new Error("invalid plan chat");
+      } },
     );
 
     const parsed = parseJson<{
@@ -172,6 +205,8 @@ export const generateSite = moduleAction("build", {
   args: { buildId: v.id("builds"), message: v.string() },
   handler: async (ctx, { buildId, message }) => {
     const build = await requireOwnedBuild(ctx, buildId);
+    const userId = await requireActionUser(ctx);
+    await consumeAiQuotaForAction(ctx, userId);
     const project = (await ctx.runQuery(internal.buildInternals.getProject, {
       id: build.projectId,
     })) as Doc<"projects"> | null;
@@ -186,7 +221,7 @@ export const generateSite = moduleAction("build", {
     });
 
     // 1. plan pages + sections
-    const planText = await complete(
+    const planText = await complete(ctx, userId, build.projectId, "build.site_generation",
       `You are MOSAI's site generator. Given the business idea, return ONLY valid JSON:
 {
   "pages": [
@@ -208,7 +243,7 @@ Industry: ${project.industry ?? "unknown"}
 Products/services: ${(project.productsServices ?? []).join(", ") || "unknown"}
 Idea: ${build.idea ?? message}
 Latest instruction: ${message}`,
-      { temperature: 0.7, maxTokens: 3000 },
+      { temperature: 0.7, maxTokens: 3000, validateOutput: validateGeneratedSitePlan },
     );
     const plan = parseJson<{
       pages?: {
@@ -336,6 +371,8 @@ export const editPage = moduleAction("build", {
   },
   handler: async (ctx, { buildId, message, pageId }) => {
     const build = await requireOwnedBuild(ctx, buildId);
+    const userId = await requireActionUser(ctx);
+    await consumeAiQuotaForAction(ctx, userId);
 
     await ctx.runMutation(internal.buildInternals.insertMessage, {
       buildId,
@@ -384,7 +421,7 @@ export const editPage = moduleAction("build", {
       )
       .join("\n");
 
-    const text = await complete(
+    const text = await complete(ctx, userId, build.projectId, "build.page_edit",
       `You are MOSAI's build copilot in BUILD mode. The user wants changes to one page of their site. You edit a structured block document — never raw HTML.
 Current page: ${target.title} (${target.fullPath})
 Current blocks (type + props):
@@ -399,7 +436,10 @@ Return ONLY valid JSON:
 }
 "blocks" is the FULL new block list for this page. Keep untouched blocks exactly as they were (same type and props). Apply the requested change to the relevant block(s).`,
       `User request: ${message}`,
-      { temperature: 0.6, maxTokens: 2400 },
+      { temperature: 0.6, maxTokens: 2400, validateOutput: (output) => {
+        const value = parseJson<{ summary?: unknown; blocks?: { type?: unknown; props?: unknown }[] }>(output);
+        if (typeof value.summary !== "string" || !Array.isArray(value.blocks) || !value.blocks.length || value.blocks.some((block) => typeof block?.type !== "string" || typeof block.props !== "object" || block.props === null)) throw new Error("invalid page edit");
+      } },
     );
 
     const parsed = parseJson<{

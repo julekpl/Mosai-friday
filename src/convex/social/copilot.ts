@@ -3,8 +3,9 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { moduleAction } from "../guards";
-import { vly } from "../../lib/vly-integrations";
+import type { ActionCtx } from "../_generated/server";
+import { consumeAiQuotaForAction, moduleAction } from "../guards";
+import { modelComplete } from "../lib/modelGateway";
 import { isSocialPlatform, SOCIAL_PLATFORM_META } from "./platforms";
 
 /**
@@ -15,23 +16,32 @@ import { isSocialPlatform, SOCIAL_PLATFORM_META } from "./platforms";
  */
 
 async function complete(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  agentId: string,
   system: string,
   user: string,
-  opts: { temperature?: number; maxTokens?: number } = {},
+  opts: { temperature?: number; maxTokens?: number; validateOutput?: (text: string) => void } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
+  const result = await modelComplete({
+    ctx,
+    userId,
+    projectId,
+    agentId,
+    promptVersion: "v1",
+    autonomy: "draft",
+    contextSources: ["project.context", "request.context"],
     model: "gpt-4o-mini",
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
     ],
     temperature: opts.temperature ?? 0.7,
-    maxTokens: opts.maxTokens ?? 1200,
+    maxOutputTokens: opts.maxTokens ?? 1200,
+    validateOutput: opts.validateOutput,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
+  return result.text;
 }
 
 /* ── 1. Platform variants: one approved source → drafts per platform ──── */
@@ -50,6 +60,7 @@ export const draftVariants = moduleAction("promote", {
     // `moduleAction("promote", …)` already enforced `promote.edit` for the
     // acting organization's plan and the caller's role before this handler ran.
     const { userId } = await access.requireProject(args.projectId);
+    await consumeAiQuotaForAction(ctx, userId);
 
     const platforms = args.platforms.filter(isSocialPlatform);
     if (platforms.length === 0) throw new Error("No valid platforms selected");
@@ -88,7 +99,19 @@ export const draftVariants = moduleAction("promote", {
       .filter(Boolean)
       .join("\n\n");
 
-    const raw = await complete(system, contextLines, { temperature: 0.7 });
+    const raw = await complete(
+      ctx,
+      userId,
+      args.projectId,
+      "promote.social_variants",
+      system,
+      contextLines,
+      { temperature: 0.7, validateOutput: (output) => {
+        const cleaned = output.replace(/^```(?:json)?/m, "").replace(/```$/m, "").trim();
+        const variants = JSON.parse(cleaned) as Array<{ platform?: unknown; body?: unknown }>;
+        if (!Array.isArray(variants) || !variants.length || variants.some((variant) => !variant || typeof variant !== "object" || typeof variant.platform !== "string" || typeof variant.body !== "string") || !variants.some((variant) => typeof variant.platform === "string" && typeof variant.body === "string" && isSocialPlatform(variant.platform) && variant.body.trim())) throw new Error("invalid variants");
+      } },
+    );
 
     let variants: Array<{ platform: string; body: string }>;
     try {
@@ -130,16 +153,26 @@ export const suggestSchedule = moduleAction("promote", {
     body: v.string(),
   },
   handler: async (ctx, { projectId, platform, body }, access) => {
-    await access.requireProject(projectId);
+    const { userId } = await access.requireProject(projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     if (!isSocialPlatform(platform)) throw new Error("Unknown platform");
 
     const label = SOCIAL_PLATFORM_META[platform].label;
     const raw = await complete(
+      ctx,
+      userId,
+      projectId,
+      "promote.social_schedule_advice",
       "You are a social media scheduling advisor. Given a post and its platform, suggest ONE concrete posting time. " +
         "Consider the platform's typical engagement patterns. Do NOT claim access to real analytics. " +
         'Output ONLY JSON: {"suggestedFor":"<ISO 8601 datetime, within the next 7 days>","reason":"<one sentence>"} — no markdown fences.',
       `Platform: ${label}\nNow: ${new Date().toISOString()}\nPost:\n"""\n${body.slice(0, 1500)}\n"""`,
-      { temperature: 0.4, maxTokens: 300 },
+      { temperature: 0.4, maxTokens: 300, validateOutput: (output) => {
+        const cleaned = output.replace(/^```(?:json)?/m, "").replace(/```$/m, "").trim();
+        const parsed = JSON.parse(cleaned) as { suggestedFor?: unknown; reason?: unknown };
+        const ts = typeof parsed.suggestedFor === "string" ? new Date(parsed.suggestedFor).getTime() : NaN;
+        if (!Number.isFinite(ts) || ts < Date.now() || ts > Date.now() + 7 * 24 * 60 * 60 * 1000 || typeof parsed.reason !== "string") throw new Error("invalid schedule");
+      } },
     );
 
     try {

@@ -138,4 +138,12 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
     export: "excluded",
     retention: "ephemeral",
   },
+  aiRuns: {
+    scope: "user",
+    tenantField: "userId",
+    authorization:
+      "internal AI gateway mutations; project calls follow their action's ownership/capability guard",
+    export: "excluded",
+    retention: "cascade-with-user",
+  },
 };

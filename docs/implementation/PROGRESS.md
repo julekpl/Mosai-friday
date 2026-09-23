@@ -70,7 +70,7 @@ its slice boundary — it never continues into the next package.
 | 8 | **BP-06/S3** operator catalog/promotions/business statistics | B | admin commerce | BP-06/S2 | not_started |
 | 9 | **BP-07** jobs, events, receipts, approvals | B | T2.6, T2.12 | BP-05 not required; schema/crons exist | not_started |
 | 10 | **BP-08** one connection framework | B | T2.7 | BP-04 (refresh-in-action pattern), BP-07 not required | not_started |
-| 11 | **BP-09/S1**† ModelGateway + run metering (route all model call sites) | B | T2.9 | T0.4 gating exists | not_started |
+| 11 | **BP-09/S1**† ModelGateway + run metering (route all model call sites) | B | T2.9 | T0.4 gating exists | implemented_unverified (local `codex/bp-09-gateway` only; report: `docs/implementation/reports/BP-09-S1-model-gateway.md`; controller reran 345/345 units, typecheck, lint with 0 errors, both audits and build; no exact-commit CI, provider proof or codegen; BP-05 lifecycle overlap must be reconciled; BP-09/S2/S3 remain open) |
 | 12 | **BP-09/S2**† ContextPack/ContextInspector (finishes T0.4 → unblocks red test R4) | B | T2.10 | BP-09/S1 | not_started |
 | 13 | **BP-09/S3**† prompt versioning, golden tests, eval floors | B | T2.11 | BP-09/S1; needs `07-ai-agent-config.md` (missing, see B1) | not_started |
 | 14 | **BP-10** accurate ingestion & transparent research | C | E3.1 (part) | Order B (safeFetch/guards exist already) | not_started |

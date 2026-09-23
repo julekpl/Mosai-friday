@@ -2,7 +2,9 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { vly } from "../lib/vly-integrations";
+import type { ActionCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { modelComplete } from "./lib/modelGateway";
 import type { ProjectSnapshot } from "./ai";
 import {
   actionProjectSnapshot,
@@ -13,23 +15,32 @@ import {
 /* ── shared helpers ──────────────────────────────────────────────────── */
 
 async function complete(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  agentId: string,
   system: string,
   user: string,
-  opts: { temperature?: number; maxTokens?: number } = {},
+  opts: { temperature?: number; maxTokens?: number; validateOutput?: (text: string) => void } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
+  const result = await modelComplete({
+    ctx,
+    userId,
+    projectId,
+    agentId,
+    promptVersion: "v1",
+    autonomy: "assistive",
+    contextSources: ["project.snapshot", "request.context"],
     model: "gpt-4o-mini",
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
     ],
     temperature: opts.temperature ?? 0.7,
-    maxTokens: opts.maxTokens ?? 1200,
+    maxOutputTokens: opts.maxTokens ?? 1200,
+    validateOutput: opts.validateOutput,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
+  return result.text;
 }
 
 function parseJson<T>(text: string): T {
@@ -128,7 +139,7 @@ export const generateBuildPlan = action({
       )
       .join("\n");
 
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "build.plan_generation",
       `You are a senior product strategist for an AI app builder with a unique advantage: it plans builds from the business idea, buyer personas and customer journeys BEFORE any code or design exists — unlike competitors (caffeine.ai, Lovable, Ploy) that jump straight from prompt to UI.
 
 Given the business context, the ${kind} idea, the personas and the journeys, produce a build plan. Return ONLY valid JSON shaped exactly as:
@@ -155,7 +166,10 @@ ${personaLines || "(none yet — plan for the primary buyer)"}
 
 Journeys:
 ${journeyLines || "(none yet)"}`,
-      { temperature: 0.6, maxTokens: 1600 },
+      { temperature: 0.6, maxTokens: 1600, validateOutput: (output) => {
+        const value = parseJson<Record<string, unknown>>(output);
+        if (typeof value.positioning !== "string" || !Array.isArray(value.pages) || value.pages.length === 0) throw new Error("invalid plan");
+      } },
     );
 
     const raw = parseJson<{
@@ -276,7 +290,7 @@ export const generatePageDraft = action({
         }`
       : "";
 
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "build.page_draft",
       `You are an expert conversion-focused web writer. Write the content for one page of a ${build.kind} as clean HTML using only <h1>, <h2>, <p>, <ul>, <ol>, <li>, <strong>, <em> tags. Start with an <h1>.
 ${build.positioning ? `Positioning to honor: ${build.positioning}` : ""}
 ${build.differentiators?.length ? `Differentiators to weave in naturally: ${build.differentiators.join("; ")}` : ""}

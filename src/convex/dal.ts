@@ -72,6 +72,7 @@ const PROJECT_TABLES = [
   "adsChangeRequests",
   "adsExecutions",
   "adsCredentials",
+  "aiRuns",
   "projectFiles",
   "buildPages",
   "builds",
@@ -188,4 +189,23 @@ export async function cascadeDeleteProject(
 
   // 5. The project row.
   await del(projectId);
+}
+
+/** Remove user-owned AI usage rows that have no project to cascade with. */
+export async function cascadeDeleteAiUserData(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+) {
+  for (const run of await ctx.db
+    .query("aiRuns")
+    .withIndex("by_user_created", (q) => q.eq("userId", userId))
+    .collect()) {
+    await ctx.db.delete(run._id);
+  }
+  for (const bucket of await ctx.db
+    .query("aiRateLimits")
+    .withIndex("by_user_window", (q) => q.eq("userId", userId))
+    .collect()) {
+    await ctx.db.delete(bucket._id);
+  }
 }

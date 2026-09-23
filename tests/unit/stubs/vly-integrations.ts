@@ -24,20 +24,36 @@ export const completionCalls: CompletionCall[] = [];
 
 /** Set by a test to control the fake model reply. */
 let nextContent = "{}";
+let nextError: string | null = null;
+let nextMalformedContent: unknown;
+let hasMalformedContent = false;
 
 export function stubCompletionContent(content: string) {
   nextContent = content;
 }
 
+export function stubCompletionError(message: string) {
+  nextError = message;
+}
+
+export function stubMalformedCompletionContent(content: unknown) {
+  nextMalformedContent = content;
+  hasMalformedContent = true;
+}
+
 export function resetCompletionStub() {
   completionCalls.length = 0;
   nextContent = "{}";
+  nextError = null;
+  nextMalformedContent = undefined;
+  hasMalformedContent = false;
 }
 
 type CompletionResult = {
   success: boolean;
   data?: { choices: Array<{ message: { content: string } }> };
   error?: string;
+  usage?: { credits?: number; operation?: string };
 };
 
 /**
@@ -50,10 +66,23 @@ export function createVlyIntegrations() {
     ai: {
       completion: async (args: CompletionCall): Promise<CompletionResult> => {
         completionCalls.push(args);
-        return {
-          success: true,
-          data: { choices: [{ message: { content: nextContent } }] },
-        };
+        return nextError
+          ? { success: false, error: nextError }
+          : {
+              success: true,
+              data: {
+                choices: [
+                  {
+                    message: {
+                      content: hasMalformedContent
+                        ? (nextMalformedContent as string)
+                        : nextContent,
+                    },
+                  },
+                ],
+              },
+              usage: { credits: 1, operation: "completion" },
+            };
       },
     },
   };

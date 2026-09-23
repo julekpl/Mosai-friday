@@ -10,7 +10,7 @@ import type { ActionCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { userCtx, cascadeDeleteProject } from "./dal";
+import { userCtx, cascadeDeleteProject, cascadeDeleteAiUserData } from "./dal";
 import { orgAction, orgQuery, type OrgAccess } from "./guards";
 import { roleCan } from "./lib/roles";
 import {
@@ -394,6 +394,7 @@ export const deleteAccount = mutation({
     for (const p of projects) {
       await cascadeDeleteProject(ctx, p._id);
     }
+    await cascadeDeleteAiUserData(ctx, userId);
     await ctx.db.delete(userId);
   },
 });

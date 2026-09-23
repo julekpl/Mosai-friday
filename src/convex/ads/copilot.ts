@@ -6,12 +6,14 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { copilotDefaultModel } from "./platforms";
 import {
+  consumeAiQuotaForAction,
   moduleAction,
   moduleMutation,
   moduleQuery,
   requirePlatformAdmin,
   requireUser,
 } from "../guards";
+import { modelComplete } from "../lib/modelGateway";
 
 /**
  * Ads Copilot: AI analyst over the project's normalized ad data.
@@ -22,8 +24,6 @@ import {
  * - Proposals are structured JSON validated server-side; anything actionable
  *   becomes a draft change request — never a direct write.
  */
-
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /** Read the admin-selected copilot model. Dashboard-only, so it requires a
  *  signed-in account (the audit script flags any public function that reads
@@ -125,7 +125,8 @@ export const ask = moduleAction("promote", {
     // The module builder already enforced `promote.edit` for the acting
     // organization's plan and the caller's role (T2.3) — the old plan-only
     // `checkModule` read the CALLER's plan and is gone.
-    const { project } = await access.requireProject(projectId);
+    const { project, userId } = await access.requireProject(projectId);
+    await consumeAiQuotaForAction(ctx, userId);
     const trimmed = message.trim();
     if (!trimmed) throw new Error("Empty message");
     if (trimmed.length > 4000) throw new Error("Message too long");
@@ -170,56 +171,28 @@ Industry: ${project.industry ?? "(none)"}
 SYNCED CAMPAIGNS (last 14 days rollup)
 ${contextBlock}`;
 
-    // 2. Call OpenRouter with the admin-selected model
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        "OPENROUTER_API_KEY is not configured in this deployment — add it in the Keys/API keys settings.",
-      );
-    }
+    // 2. Call the shared gateway with the admin-selected OpenRouter model.
     const modelRow = await ctx.runQuery(internal.ads.copilot.model, {});
     const model = modelRow ?? copilotDefaultModel();
-
-    let reply: string;
-    try {
-      const res = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://mosai.app",
-          "X-Title": "MOSAI Ads Copilot",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            ...history
-              .slice(-12)
-              .map((m) => ({
-                role: m.role as "user" | "assistant",
-                content: m.content,
-              })),
-            { role: "user", content: `${userBlock}\n\nUSER MESSAGE\n${trimmed}` },
-          ],
-          max_tokens: 900,
-          temperature: 0.4,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(
-          `OpenRouter request failed (${res.status}): ${body.slice(0, 300)}`,
-        );
-      }
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      reply = data.choices?.[0]?.message?.content?.trim() ?? "";
-    } catch (e) {
-      throw new Error(e instanceof Error ? e.message : "Copilot request failed");
-    }
-    if (!reply) throw new Error("Copilot returned an empty response");
+    const completion = await modelComplete({
+      ctx,
+      userId,
+      projectId,
+      agentId: "promote.ads_copilot",
+      promptVersion: "v1",
+      autonomy: "assistive",
+      contextSources: ["project.snapshot", "ads.campaigns", "ads.copilot_history"],
+      provider: "openrouter",
+      model,
+      messages: [
+        { role: "system", content: system },
+        ...history.slice(-12),
+        { role: "user", content: `${userBlock}\n\nUSER MESSAGE\n${trimmed}` },
+      ],
+      maxOutputTokens: 900,
+      temperature: 0.4,
+    });
+    const reply = completion.text;
 
     // 3. Validate + parse an optional proposal block
     let changeRequestId: Id<"adsChangeRequests"> | undefined;

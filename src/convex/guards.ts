@@ -1226,6 +1226,70 @@ export async function consumeAiQuotaForAction(
   await ctx.runMutation(internal.guards.consumeAiQuota, { userId });
 }
 
+const aiRunUsageArgs = {
+  promptTokens: v.union(v.number(), v.null()),
+  completionTokens: v.union(v.number(), v.null()),
+  totalTokens: v.union(v.number(), v.null()),
+  providerCredits: v.union(v.number(), v.null()),
+  costMicrousd: v.union(v.number(), v.null()),
+  costCurrency: v.union(v.literal("USD"), v.null()),
+};
+
+/** Internal run creation used only by the centralized ModelGateway. */
+export const startAiRun = internalMutation({
+  args: {
+    userId: v.id("users"),
+    projectId: v.optional(v.id("projects")),
+    agentId: v.string(),
+    promptVersion: v.string(),
+    provider: v.union(v.literal("vly"), v.literal("openrouter")),
+    model: v.string(),
+    autonomy: v.union(v.literal("assistive"), v.literal("draft")),
+    maxOutputTokens: v.number(),
+    contextSources: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const project = args.projectId ? await ctx.db.get(args.projectId) : null;
+    if (args.projectId && !project) throw new Error("Not found");
+    return await ctx.db.insert("aiRuns", {
+      ...args,
+      organizationId: project?.organizationId,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      providerCredits: null,
+      costMicrousd: null,
+      costCurrency: null,
+      status: "running",
+      errorCategory: null,
+      startedAt: Date.now(),
+    });
+  },
+});
+
+/** Internal completion update; callers cannot supply raw prompt or output data. */
+export const finishAiRun = internalMutation({
+  args: {
+    runId: v.id("aiRuns"),
+    status: v.union(v.literal("succeeded"), v.literal("failed")),
+    ...aiRunUsageArgs,
+    errorCategory: v.union(
+      v.null(),
+      v.literal("provider_error"),
+      v.literal("empty_response"),
+      v.literal("invalid_request"),
+      v.literal("invalid_output"),
+    ),
+    finishedAt: v.number(),
+    latencyMs: v.number(),
+  },
+  handler: async (ctx, { runId, ...patch }) => {
+    const run = await ctx.db.get(runId);
+    if (!run || run.status !== "running") return;
+    await ctx.db.patch(runId, patch);
+  },
+});
+
 // ── Builders ────────────────────────────────────────────────────────────────
 
 /**

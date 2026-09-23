@@ -2,13 +2,15 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import {
   actionProjectSnapshot,
   consumeAiQuotaForAction,
   moduleAction,
   requireActionUser,
 } from "./guards";
-import { vly } from "../lib/vly-integrations";
+import { modelComplete } from "./lib/modelGateway";
 
 /* ── M1 Sell AI actions — M1-BLUEPRINT §8/§9, SELL-ARCHITECTURE §6 ────────
  *
@@ -25,23 +27,32 @@ import { vly } from "../lib/vly-integrations";
  * Per-field on demand only. Batch operations are excluded in M1. */
 
 async function complete(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  agentId: string,
+  projectId: Id<"projects"> | undefined,
   system: string,
   user: string,
-  opts: { temperature?: number; maxTokens?: number } = {},
+  opts: { temperature?: number; maxTokens?: number; validateOutput?: (text: string) => void } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
+  const result = await modelComplete({
+    ctx,
+    userId,
+    projectId,
+    agentId,
+    promptVersion: "v1",
+    autonomy: "assistive",
+    contextSources: projectId ? ["project.snapshot", "request.context"] : ["request.context"],
     model: "gpt-4o-mini",
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },
     ],
     temperature: opts.temperature ?? 0.7,
-    maxTokens: opts.maxTokens ?? 700,
+    maxOutputTokens: opts.maxTokens ?? 700,
+    validateOutput: opts.validateOutput,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
+  return result.text;
 }
 
 const NEVER_FABRICATE = `
@@ -102,7 +113,7 @@ export const generateDescription = moduleAction("sell", {
       .filter(Boolean)
       .join("\n");
 
-    const text = await complete(
+    const text = await complete(ctx, userId, "sell.product_description", args.projectId,
       `You write ecommerce product descriptions for a small business.${NEVER_FABRICATE}`,
       `${context}\n\nWrite a product description of 60–150 words that addresses the most likely buyer objection and ends with a benefit. Plain text.`,
       { maxTokens: 500 },
@@ -125,7 +136,7 @@ export const generateAltText = action({
     if (!args.imageUrl) {
       throw new Error("Alt text requires an existing product image.");
     }
-    const text = await complete(
+    const text = await complete(ctx, userId, "sell.alt_text", undefined,
       `You write concise, accessible image alt text for ecommerce.${NEVER_FABRICATE}`,
       `Product: ${args.title}${args.productType ? ` (${args.productType})` : ""}\nImage URL: ${args.imageUrl}\n\nWrite ONE alt-text sentence (max 125 chars) describing what the product image likely shows. Plain text.`,
       { maxTokens: 120, temperature: 0.4 },
@@ -156,10 +167,13 @@ export const generateSeo = action({
     const wantsTitle = !args.currentSeoTitle?.trim();
     const wantsDesc = !args.currentSeoDescription?.trim();
 
-    const text = await complete(
+    const text = await complete(ctx, userId, "sell.seo_metadata", args.projectId,
       `You write SEO metadata for ecommerce product pages.${NEVER_FABRICATE}`,
       `Business: ${project.name}${project.industry ? ` (${project.industry})` : ""}\nProduct: ${args.title}\n${args.description ? `Description: ${args.description.slice(0, 500)}` : ""}\n\nReturn ${[wantsTitle && "a SEO title (max 60 chars)", wantsDesc && "a meta description (max 155 chars)"].filter(Boolean).join(" and ")}. Format exactly:\nTITLE: <title>\nDESCRIPTION: <description>`,
-      { maxTokens: 200, temperature: 0.5 },
+      { maxTokens: 200, temperature: 0.5, validateOutput: (output) => {
+        if ((!wantsTitle || /TITLE:\s*.+/i.test(output)) && (!wantsDesc || /DESCRIPTION:\s*.+/i.test(output))) return;
+        throw new Error("invalid SEO response");
+      } },
     );
 
     const title = wantsTitle

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { api } from "@/convex/_generated/api";
 import schema from "@/convex/schema";
+import { DATA_REGISTRY } from "@/convex/lib/dataRegistry";
 import { newBackend, seedUser } from "./helpers";
 
 /**
@@ -403,6 +404,31 @@ const fixtures: Fixture[] = [
     table: "adsCopilotMessages",
     doc: (s) => ({ projectId: s.projectId, role: "user", content: "hi", createdAt: at }),
   },
+  {
+    table: "aiRuns",
+    doc: (s) => ({
+      userId: s.userId,
+      projectId: s.projectId,
+      agentId: "test.agent",
+      promptVersion: "v1",
+      provider: "vly",
+      model: "gpt-4o-mini",
+      autonomy: "assistive",
+      maxOutputTokens: 100,
+      contextSources: ["project.snapshot"],
+      status: "succeeded",
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      providerCredits: null,
+      costMicrousd: null,
+      costCurrency: null,
+      errorCategory: null,
+      startedAt: at,
+      finishedAt: at,
+      latencyMs: 1,
+    }),
+  },
 ];
 
 /* ── Loose handle: the cascade names tables at runtime ──────────────────── */
@@ -426,6 +452,12 @@ describe("R10 — deleting a project leaves nothing behind", () => {
     expect(fixtureTables).toEqual(expectedTables);
     // Guards against two fixtures for the same table hiding a missing one.
     expect(new Set(fixtureTables).size).toBe(fixtureTables.length);
+    expect(DATA_REGISTRY.aiRuns).toMatchObject({
+      scope: "user",
+      tenantField: "userId",
+      export: "excluded",
+      retention: "cascade-with-user",
+    });
   });
 
   it("only oauthStates is exempt, and it has no by_project index", () => {
@@ -471,5 +503,45 @@ describe("R10 — deleting a project leaves nothing behind", () => {
 
     const blob = await t.run((ctx) => loose(ctx).storage.get(seed.ids.storage));
     expect(blob).toBeNull();
+  });
+
+  it("account deletion clears user-only AI runs and quota buckets", async () => {
+    const t = newBackend();
+    const alice = await seedUser(t);
+    await t.run(async (ctx) => {
+      const db = loose(ctx).db;
+      await db.insert("aiRuns", {
+        userId: alice.userId,
+        agentId: "test.user_only",
+        promptVersion: "v1",
+        provider: "vly",
+        model: "gpt-4o-mini",
+        autonomy: "assistive",
+        maxOutputTokens: 100,
+        contextSources: ["request.context"],
+        status: "succeeded",
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        providerCredits: null,
+        costMicrousd: null,
+        costCurrency: null,
+        errorCategory: null,
+        startedAt: at,
+      });
+      await db.insert("aiRateLimits", {
+        userId: alice.userId,
+        windowStart: at,
+        count: 1,
+      });
+    });
+
+    await alice.as.mutation(api.billing.deleteAccount, {});
+
+    await t.run(async (ctx) => {
+      expect(await loose(ctx).db.query("aiRuns").collect()).toEqual([]);
+      expect(await loose(ctx).db.query("aiRateLimits").collect()).toEqual([]);
+      expect(await ctx.db.get(alice.userId)).toBeNull();
+    });
   });
 });

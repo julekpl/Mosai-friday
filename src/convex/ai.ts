@@ -2,7 +2,8 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { vly } from "../lib/vly-integrations";
+import type { ActionCtx } from "./_generated/server";
+import { modelComplete } from "./lib/modelGateway";
 import type { Id } from "./_generated/dataModel";
 import {
   actionProjectSnapshot,
@@ -18,20 +19,29 @@ export type { ProjectSnapshot };
 /* ── Shared helpers ───────────────────────────────────────────────────── */
 
 async function complete(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  agentId: string,
   system: string,
   messages: Array<{ role: "user" | "assistant"; content: string }>,
-  opts: { temperature?: number; maxTokens?: number } = {},
+  opts: { temperature?: number; maxTokens?: number; validateOutput?: (text: string) => void } = {},
 ): Promise<string> {
-  const res = await vly.ai.completion({
+  const result = await modelComplete({
+    ctx,
+    userId,
+    projectId,
+    agentId,
+    promptVersion: "v1",
+    autonomy: "assistive",
+    contextSources: ["project.snapshot", "request.context"],
     model: "gpt-4o-mini",
-    messages: [{ role: "system" as const, content: system }, ...messages],
+    messages: [{ role: "system", content: system }, ...messages],
     temperature: opts.temperature ?? 0.7,
-    maxTokens: opts.maxTokens ?? 900,
+    maxOutputTokens: opts.maxTokens ?? 900,
+    validateOutput: opts.validateOutput,
   });
-  if (!res.success || !res.data) {
-    throw new Error(res.error ?? "AI request failed");
-  }
-  return res.data.choices[0]?.message?.content?.trim() ?? "";
+  return result.text;
 }
 
 /** The AI prompt's business context is built SERVER-side from the database
@@ -106,6 +116,32 @@ function parsePersona(json: string) {
   };
 }
 
+function parseStructuredObject(text: string): Record<string, unknown> {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("invalid structured output");
+  const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid structured output");
+  return value as Record<string, unknown>;
+}
+
+export function validateJourneyMapOutput(text: string): void {
+  const value = parseStructuredObject(text);
+  if (
+    !Array.isArray(value.stages) ||
+    !value.stages.length ||
+    value.stages.some(
+      (stage) =>
+        !stage ||
+        typeof stage !== "object" ||
+        typeof (stage as { stage?: unknown }).stage !== "string",
+    )
+  ) {
+    throw new Error("invalid journey");
+  }
+}
+
 /* ── Create-module actions: gaps → topics → writing ───────────────────── */
 
 /**
@@ -147,7 +183,7 @@ export const detectContentGaps = action({
     const userId = await requireActionUser(ctx);
     const project = await actionProjectSnapshot(ctx, userId, projectId);
     await consumeAiQuotaForAction(ctx, userId);
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "create.content_gaps",
       `You are a content strategist auditing a business's content coverage. Identify CONTENT GAPS: questions, topics or moments in the customer journey where the business has no good content answering the persona's real need. Ground every gap in the persona's pains/goals and the journey stage (weakest stages = biggest gaps). Return ONLY valid JSON (no markdown) shaped as:
 {"gaps": [{"personaId": string|null, "journeyMapId": string|null, "journeyStage": string|null, "title": string, "description": string, "severity": "low"|"medium"|"high"}]}
 Give 5-10 gaps. Use the provided persona/journey ids exactly. title = short label (≤8 words). description = 1-2 sentences on what's missing and why it matters.`,
@@ -157,7 +193,10 @@ Give 5-10 gaps. Use the provided persona/journey ids exactly. title = short labe
           content: `${contextLines(project).join("\n")}\n\nPersonas:\n${personas.map((p) => `- [${p.id}] ${p.name}${p.role ? ` (${p.role})` : ""}${p.pains?.length ? ` — pains: ${p.pains.join("; ")}` : ""}`).join("\n") || "(none)"}\n\nJourney maps:\n${journeys.map((j) => `- [${j.id}] ${j.name}${j.personaId ? ` (persona ${j.personaId})` : ""}\n${j.stages.map((s) => `    • ${s.stage}${typeof s.score === "number" ? ` (score ${s.score}/10)` : ""}${s.pains ? ` — pains: ${s.pains}` : ""}`).join("\n")}`).join("\n") || "(none)"}`,
         },
       ],
-      { temperature: 0.6, maxTokens: 1400 },
+      { temperature: 0.6, maxTokens: 1400, validateOutput: (output) => {
+        const value = parseStructuredObject(output);
+        if (!Array.isArray(value.gaps) || !value.gaps.some((gap) => gap && typeof gap === "object" && typeof (gap as { title?: unknown }).title === "string" && (gap as { title: string }).title.trim())) throw new Error("invalid gaps");
+      } },
     );
 
     const cleaned = text.replace(/```json|```/g, "").trim();
@@ -225,7 +264,7 @@ export const suggestTopics = action({
     const userId = await requireActionUser(ctx);
     const project = await actionProjectSnapshot(ctx, userId, projectId);
     await consumeAiQuotaForAction(ctx, userId);
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "create.topic_suggestions",
       `You are a content strategist. For the given content gap, propose 4 concrete, distinct topics to fill it. For each: title (audience-facing, specific), angle (the hook that makes it fresh), contentType — one of landing_page|script|social_post|social_series|blog|email|video_script — and 2-4 keywords. Return ONLY valid JSON shaped as:
 {"topics": [{"title": string, "angle": string, "contentType": string, "keywords": string[]}]}`,
       [
@@ -234,7 +273,10 @@ export const suggestTopics = action({
           content: `${contextLines(project).join("\n")}\n\nGap to fill: ${gap.title}\n${gap.description ?? ""}\n${gap.personaName ? `Audience persona: ${gap.personaName}` : ""}\n${gap.journeyStage ? `Journey stage: ${gap.journeyStage}` : ""}\n\nLive research findings:\n${(researchDigest ?? []).slice(0, 20).join("\n") || "(none)"}`,
         },
       ],
-      { temperature: 0.8, maxTokens: 900 },
+      { temperature: 0.8, maxTokens: 900, validateOutput: (output) => {
+        const value = parseStructuredObject(output);
+        if (!Array.isArray(value.topics) || !value.topics.some((topic) => topic && typeof topic === "object" && typeof (topic as { title?: unknown }).title === "string" && (topic as { title: string }).title.trim())) throw new Error("invalid topics");
+      } },
     );
 
     const cleaned = text.replace(/```json|```/g, "").trim();
@@ -321,7 +363,7 @@ export const generateContent = action({
       ? `\nWrite for persona: ${persona.name}${persona.role ? ` (${persona.role})` : ""}${persona.pains?.length ? ` — pains: ${persona.pains.join("; ")}` : ""}${persona.objections?.length ? ` — objections to handle: ${persona.objections.join("; ")}` : ""}`
       : "";
 
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "create.content_generation",
       `You are an expert content writer. Write the full content piece as clean HTML using only <h1>, <h2>, <p>, <ul>, <ol>, <li>, <strong>, <em> tags. Start with an <h1>. Format: ${TYPE_GUIDE[contentType] ?? TYPE_GUIDE.blog}. Match the brand voice of the business and speak the persona's language. Ground claims in the research findings where given. Return ONLY the HTML, no markdown fences, no explanation.${personaDesc}${journeyStage ? `\nThis content targets the journey stage: ${journeyStage}.` : ""}`,
       [
         {
@@ -360,7 +402,7 @@ export const editSelection = action({
     const userId = await requireActionUser(ctx);
     const project = await actionProjectSnapshot(ctx, userId, projectId);
     await consumeAiQuotaForAction(ctx, userId);
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "create.selection_edit",
       op === "expand"
         ? `You are an expert content editor. The user selected part of a document. Expand the selection: keep its meaning, language and voice, add depth/examples/nuance so it is roughly 2-3x longer. Return ONLY the replacement HTML using only <p>, <ul>, <ol>, <li>, <strong>, <em> tags. No preamble.${personaName ? ` Audience: ${personaName}.` : ""}`
         : `You are an expert content editor. The user selected part of a document. Rewrite the selection: same core meaning, fresh wording and structure, matching the document's voice. Return ONLY the replacement HTML using only <p>, <ul>, <ol>, <li>, <strong>, <em> tags. No preamble.${personaName ? ` Audience: ${personaName}.` : ""}`,
@@ -391,7 +433,7 @@ export const generatePersona = action({
     const userId = await requireActionUser(ctx);
     const project = await actionProjectSnapshot(ctx, userId, projectId);
     await consumeAiQuotaForAction(ctx, userId);
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "understand.persona_generation",
       `You are a senior marketing strategist. Given the business context below, invent ONE realistic, specific buyer persona. Be concrete (names, habits, real-world details) and ground every trait in the business context. ${PERSONA_JSON_SHAPE}`,
       [
         {
@@ -399,7 +441,7 @@ export const generatePersona = action({
           content: `${contextLines(project).join("\n")}\n${hint ? `Extra guidance from the user: ${hint}` : ""}`,
         },
       ],
-      { temperature: 0.8, maxTokens: 700 },
+      { temperature: 0.8, maxTokens: 700, validateOutput: (output) => { parsePersona(output); } },
     );
 
     return parsePersona(text);
@@ -458,7 +500,7 @@ export const personaChat = action({
         ? `You ARE this buyer persona. Stay in character in every answer — first person, with their vocabulary, priorities and attitude. You know nothing about marketing theory; you are a real person. If asked about products/services, react as this person realistically would based on your pains and goals.\n\nBusiness selling to you:\n${ctxBlock}\n\nYour persona definition:\n${personaDesc}`
         : `You are an experienced marketing analyst. The user will ask about the persona below and how it relates to the business's marketing (content, website, campaigns, data). Answer with sharp, specific, actionable analysis. Reference the persona's pains/goals and the business context. Use short paragraphs or bullet lists.\n\nBusiness context:\n${ctxBlock}\n\nPersona:\n${personaDesc}`;
 
-    const reply = await complete(
+    const reply = await complete(ctx, userId, projectId, "understand.persona_chat",
       system,
       [...(history ?? []).slice(-16), { role: "user" as const, content: message }],
       { temperature: mode === "persona" ? 0.9 : 0.5, maxTokens: 700 },
@@ -512,7 +554,7 @@ export const generateJourneyMap = action({
     const lanesHint =
       "lanes are: Actions, Thoughts, Feelings, Pain points, Opportunities";
 
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "journeys.map_generation",
       `You are a CX strategist building a user journey map. Create a journey with ${stageCount ?? 5} stages (e.g. Trigger, Awareness, Consideration, Decision, Post-purchase — adapt to the scenario). For each stage fill all lanes (${lanesHint}) with 1-2 short, concrete, specific items — first-person voice for Actions/Thoughts/Feelings. Also give each stage an experience score 1-10 (10 = delightful). Return ONLY valid JSON shaped as:
 {"name": string, "goal": string, "stages": [{"stage": string, "actions": string, "thoughts": string, "feelings": string, "pains": string, "opportunities": string, "score": number}]}`,
       [
@@ -521,7 +563,7 @@ export const generateJourneyMap = action({
           content: `${contextLines(project).join("\n")}\n\nPersona:\n${personaDesc}${scenario ? `\nScenario / goal of the journey: ${scenario}` : ""}`,
         },
       ],
-      { temperature: 0.7, maxTokens: 1200 },
+      { temperature: 0.7, maxTokens: 1200, validateOutput: validateJourneyMapOutput },
     );
 
     const cleaned = text.replace(/```json|```/g, "").trim();
@@ -599,7 +641,7 @@ export const generateJourney = action({
       .filter(Boolean)
       .join("\n");
 
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "journeys.single_generation",
       `You are a senior marketing strategist. Map the buying journey for this persona against this business. Use 4-5 real journey stages (e.g. trigger/awareness, consideration, evaluation, decision, post-purchase — adapt to the persona). For each stage: the stage name, the question the buyer is really asking at that moment, and a concrete answer/action the business should give (touchpoint, content, proof). Return ONLY valid JSON (no markdown) shaped as:
 {"stages": [{"stage": string, "question": string, "answer": string}]}`,
       [
@@ -608,7 +650,10 @@ export const generateJourney = action({
           content: `${contextLines(project).join("\n")}\n\nPersona:\n${personaDesc}`,
         },
       ],
-      { temperature: 0.6, maxTokens: 800 },
+      { temperature: 0.6, maxTokens: 800, validateOutput: (output) => {
+        const value = parseStructuredObject(output);
+        if (!Array.isArray(value.stages) || !value.stages.length || value.stages.some((stage) => !stage || typeof stage !== "object" || typeof (stage as { stage?: unknown }).stage !== "string" || typeof (stage as { question?: unknown }).question !== "string")) throw new Error("invalid journey");
+      } },
     );
 
     const cleaned = text.replace(/```json|```/g, "").trim();
@@ -653,7 +698,7 @@ export const generateComms = action({
     const userId = await requireActionUser(ctx);
     const project = await actionProjectSnapshot(ctx, userId, projectId);
     await consumeAiQuotaForAction(ctx, userId);
-    const text = await complete(
+    const text = await complete(ctx, userId, projectId, "create.communication_generation",
       `You are a marketing communications director. Define ONE core marketing communication for the given topic: a crisp message (1-2 sentences a real customer would recognize themselves in), the strategic rationale, the best 2-4 channels, and the target audience. Return ONLY valid JSON (no markdown) shaped as:
 {"name": string, "message": string, "rationale": string, "channels": string[], "audience": string}`,
       [
@@ -662,7 +707,10 @@ export const generateComms = action({
           content: `${contextLines(project).join("\n")}\n\nKnown personas:\n${(personaLines ?? []).join("\n") || "(none yet)"}\n\nTopic / direction: ${topic}\n${influence?.length ? `The user wants this to potentially influence these downstream areas: ${influence.join(", ")}. Mention that linkage in the rationale where natural.` : ""}`,
         },
       ],
-      { temperature: 0.7, maxTokens: 600 },
+      { temperature: 0.7, maxTokens: 600, validateOutput: (output) => {
+        const value = parseStructuredObject(output);
+        if (typeof value.name !== "string" || typeof value.message !== "string") throw new Error("invalid communication");
+      } },
     );
 
     const cleaned = text.replace(/```json|```/g, "").trim();

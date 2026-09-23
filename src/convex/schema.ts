@@ -1394,6 +1394,41 @@ const schema = defineSchema(
       windowStart: v.number(), // epoch ms, aligned to AI_QUOTA_WINDOW_MS
       count: v.number(),
     }).index("by_user_window", ["userId", "windowStart"]),
+
+    // Safe AI usage telemetry only: no prompt, output, or provider error text.
+    // One row records one model request; userId is the data owner even when a
+    // project reference is present. Project/account deletion removes the row.
+    aiRuns: defineTable({
+      userId: v.id("users"),
+      projectId: v.optional(v.id("projects")),
+      organizationId: v.optional(v.id("organizations")),
+      agentId: v.string(),
+      promptVersion: v.string(),
+      provider: v.union(v.literal("vly"), v.literal("openrouter")),
+      model: v.string(),
+      autonomy: v.union(v.literal("assistive"), v.literal("draft")),
+      maxOutputTokens: v.number(),
+      contextSources: v.array(v.string()),
+      status: v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed")),
+      promptTokens: v.union(v.number(), v.null()),
+      completionTokens: v.union(v.number(), v.null()),
+      totalTokens: v.union(v.number(), v.null()),
+      providerCredits: v.union(v.number(), v.null()),
+      costMicrousd: v.union(v.number(), v.null()),
+      costCurrency: v.union(v.literal("USD"), v.null()),
+      errorCategory: v.union(
+        v.null(),
+        v.literal("provider_error"),
+        v.literal("empty_response"),
+        v.literal("invalid_request"),
+        v.literal("invalid_output"),
+      ),
+      startedAt: v.number(),
+      finishedAt: v.optional(v.number()),
+      latencyMs: v.optional(v.number()),
+    })
+      .index("by_user_created", ["userId", "startedAt"])
+      .index("by_project", ["projectId"]),
   },
   {
     schemaValidation: false,
