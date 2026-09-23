@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -381,6 +381,529 @@ describe("T2.4 — Stripe client guards", () => {
       now: stamp,
     });
     expect(unconfigured.valid).toBe(false);
+  });
+});
+
+describe("BP-06/S1 — customer catalog and cancellation", () => {
+  const envKeys = [
+    "STRIPE_SECRET_KEY",
+    "STRIPE_PRICE_STARTER",
+    "STRIPE_PRICE_GROWTH",
+    "STRIPE_PRICE_SCALE",
+    "STRIPE_BILLING_PORTAL_CONFIGURATION",
+    "MOSAI_APP_ORIGIN",
+  ] as const;
+  const originalEnv = Object.fromEntries(
+    envKeys.map((key) => [key, process.env[key]]),
+  );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const key of envKeys) {
+      const value = originalEnv[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  function clearBillingConfig() {
+    for (const key of envKeys) delete process.env[key];
+  }
+
+  function configureTestCatalog() {
+    process.env.STRIPE_SECRET_KEY = ["sk", "test", "fixture"].join("_");
+    process.env.STRIPE_PRICE_STARTER = "price_test_starter";
+    process.env.STRIPE_PRICE_GROWTH = "price_test_growth";
+    process.env.STRIPE_PRICE_SCALE = "price_test_scale";
+    process.env.MOSAI_APP_ORIGIN = "https://mosai.example";
+  }
+
+  function configureTestPortal() {
+    process.env.STRIPE_BILLING_PORTAL_CONFIGURATION = "bpc_test_safe";
+  }
+
+  function stubCatalogFetch(includePlanMetadata = true) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const plan = url.includes("starter")
+        ? "starter"
+        : url.includes("growth")
+          ? "growth"
+          : "scale";
+      const priceId = `price_test_${plan}`;
+      return new Response(JSON.stringify({
+        id: priceId,
+        active: true,
+        livemode: false,
+        unit_amount: plan === "starter" ? 1299 : plan === "growth" ? 4999 : 9999,
+        currency: "eur",
+        tax_behavior: "exclusive",
+        ...(includePlanMetadata ? { metadata: { mosai_plan: plan } } : {}),
+        recurring: { interval: "month", interval_count: 1 },
+        product: { id: `prod_${plan}`, name: `Provider ${plan}`, active: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("displays only active recurring Stripe test prices and product names", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    stubCatalogFetch();
+    const t = newBackend();
+    const { user } = await seedOrg(t);
+
+    const catalog = await user.as.action(api.billing.catalog, {});
+    expect(catalog.configured).toBe(true);
+    expect(catalog.mode).toBe("test");
+    expect(catalog.plans.find((entry) => entry.plan === "starter")).toMatchObject({
+      configured: true,
+      productName: "Provider starter",
+      priceId: "price_test_starter",
+      amountMinor: 1299,
+      currency: "EUR",
+      interval: "month",
+      intervalCount: 1,
+      taxBehavior: "exclusive",
+    });
+    expect(catalog.portalReady).toBe(false);
+  });
+
+  it("returns needs-setup plan entries without making provider calls when test setup is absent", async () => {
+    clearBillingConfig();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user } = await seedOrg(t);
+
+    const catalog = await user.as.action(api.billing.catalog, {});
+    expect(catalog.configured).toBe(false);
+    expect(catalog.plans.find((entry) => entry.plan === "starter")).toMatchObject({
+      configured: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a Stripe live-mode price in the test catalog", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const plan = url.includes("starter")
+        ? "starter"
+        : url.includes("growth")
+          ? "growth"
+          : "scale";
+      return new Response(JSON.stringify({
+        id: `price_test_${plan}`,
+        active: true,
+        livemode: true,
+        unit_amount: 1299,
+        currency: "eur",
+        tax_behavior: "exclusive",
+        metadata: { mosai_plan: plan },
+        recurring: { interval: "month", interval_count: 1 },
+        product: { id: `prod_${plan}`, name: `Provider ${plan}`, active: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const t = newBackend();
+    const { user } = await seedOrg(t);
+
+    const catalog = await user.as.action(api.billing.catalog, {});
+    expect(catalog.plans.find((entry) => entry.plan === "starter")).toMatchObject({
+      configured: false,
+    });
+  });
+
+  it("accepts a configured test price ID when Stripe price metadata is absent", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    stubCatalogFetch(false);
+    const t = newBackend();
+    const { user } = await seedOrg(t);
+
+    const catalog = await user.as.action(api.billing.catalog, {});
+    expect(catalog.plans.find((entry) => entry.plan === "starter")).toMatchObject({
+      configured: true,
+      priceId: "price_test_starter",
+    });
+  });
+
+  it("rejects a configured test price whose present plan metadata conflicts", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const plan = url.includes("starter")
+        ? "starter"
+        : url.includes("growth")
+          ? "growth"
+          : "scale";
+      return new Response(JSON.stringify({
+        id: `price_test_${plan}`,
+        active: true,
+        livemode: false,
+        unit_amount: 1299,
+        currency: "eur",
+        metadata: { mosai_plan: "scale" },
+        recurring: { interval: "month", interval_count: 1 },
+        product: { id: `prod_${plan}`, name: `Provider ${plan}`, active: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const t = newBackend();
+    const { user } = await seedOrg(t);
+
+    const catalog = await user.as.action(api.billing.catalog, {});
+    expect(catalog.plans.find((entry) => entry.plan === "starter")).toMatchObject({
+      configured: false,
+    });
+  });
+
+  it("rejects client redirects outside the configured app billing page before provider calls", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    const fetchMock = stubCatalogFetch();
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+
+    await expect(user.as.action(api.billing.startCheckout, {
+      organizationId,
+      plan: "starter",
+      successUrl: "https://attacker.example/collect",
+      cancelUrl: "https://mosai.example/app/billing?checkout=cancelled",
+      expectedPriceId: "price_test_starter",
+      expectedAmountMinor: 1299,
+      expectedCurrency: "EUR",
+    })).rejects.toThrow(/trusted app billing page/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an untrusted portal return URL before provider calls", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+
+    await expect(user.as.action(api.billing.openPortal, {
+      organizationId,
+      returnUrl: "https://attacker.example/collect",
+    })).rejects.toThrow(/trusted app billing page/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the portal only with a retrieved test configuration that uses period-end cancellation", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    configureTestPortal();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/billing_portal/configurations/")) {
+        return new Response(JSON.stringify({
+          id: "bpc_test_safe",
+          active: true,
+          livemode: false,
+          features: { subscription_cancel: { enabled: true, mode: "at_period_end" } },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      expect(url).toContain("/billing_portal/sessions");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("configuration")).toBe("bpc_test_safe");
+      return new Response(JSON.stringify({ url: "https://billing.stripe.test/session" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+    await t.mutation(internal.billing.recordCustomer, {
+      organizationId,
+      customerId: "cus_portal_test",
+      createdBy: user.userId as Id<"users">,
+      livemode: false,
+    });
+
+    const result = await user.as.action(api.billing.openPortal, {
+      organizationId,
+      returnUrl: "https://mosai.example/app/billing",
+    });
+    expect(result.url).toBe("https://billing.stripe.test/session");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a portal configuration that allows immediate cancellation", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    configureTestPortal();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      id: "bpc_test_safe",
+      active: true,
+      livemode: false,
+      features: { subscription_cancel: { enabled: true, mode: "immediately" } },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+
+    await expect(user.as.action(api.billing.openPortal, {
+      organizationId,
+      returnUrl: "https://mosai.example/app/billing",
+    })).rejects.toThrow(/period-end or disabled cancellation/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a Stripe portal response omits the cancellation enabled flag", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    configureTestPortal();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      id: "bpc_test_safe",
+      active: true,
+      livemode: false,
+      features: { subscription_cancel: { mode: "at_period_end" } },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+
+    await expect(user.as.action(api.billing.openPortal, {
+      organizationId,
+      returnUrl: "https://mosai.example/app/billing",
+    })).rejects.toThrow(/period-end or disabled cancellation/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops checkout when the displayed Stripe amount no longer matches", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({
+        id: "price_test_starter",
+        active: true,
+        livemode: false,
+        unit_amount: 1300,
+        currency: "eur",
+        tax_behavior: "exclusive",
+        metadata: { mosai_plan: "starter" },
+        recurring: { interval: "month", interval_count: 1 },
+        product: { id: "prod_starter", name: "Provider Starter", active: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+
+    await expect(user.as.action(api.billing.startCheckout, {
+      organizationId,
+      plan: "starter",
+      successUrl: "https://mosai.example/app/billing?checkout=success",
+      cancelUrl: "https://mosai.example/app/billing?checkout=cancelled",
+      expectedPriceId: "price_test_starter",
+      expectedAmountMinor: 1299,
+      expectedCurrency: "EUR",
+    })).rejects.toThrow(/catalog changed/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/prices/price_test_starter");
+  });
+
+  it("schedules cancellation at period end only after Stripe confirms and keeps entitlement active", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(new URLSearchParams(String(init?.body)).get("cancel_at_period_end")).toBe("true");
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBe(
+        "mosai-cancel-period-end-sub_1-evt_bp06_cancel_seed",
+      );
+      return new Response(JSON.stringify({
+        id: "sub_1",
+        status: "active",
+        cancel_at_period_end: true,
+        current_period_end: 2_000_000_000,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+    await t.mutation(internal.billingWebhooks.applyEvent, subscriptionEvent({
+      organizationId,
+      eventId: "evt_bp06_cancel_seed",
+      created: 1000,
+    }));
+
+    const result = await user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
+      organizationId,
+    });
+    expect(result).toEqual({ cancelAtPeriodEnd: true, currentPeriodEnd: 2_000_000_000 });
+    const owner = await t.run((ctx) => ctx.db.get(user.userId as Id<"users">));
+    expect(owner?.plan).toBe("starter");
+    expect(owner?.planStatus).toBe("active");
+    const subscription = await t.run((ctx) => ctx.db.query("subscriptions").first());
+    expect(subscription).toMatchObject({ status: "active", cancelAtPeriodEnd: true });
+    const receipts = await t.run((ctx) => ctx.db.query("billingReceipts").collect());
+    expect(receipts).toContainEqual(expect.objectContaining({
+      eventType: "subscription.cancel_at_period_end.confirmed",
+      objectId: "sub_1",
+      organizationId,
+      livemode: false,
+    }));
+  });
+
+  it("does not change state when Stripe does not confirm period-end cancellation", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({
+      id: "sub_1",
+      status: "active",
+      cancel_at_period_end: false,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+    await t.mutation(internal.billingWebhooks.applyEvent, subscriptionEvent({
+      organizationId,
+      eventId: "evt_bp06_cancel_unconfirmed_seed",
+      created: 1000,
+    }));
+
+    await expect(user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
+      organizationId,
+    })).rejects.toThrow(/did not confirm/i);
+    const subscription = await t.run((ctx) => ctx.db.query("subscriptions").first());
+    expect(subscription?.cancelAtPeriodEnd).toBe(false);
+    expect(await t.run((ctx) => ctx.db.query("billingReceipts").collect())).toHaveLength(0);
+  });
+
+  it("does not record a scheduled cancellation when Stripe returns a non-active status", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({
+      id: "sub_1",
+      status: "canceled",
+      cancel_at_period_end: true,
+      current_period_end: 2_000_000_000,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+    await t.mutation(internal.billingWebhooks.applyEvent, subscriptionEvent({
+      organizationId,
+      eventId: "evt_bp06_cancel_unexpected_status_seed",
+      created: 1000,
+    }));
+
+    await expect(user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
+      organizationId,
+    })).rejects.toThrow(/status canceled.*no scheduled-cancellation receipt/i);
+    const subscription = await t.run((ctx) => ctx.db.query("subscriptions").first());
+    expect(subscription?.cancelAtPeriodEnd).toBe(false);
+    expect(await t.run((ctx) => ctx.db.query("billingReceipts").collect())).toHaveLength(0);
+  });
+
+  it("refuses cancellation when the organization has multiple eligible subscriptions", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+    await t.mutation(internal.billingWebhooks.applyEvent, subscriptionEvent({
+      organizationId,
+      eventId: "evt_bp06_ambiguous_seed",
+      created: 1000,
+    }));
+    await t.run((ctx) => ctx.db.insert("subscriptions", {
+      organizationId,
+      provider: "stripe",
+      subscriptionId: "sub_ambiguous_2",
+      customerId: "cus_1",
+      plan: "starter",
+      status: "trialing",
+      livemode: false,
+      cancelAtPeriodEnd: false,
+      dunningStage: 0,
+      lastEventCreated: 1001,
+      createdAt: 1001,
+      updatedAt: 1001,
+    }));
+
+    await expect(user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
+      organizationId,
+    })).rejects.toThrow(/ambiguous billing state/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const subscriptions = await t.run((ctx) => ctx.db.query("subscriptions").collect());
+    expect(subscriptions).toHaveLength(2);
+    expect(subscriptions.every((subscription) => !subscription.cancelAtPeriodEnd)).toBe(true);
+    expect(await t.run((ctx) => ctx.db.query("billingReceipts").collect())).toHaveLength(0);
+  });
+
+  it("denies a different tenant's cancellation without contacting Stripe", async () => {
+    clearBillingConfig();
+    configureTestCatalog();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { organizationId } = await seedOrg(t, "owner-a@example.com");
+    const outsider = await seedOrg(t, "owner-b@example.com");
+    await t.mutation(internal.billingWebhooks.applyEvent, subscriptionEvent({
+      organizationId,
+      eventId: "evt_bp06_foreign_seed",
+      created: 1000,
+    }));
+
+    await expect(outsider.user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
+      organizationId,
+    })).rejects.toThrow(/not found/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves the plan unchanged when Stripe setup is absent", async () => {
+    clearBillingConfig();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = newBackend();
+    const { user, organizationId } = await seedOrg(t);
+    await t.mutation(internal.billingWebhooks.applyEvent, subscriptionEvent({
+      organizationId,
+      eventId: "evt_bp06_cancel_unconfigured_seed",
+      created: 1000,
+    }));
+
+    await expect(user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
+      organizationId,
+    })).rejects.toThrow(/Stripe is not configured/i);
+    const owner = await t.run((ctx) => ctx.db.get(user.userId as Id<"users">));
+    expect(owner?.plan).toBe("starter");
+    expect(owner?.planStatus).toBe("active");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails conservatively instead of scanning unbounded subscription history", async () => {
+    const t = newBackend();
+    const { organizationId } = await seedOrg(t);
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 101; index += 1) {
+        await ctx.db.insert("subscriptions", {
+          organizationId,
+          provider: "stripe",
+          subscriptionId: `sub_history_${index}`,
+          customerId: "cus_history",
+          plan: "starter",
+          status: index === 100 ? "active" : "canceled",
+          livemode: false,
+          cancelAtPeriodEnd: false,
+          dunningStage: 0,
+          lastEventCreated: index,
+          createdAt: index,
+          updatedAt: index,
+        });
+      }
+    });
+
+    await expect(t.query(internal.billing.subscriptionForOrganization, {
+      organizationId,
+    })).rejects.toThrow(/too many subscription history records/i);
   });
 });
 

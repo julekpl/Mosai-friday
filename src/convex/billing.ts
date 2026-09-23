@@ -9,7 +9,7 @@ import {
 import type { ActionCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { userCtx, cascadeDeleteProject, cascadeDeleteAiUserData } from "./dal";
 import { orgAction, orgQuery, type OrgAccess } from "./guards";
 import { roleCan } from "./lib/roles";
@@ -24,10 +24,13 @@ import {
 import {
   MOSAI_ORG_METADATA_KEY,
   MOSAI_PLAN_METADATA_KEY,
+  PAID_PLANS,
+  assertTrustedBillingReturnUrl,
   checkoutConfigured,
   planCatalog,
   planForSubscription,
   priceIdForPlan,
+  type PlanCatalogEntry,
 } from "./lib/billingCatalog";
 import {
   assertStripeModeAllowed,
@@ -83,16 +86,125 @@ export const currentPlan = query({
 // read the local mirror; none of them may write a paid state — only the
 // verified webhook (`billingWebhooks.applyEvent`) does.
 
-function assertHttpUrl(value: string): void {
-  let url: URL;
+function trustedAppOrigin(): string {
+  const configured = process.env.MOSAI_APP_ORIGIN?.trim();
+  if (!configured) {
+    throw new Error("Billing needs MOSAI_APP_ORIGIN configured for this app.");
+  }
+  let parsed: URL;
   try {
-    url = new URL(value);
+    parsed = new URL(configured);
   } catch {
-    throw new Error("A valid return URL is required.");
+    throw new Error("MOSAI_APP_ORIGIN must be a trusted HTTPS app origin.");
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("A valid return URL is required.");
+  const localHttp =
+    parsed.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  if (
+    (parsed.protocol !== "https:" && !localHttp) ||
+    parsed.origin !== configured.replace(/\/$/, "") ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error("MOSAI_APP_ORIGIN must be a trusted HTTPS app origin.");
   }
+  return parsed.origin;
+}
+
+function billingReturnUrl(value: string): string {
+  return assertTrustedBillingReturnUrl(value, trustedAppOrigin());
+}
+
+interface StripeCatalogPrice {
+  id: string;
+  active: boolean;
+  livemode: boolean;
+  unit_amount: number | null;
+  currency: string;
+  tax_behavior: "inclusive" | "exclusive" | null;
+  metadata?: Record<string, string>;
+  recurring: { interval: string; interval_count: number } | null;
+  product: string | { id: string; name: string; active: boolean };
+}
+
+interface StripeCatalogProduct {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+interface StripePortalConfiguration {
+  id: string;
+  active: boolean;
+  livemode: boolean;
+  features?: {
+    subscription_cancel?: { enabled?: boolean; mode?: string };
+  };
+}
+
+async function confirmedPortalConfiguration(): Promise<StripePortalConfiguration | null> {
+  const configurationId = process.env.STRIPE_BILLING_PORTAL_CONFIGURATION?.trim();
+  if (!configurationId || stripeMode() !== "test") return null;
+  try {
+    const configuration = await stripeRequest<StripePortalConfiguration>(
+      `/billing_portal/configurations/${encodeURIComponent(configurationId)}`,
+    );
+    const cancellation = configuration.features?.subscription_cancel;
+    const cancellationIsSafe =
+      cancellation !== undefined &&
+      (cancellation.enabled === false ||
+        (cancellation.enabled === true && cancellation.mode === "at_period_end"));
+    return configuration.id === configurationId &&
+      configuration.active &&
+      !configuration.livemode &&
+      cancellationIsSafe
+      ? configuration
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function providerPlanPrice(plan: Plan): Promise<PlanCatalogEntry> {
+  const priceId = priceIdForPlan(plan);
+  if (!priceId) return { plan, configured: false };
+  const price = await stripeRequest<StripeCatalogPrice>(
+    `/prices/${encodeURIComponent(priceId)}`,
+    { params: { expand: ["product"] } },
+  );
+  const product =
+    typeof price.product === "string"
+      ? await stripeRequest<StripeCatalogProduct>(
+          `/products/${encodeURIComponent(price.product)}`,
+        )
+      : price.product;
+  if (
+    price.id !== priceId ||
+    price.livemode ||
+    !price.active ||
+    (price.metadata?.[MOSAI_PLAN_METADATA_KEY] !== undefined &&
+      price.metadata[MOSAI_PLAN_METADATA_KEY] !== plan) ||
+    !price.recurring ||
+    !Number.isSafeInteger(price.unit_amount) ||
+    price.unit_amount === null ||
+    !/^[a-z]{3}$/.test(price.currency) ||
+    !product.active ||
+    !product.name.trim()
+  ) {
+    return { plan, configured: false };
+  }
+  return {
+    plan,
+    configured: true,
+    productName: product.name,
+    priceId: price.id,
+    amountMinor: price.unit_amount,
+    currency: price.currency.toUpperCase(),
+    interval: price.recurring.interval,
+    intervalCount: price.recurring.interval_count,
+    taxBehavior: price.tax_behavior ?? "unspecified",
+  };
 }
 
 /** A stable idempotency bucket: retries within the same day reuse the key, so
@@ -127,15 +239,50 @@ export const currentOrganization = orgQuery({
   },
 });
 
-/** The billing catalog: which plans are really purchasable, and in which mode. */
-export const catalog = orgQuery({
+/** Customer-safe display projection of configured Stripe test prices. */
+export const catalog = orgAction({
   args: {},
   handler: async (_ctx, _args, access) => {
     await access.requireUser();
+    if (stripeMode() !== "test") {
+      return {
+        configured: false,
+        checkoutReady: false,
+        portalReady: false,
+        setupIssue: "Stripe test mode is not configured.",
+        mode: stripeMode(),
+        tax: "calculated_at_checkout" as const,
+        plans: planCatalog(),
+      };
+    }
+    assertStripeModeAllowed();
+    const paidPlans = await Promise.all(PAID_PLANS.map(providerPlanPrice));
+    const configured = paidPlans.some((entry) => entry.configured);
+    const portalConfiguration = await confirmedPortalConfiguration();
+    let appOriginReady = true;
+    try {
+      trustedAppOrigin();
+    } catch {
+      appOriginReady = false;
+    }
     return {
-      configured: checkoutConfigured(),
+      configured,
+      checkoutReady: configured && appOriginReady,
+      portalReady: portalConfiguration !== null,
+      ...(!portalConfiguration
+        ? { portalSetupIssue: "Billing portal is unavailable until a Stripe test configuration with safe cancellation settings is set up." }
+        : {}),
+      ...(!appOriginReady
+        ? { setupIssue: "MOSAI_APP_ORIGIN is not configured for this app." }
+        : !configured
+          ? { setupIssue: "No active Stripe test prices are configured." }
+          : {}),
       mode: stripeMode(),
-      plans: planCatalog(),
+      tax: "calculated_at_checkout" as const,
+      plans: [
+        ...planCatalog().filter((entry) => entry.plan === DEFAULT_PLAN),
+        ...paidPlans,
+      ],
     };
   },
 });
@@ -149,7 +296,10 @@ export const subscription = orgQuery({
     const rows = await ctx.db
       .query("subscriptions")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
-      .collect();
+      .take(101);
+    if (rows.length > 100) {
+      throw new Error("Too many subscription history records to safely determine the current subscription.");
+    }
     const rank = (status: string) =>
       status === "active" || status === "trialing"
         ? 0
@@ -199,7 +349,7 @@ export const subscription = orgQuery({
           hostedInvoiceUrl: invoice.hostedInvoiceUrl,
         })),
       hasCustomer: Boolean(customer),
-      checkoutConfigured: checkoutConfigured(),
+      checkoutConfigured: stripeMode() === "test" && checkoutConfigured(),
       mode: stripeMode(),
     };
   },
@@ -214,10 +364,21 @@ export const startCheckout = orgAction({
     plan: v.string(),
     successUrl: v.string(),
     cancelUrl: v.string(),
+    expectedPriceId: v.string(),
+    expectedAmountMinor: v.number(),
+    expectedCurrency: v.string(),
   },
   handler: async (
     ctx: ActionCtx,
-    { organizationId, plan, successUrl, cancelUrl },
+    {
+      organizationId,
+      plan,
+      successUrl,
+      cancelUrl,
+      expectedPriceId,
+      expectedAmountMinor,
+      expectedCurrency,
+    },
     access: OrgAccess,
   ): Promise<{ url: string }> => {
     const scope = await access.requireOrganization(organizationId);
@@ -227,15 +388,24 @@ export const startCheckout = orgAction({
     if (!isPlan(plan) || plan === DEFAULT_PLAN) {
       throw new Error("Choose a paid plan to start checkout.");
     }
-    const priceId = priceIdForPlan(plan);
-    if (!priceId) {
-      throw new Error(
-        `${plan} is not available for purchase yet — its Stripe price is not configured.`,
-      );
-    }
-    assertHttpUrl(successUrl);
-    assertHttpUrl(cancelUrl);
+    const safeSuccessUrl = billingReturnUrl(successUrl);
+    const safeCancelUrl = billingReturnUrl(cancelUrl);
     assertStripeModeAllowed();
+    if (stripeMode() !== "test") {
+      throw new Error("Customer checkout is available only from the Stripe test catalog.");
+    }
+    const currentPrice = await providerPlanPrice(plan);
+    if (!currentPrice.configured || !currentPrice.priceId) {
+      throw new Error(`${plan} is not available — its Stripe test price is not configured.`);
+    }
+    if (
+      currentPrice.priceId !== expectedPriceId ||
+      currentPrice.amountMinor !== expectedAmountMinor ||
+      currentPrice.currency !== expectedCurrency.toUpperCase()
+    ) {
+      throw new Error("The Stripe catalog changed. Review the updated price before checkout.");
+    }
+    const priceId = currentPrice.priceId;
 
     let customerId: string | null = await ctx.runQuery(
       internal.billing.customerForOrganization,
@@ -262,17 +432,16 @@ export const startCheckout = orgAction({
       "/checkout/sessions",
       {
         method: "POST",
-        idempotencyKey: `mosai-checkout-${organizationId}-${plan}-${dayBucket()}`,
+        idempotencyKey: `mosai-checkout-${organizationId}-${plan}-${priceId}-${dayBucket()}`,
         params: {
           mode: "subscription",
           customer: customerId,
           client_reference_id: organizationId,
           line_items: [{ price: priceId, quantity: 1 }],
-          success_url: successUrl,
-          cancel_url: cancelUrl,
+          success_url: safeSuccessUrl,
+          cancel_url: safeCancelUrl,
           // Owner decision: Stripe Tax is enabled for MOSAI's own billing.
           automatic_tax: { enabled: true },
-          allow_promotion_codes: true,
           subscription_data: {
             metadata: {
               [MOSAI_ORG_METADATA_KEY]: organizationId,
@@ -306,8 +475,15 @@ export const openPortal = orgAction({
     if (!roleCan(scope.membership.role, "organization.update")) {
       throw new Error("Your role in this organization does not allow billing changes.");
     }
-    assertHttpUrl(returnUrl);
+    const safeReturnUrl = billingReturnUrl(returnUrl);
     assertStripeModeAllowed();
+    if (stripeMode() !== "test") {
+      throw new Error("Customer billing is available only from the Stripe test catalog.");
+    }
+    const portalConfiguration = await confirmedPortalConfiguration();
+    if (!portalConfiguration) {
+      throw new Error("Billing portal is unavailable until its Stripe test configuration confirms period-end or disabled cancellation.");
+    }
     const customerId = await ctx.runQuery(internal.billing.customerForOrganization, {
       organizationId,
     });
@@ -318,8 +494,12 @@ export const openPortal = orgAction({
       "/billing_portal/sessions",
       {
         method: "POST",
-        idempotencyKey: `mosai-portal-${organizationId}-${minuteBucket()}`,
-        params: { customer: customerId, return_url: returnUrl },
+        idempotencyKey: `mosai-portal-${organizationId}-${portalConfiguration.id}-${minuteBucket()}`,
+        params: {
+          customer: customerId,
+          return_url: safeReturnUrl,
+          configuration: portalConfiguration.id,
+        },
       },
     );
     if (!session.url) throw new Error("Stripe returned no portal URL.");
@@ -334,12 +514,7 @@ export const openPortal = orgAction({
  * in `lib/capabilities.ts` + `guards.ts`. Nothing callable from a client
  * decides entitlements any more. */
 
-/** Local plan mirror change. When STRIPE_SECRET_KEY is configured this should
- *  be replaced by a Stripe Checkout + webhook path.
- *
- *  Locked down by default: a signed-in user must NOT be able to raise their
- *  own plan (that is the abuse the review flagged). It only works when
- *  SELF_SERVE_PLAN_CHANGES is explicitly enabled for a local demo. */
+/** Local plan mirror change is available only for explicitly enabled demos. */
 export const changePlan = mutation({
   args: { plan: v.union(...PLANS.map((p) => v.literal(p))) },
   handler: async (ctx, { plan }) => {
@@ -353,14 +528,65 @@ export const changePlan = mutation({
   },
 });
 
-/** TODO (review G4): this is an instant switch-off. It must become a
- *  wind-down — obligations (running campaigns, open orders, scheduled posts)
- *  resolved or explicitly accepted before the plan actually drops. */
-export const cancelPlan = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const { userId } = await userCtx(ctx);
-    await ctx.db.patch(userId, { planStatus: "canceled", plan: "free" });
+/** Set cancel_at_period_end in Stripe; only webhooks change the entitlement. */
+export const cancelSubscriptionAtPeriodEnd = orgAction({
+  args: { organizationId: v.id("organizations") },
+  handler: async (
+    ctx,
+    { organizationId },
+    access,
+  ): Promise<{ cancelAtPeriodEnd: boolean; currentPeriodEnd: number | null }> => {
+    const scope = await access.requireOrganization(organizationId);
+    if (!roleCan(scope.membership.role, "organization.update")) {
+      throw new Error("Your role in this organization does not allow billing changes.");
+    }
+    assertStripeModeAllowed();
+    if (stripeMode() !== "test") {
+      throw new Error("Customer billing is available only from the Stripe test catalog.");
+    }
+    const governing = await ctx.runQuery(
+      internal.billing.subscriptionForOrganization,
+      { organizationId },
+    );
+    if (!governing || !["active", "trialing", "past_due"].includes(governing.status)) {
+      throw new Error("There is no cancellable Stripe subscription for this organization.");
+    }
+    if (governing.cancelAtPeriodEnd) {
+      return {
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: governing.currentPeriodEnd ?? null,
+      };
+    }
+    const cancellationRevision = governing.lastEventId ?? String(governing.lastEventCreated);
+    const idempotencyKey = `mosai-cancel-period-end-${governing.subscriptionId}-${cancellationRevision}`;
+    const confirmed = await stripeRequest<{
+      id: string;
+      status: string;
+      cancel_at_period_end: boolean;
+      current_period_end?: number;
+    }>(`/subscriptions/${encodeURIComponent(governing.subscriptionId)}`, {
+      method: "POST",
+      idempotencyKey,
+      params: { cancel_at_period_end: true },
+    });
+    if (confirmed.id !== governing.subscriptionId || !confirmed.cancel_at_period_end) {
+      throw new Error("Stripe did not confirm cancellation at the billing period end.");
+    }
+    if (!["active", "trialing", "past_due"].includes(confirmed.status)) {
+      throw new Error(
+        `Stripe returned status ${confirmed.status} after the cancellation request; no scheduled-cancellation receipt was recorded. Refresh billing status before retrying.`,
+      );
+    }
+    await ctx.runMutation(internal.billing.recordPeriodEndCancellation, {
+      organizationId,
+      subscriptionId: confirmed.id,
+      currentPeriodEnd: confirmed.current_period_end,
+      eventId: idempotencyKey,
+    });
+    return {
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: confirmed.current_period_end ?? null,
+    };
   },
 });
 
@@ -410,6 +636,69 @@ export const customerForOrganization = internalQuery({
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .first();
     return row?.customerId ?? null;
+  },
+});
+
+export const subscriptionForOrganization = internalQuery({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }): Promise<Doc<"subscriptions"> | null> => {
+    const rows = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(101);
+    if (rows.length > 100) {
+      throw new Error("Too many subscription history records to safely determine the current subscription.");
+    }
+    const eligible = rows.filter((row) =>
+      ["active", "trialing", "past_due"].includes(row.status),
+    );
+    if (eligible.length > 1) {
+      throw new Error(
+        "Ambiguous billing state: multiple eligible subscriptions exist for this organization.",
+      );
+    }
+    return eligible[0] ?? null;
+  },
+});
+
+/** Record Stripe's confirmed period-end flag without changing the entitlement. */
+export const recordPeriodEndCancellation = internalMutation({
+  args: {
+    organizationId: v.id("organizations"),
+    subscriptionId: v.string(),
+    currentPeriodEnd: v.optional(v.number()),
+    eventId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const subscription = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_subscription", (q) => q.eq("subscriptionId", args.subscriptionId))
+      .unique();
+    if (!subscription || subscription.organizationId !== args.organizationId) {
+      throw new Error("The confirmed Stripe subscription no longer matches this organization.");
+    }
+    const existingReceipt = await ctx.db
+      .query("billingReceipts")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .first();
+    if (existingReceipt) return;
+    await ctx.db.patch(subscription._id, {
+      cancelAtPeriodEnd: true,
+      ...(args.currentPeriodEnd === undefined
+        ? {}
+        : { currentPeriodEnd: args.currentPeriodEnd }),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("billingReceipts", {
+      provider: "stripe",
+      objectType: "subscription",
+      objectId: args.subscriptionId,
+      eventId: args.eventId,
+      eventType: "subscription.cancel_at_period_end.confirmed",
+      organizationId: args.organizationId,
+      livemode: false,
+      createdAt: Date.now(),
+    });
   },
 });
 

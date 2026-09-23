@@ -141,18 +141,54 @@ export const WIND_DOWN_GRACE_MS =
  *  owner finalises them; `configured` says whether checkout can really start. */
 export interface PlanCatalogEntry {
   plan: Plan;
-  /** True when a Stripe price id is configured for this plan. */
+  /** True only when a matching active recurring Stripe test price was read. */
   configured: boolean;
-  /** The currency the plan will be sold in (Stripe Tax is enabled). */
-  currency: string;
+  /** Product display data comes from Stripe, never from a local euro label. */
+  productName?: string;
+  priceId?: string;
+  amountMinor?: number;
+  currency?: string;
+  interval?: string;
+  intervalCount?: number;
+  taxBehavior?: "inclusive" | "exclusive" | "unspecified";
 }
 
 export function planCatalog(): PlanCatalogEntry[] {
   return PLANS.map((plan) => ({
     plan,
-    configured: plan === DEFAULT_PLAN || priceIdForPlan(plan) !== null,
-    currency: "eur",
+    configured: plan === DEFAULT_PLAN,
+    ...(plan === DEFAULT_PLAN ? { productName: "Free" } : {}),
   }));
+}
+
+/** Allow only a billing-page return path on the server-configured app origin. */
+export function assertTrustedBillingReturnUrl(
+  value: string,
+  trustedOrigin: string,
+): string {
+  let url: URL;
+  let origin: URL;
+  try {
+    url = new URL(value);
+    origin = new URL(trustedOrigin);
+  } catch {
+    throw new Error("A valid billing return URL is required.");
+  }
+  const trusted = origin.origin === trustedOrigin.replace(/\/$/, "");
+  const localHttp =
+    origin.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
+  if (
+    !trusted ||
+    (origin.protocol !== "https:" && !localHttp) ||
+    url.origin !== origin.origin ||
+    url.pathname !== "/app/billing" ||
+    url.username.length > 0 ||
+    url.password.length > 0
+  ) {
+    throw new Error("Billing return URLs must use the trusted app billing page.");
+  }
+  return url.toString();
 }
 
 /** True when the deployment can start a Stripe checkout at all. */

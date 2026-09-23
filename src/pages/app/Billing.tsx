@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { AlertTriangle, Check, CreditCard, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, CreditCard, Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,37 +25,25 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { PlanCatalogEntry } from "@/convex/lib/billingCatalog";
 
-/** Presentation only. Which modules each plan includes is **not** listed here:
- *  it comes from the capability registry over `entitlements.plans` (T2.3).
- *  Whether a plan can actually be bought comes from `billing.catalog` (T2.4):
- *  the owner has not finalised prices, so an unconfigured plan is honestly
- *  shown as unavailable rather than sold. */
+type BillingCatalog = {
+  configured: boolean;
+  checkoutReady: boolean;
+  portalReady: boolean;
+  setupIssue?: string;
+  portalSetupIssue?: string;
+  mode: "test" | "live" | "unconfigured";
+  tax: "calculated_at_checkout";
+  plans: PlanCatalogEntry[];
+};
+
+/** Plan ids are stable registry keys; paid package names and prices come from Stripe. */
 const PLAN_CARDS = [
-  {
-    id: "free",
-    name: "Free",
-    price: "€0",
-    blurb: "Understand + Create. See if the workflow fits.",
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    price: "€29/mo",
-    blurb: "Everything to launch: build, customers, promote.",
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    price: "€79/mo",
-    blurb: "Add commerce: sell products with feeds.",
-  },
-  {
-    id: "scale",
-    name: "Scale",
-    price: "€199/mo",
-    blurb: "The full growth OS with insights and recommendations.",
-  },
+  { id: "free" },
+  { id: "starter" },
+  { id: "growth" },
+  { id: "scale" },
 ] as const;
 
 const RETURN_URL = () =>
@@ -63,33 +51,78 @@ const RETURN_URL = () =>
 
 export default function Billing() {
   const billing = useQuery(api.billing.currentPlan);
-  const planCatalog = useQuery(api.entitlements.plans);
   const organization = useQuery(api.billing.currentOrganization);
   const organizationId = organization?.organizationId;
   const billingState = useQuery(
     api.billing.subscription,
     organizationId ? { organizationId } : "skip",
   );
-  const catalog = useQuery(api.billing.catalog);
-
-  const changePlan = useMutation(api.billing.changePlan);
-  const cancelPlan = useMutation(api.billing.cancelPlan);
-  const deleteAccount = useMutation(api.billing.deleteAccount);
+  const loadCatalog = useAction(api.billing.catalog);
   const startCheckout = useAction(api.billing.startCheckout);
   const openPortal = useAction(api.billing.openPortal);
+  const cancelSubscription = useAction(api.billing.cancelSubscriptionAtPeriodEnd);
+  const [catalog, setCatalog] = useState<BillingCatalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadCatalog({})
+      .then((result) => {
+        if (active) {
+          setCatalog(result);
+          setCatalogError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setCatalogError(error instanceof Error ? error.message : "Billing catalog is unavailable.");
+        }
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadCatalog]);
+
+  const changePlan = useMutation(api.billing.changePlan);
+  const deleteAccount = useMutation(api.billing.deleteAccount);
   const [busy, setBusy] = useState<string | null>(null);
 
   const currentPlan = billingState?.plan ?? billing?.plan ?? "free";
   const selfServe = billing?.selfServePlanChanges ?? false;
-  const configuredPlan = (plan: string) =>
-    catalog?.plans.find((entry) => entry.plan === plan)?.configured ?? false;
-  const checkoutReady = catalog?.configured ?? false;
+  const catalogPlan = (plan: string) =>
+    catalog?.plans.find((entry) => entry.plan === plan);
+  const configuredPlan = (plan: string) => catalogPlan(plan)?.configured ?? false;
+  const checkoutReady = catalog?.checkoutReady ?? false;
+
+  const formatProviderPrice = (entry: PlanCatalogEntry | undefined) => {
+    if (!entry?.configured || entry.amountMinor === undefined || !entry.currency) {
+      return entry?.plan === "free" ? "Free" : "Price needs setup";
+    }
+    const digits = new Intl.NumberFormat("en", {
+      style: "currency",
+      currency: entry.currency,
+    }).resolvedOptions().maximumFractionDigits ?? 2;
+    const amount = entry.amountMinor / 10 ** digits;
+    const formatted = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: entry.currency,
+    }).format(amount);
+    const interval = entry.intervalCount && entry.intervalCount > 1
+      ? `every ${entry.intervalCount} ${entry.interval}s`
+      : `per ${entry.interval ?? "billing interval"}`;
+    return `${formatted} ${interval}`;
+  };
 
   const doChange = async (plan: string) => {
     setBusy(plan);
     try {
       await changePlan({ plan: plan as "free" | "starter" | "growth" | "scale" });
-      toast.success(`Switched to ${plan}`);
+      toast.success(`Demo plan switched to ${plan}`, {
+        description: "Demo only. No Stripe charge or paid subscription was created.",
+      });
     } catch (e) {
       toast.error("Plan change failed", {
         description: e instanceof Error ? e.message : "Try again.",
@@ -111,12 +144,18 @@ export default function Billing() {
         plan,
         successUrl: `${RETURN_URL()}?checkout=success`,
         cancelUrl: `${RETURN_URL()}?checkout=cancelled`,
+        expectedPriceId: catalogPlan(plan)?.priceId ?? "",
+        expectedAmountMinor: catalogPlan(plan)?.amountMinor ?? -1,
+        expectedCurrency: catalogPlan(plan)?.currency ?? "",
       });
       // The plan is NOT granted here: the browser landing on Stripe's success
       // page proves nothing. The verified webhook writes the mirror once Stripe
       // confirms the subscription.
       window.location.assign(url);
     } catch (e) {
+      if (e instanceof Error && e.message.includes("catalog changed")) {
+        void loadCatalog({}).then((result) => setCatalog(result)).catch(() => undefined);
+      }
       toast.error("Could not start checkout", {
         description: e instanceof Error ? e.message : "Try again.",
       });
@@ -142,10 +181,11 @@ export default function Billing() {
   };
 
   const doCancel = async () => {
+    if (!organizationId) return;
     setBusy("cancel");
     try {
-      await cancelPlan();
-      toast.success("Subscription canceled — you're on Free");
+      await cancelSubscription({ organizationId: organizationId as Id<"organizations"> });
+      toast.success("Cancellation scheduled for the end of the billing period");
     } catch (e) {
       toast.error("Cancel failed", {
         description: e instanceof Error ? e.message : "Try again.",
@@ -228,21 +268,32 @@ export default function Billing() {
         </div>
       )}
 
-      {billing && !checkoutReady && (
+      {catalogLoading && (
+        <p role="status" className="mb-4 font-mono text-caption text-muted-foreground">
+          Loading Stripe test prices…
+        </p>
+      )}
+      {catalogError && (
+        <p role="alert" className="mb-4 rounded-md border border-terminal-red/40 bg-card px-3 py-2 font-mono text-caption text-terminal-red">
+          Billing prices could not be loaded. {catalogError}
+        </p>
+      )}
+
+      {billing && !catalogLoading && !catalogError && !checkoutReady && (
         <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 font-mono text-caption text-muted-foreground">
-          Online checkout is not configured on this deployment yet — no plan is
-          changed from this screen. Add the Stripe keys in the Keys / API keys
-          settings to enable it.
+          {catalog?.setupIssue ?? "Billing is not configured on this deployment."}
         </p>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PLAN_CARDS.map((p) => {
           const isCurrent = p.id === currentPlan;
-          const cardModules =
-            planCatalog?.find((entry) => entry.id === p.id)?.modules ?? [];
+          const price = catalogPlan(p.id);
+          const productName = p.id === "free"
+            ? "Free"
+            : price?.productName ?? "Provider price unavailable";
           const canBuy =
-            p.id !== "free" && configuredPlan(p.id) && Boolean(organizationId);
+            p.id !== "free" && checkoutReady && configuredPlan(p.id) && Boolean(organizationId);
           return (
             <Card
               key={p.id}
@@ -253,7 +304,7 @@ export default function Billing() {
             >
               <CardHeader className="px-4">
                 <CardTitle className="flex items-center gap-2 font-mono text-h3">
-                  {p.name}
+                  {productName}
                   {isCurrent && (
                     <Badge
                       variant="outline"
@@ -263,38 +314,42 @@ export default function Billing() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="font-mono text-caption">
-                  {p.blurb}
-                </CardDescription>
+                {price?.configured && price.taxBehavior && (
+                  <CardDescription className="font-mono text-caption">
+                    {price.taxBehavior === "inclusive"
+                      ? "Tax included"
+                      : price.taxBehavior === "exclusive"
+                        ? "Tax added at checkout"
+                        : "Tax calculated at checkout"}
+                  </CardDescription>
+                )}
+                {selfServe && (
+                  <CardDescription className="font-mono text-caption">
+                    Demo only — switching plans here does not create a Stripe subscription or charge.
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent className="px-4">
-                <p className="font-mono text-metric">{p.price}</p>
-                <ul className="mt-3 space-y-1">
-                  {cardModules.map((m) => (
-                    <li
-                      key={m.id}
-                      className="flex items-center gap-1.5 font-mono text-caption text-muted-foreground"
-                    >
-                      <Check className="size-3 text-terminal-green" /> {m.label}
-                    </li>
-                  ))}
-                </ul>
+                <p className="font-mono text-metric">{formatProviderPrice(price)}</p>
                 <Button
                   className="mt-4 w-full"
                   size="sm"
                   variant={isCurrent ? "outline" : "default"}
-                  disabled={isCurrent || busy === p.id || (!selfServe && !canBuy)}
+                  aria-busy={busy === p.id}
+                  disabled={isCurrent || busy === p.id || catalogLoading || (!selfServe && !canBuy)}
                   onClick={() =>
                     canBuy && !selfServe ? doCheckout(p.id) : doChange(p.id)
                   }
                 >
                   {busy === p.id && <Loader2 className="size-4 animate-spin" />}
-                  {isCurrent
+                  {busy === p.id
+                    ? canBuy && !selfServe ? "Opening checkout…" : "Updating plan…"
+                    : isCurrent
                     ? "Active"
                     : canBuy
                       ? "Upgrade"
                       : selfServe
-                        ? "Switch plan"
+                        ? "Demo switch"
                         : "Unavailable"}
                 </Button>
               </CardContent>
@@ -307,37 +362,47 @@ export default function Billing() {
         <div className="min-w-0">
           <p className="font-mono text-small font-medium">Manage subscription</p>
           <p className="font-mono text-caption text-muted-foreground">
-            {checkoutReady
-              ? "Update payment method, download invoices or cancel in Stripe."
-              : "Drops you to Free. Data is kept until you delete the account."}
+            {billingState?.subscription?.cancelAtPeriodEnd
+              ? `Cancellation scheduled for ${billingState.subscription.currentPeriodEnd
+                  ? new Date(billingState.subscription.currentPeriodEnd * 1000).toLocaleDateString()
+                  : "the period end"}. Paid access remains until Stripe confirms the change.`
+              : "Cancellation takes effect at the end of the current billing period."}
           </p>
         </div>
-        {checkoutReady ? (
+        <Button
+          size="sm"
+          variant="outline"
+          aria-busy={busy === "cancel"}
+          disabled={
+            !checkoutReady || !billingState?.canManage ||
+            !["active", "trialing", "past_due"].includes(billingState.subscription?.status ?? "") ||
+            billingState.subscription?.cancelAtPeriodEnd === true || busy === "cancel"
+          }
+          onClick={doCancel}
+        >
+          {busy === "cancel" && <Loader2 className="size-4 animate-spin" />}
+          {busy === "cancel"
+            ? "Scheduling cancellation…"
+            : billingState?.subscription?.cancelAtPeriodEnd
+              ? "Cancellation scheduled"
+              : "Cancel at period end"}
+        </Button>
+        {checkoutReady && catalog?.portalReady && (
           <Button
-            className="ml-auto"
             size="sm"
             variant="outline"
+            aria-busy={busy === "portal"}
             disabled={!billingState?.hasCustomer || busy === "portal"}
             onClick={doPortal}
           >
-            {busy === "portal" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <CreditCard className="size-4" />
-            )}
+            {busy === "portal" ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
             Billing portal
           </Button>
-        ) : (
-          <Button
-            className="ml-auto"
-            size="sm"
-            variant="outline"
-            disabled={currentPlan === "free" || busy === "cancel"}
-            onClick={doCancel}
-          >
-            {busy === "cancel" && <Loader2 className="size-4 animate-spin" />}
-            Cancel subscription
-          </Button>
+        )}
+        {checkoutReady && !catalog?.portalReady && (
+          <p role="status" className="font-mono text-caption text-muted-foreground">
+            {catalog?.portalSetupIssue ?? "Billing portal is unavailable; invoices remain available below."}
+          </p>
         )}
       </div>
 
