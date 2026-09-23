@@ -1,92 +1,54 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
-import { socialPlatformEnv, type SocialPlatform } from "./platforms";
 
 /**
- * Social credential storage + refresh. Mirrors ads/credentials.ts.
+ * Social credential storage + refresh bookkeeping (BP-04).
  * Tokens live in Convex and NEVER leave the server: the client queries only
  * status/labels, never token values.
+ *
+ * The provider request itself lives in `social/credentialActions.ts` — an
+ * **action** is the only place a `fetch` may run (Convex forbids it in
+ * queries/mutations, and the lease/version protocol below is what makes a
+ * concurrent rotating-token response safe):
+ *
+ *   claim (lease + version) → provider request in the action →
+ *   save (only while the lease is held AND the version is unchanged) →
+ *   release on any failure. A stale response can never overwrite a newer
+ *   refresh token.
  */
 
-/** Refresh the access token when (nearly) expired. X and TikTok return
- *  refresh tokens with 24h access tokens; Meta pages tokens are long-lived;
- *  LinkedIn tokens are 60 days with no refresh. */
-export async function ensureFreshSocialToken(
-  db: {
-    get(id: Id<"socialCredentials">): Promise<Record<string, unknown> | null>;
-    patch(id: Id<"socialCredentials">, patch: Record<string, unknown>): Promise<void>;
-  },
-  credId: Id<"socialCredentials">,
-): Promise<string> {
-  const cred = await db.get(credId);
-  if (!cred) throw new Error("Social credential not found");
-  const accessToken = cred.accessToken as string;
-  const expiresAt = cred.expiresAt as number | undefined;
-  const refreshToken = cred.refreshToken as string | undefined;
-  const platform = cred.platform as SocialPlatform;
+/** How long one refresh attempt may hold the claim. Long enough for a slow
+ *  provider, short enough that a crashed attempt stops blocking refreshes. */
+export const REFRESH_LEASE_MS = 60_000;
 
-  // Still valid for >5 min — use as-is.
-  if (!expiresAt || expiresAt > Date.now() + 5 * 60 * 1000) return accessToken;
+/** Access tokens with less than this margin are treated as expired. */
+const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
-  if (!refreshToken) {
-    throw new Error(
-      "Access token expired and no refresh token available — reconnect this platform.",
-    );
-  }
+/** The one result shape a refresh returns. Tokens travel only inside actions
+ *  on the server; callers surface `message` (redacted) to users/posts. */
+export type RefreshOutcome =
+  | { ok: true; accessToken: string }
+  | {
+      ok: false;
+      reason: "missing" | "not_configured" | "reconnect" | "busy" | "provider_error";
+      message: string;
+    };
 
-  const env = socialPlatformEnv(platform);
-  if (!env) throw new Error("Platform credentials not configured in this deployment");
-
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
-    Accept: "application/json",
-  };
-  if (env.tokenExchange === "basic") {
-    headers.Authorization = `Basic ${btoa(`${env.clientId}:${env.clientSecret}`)}`;
-  } else {
-    body.set("client_id", env.clientId);
-    body.set("client_secret", env.clientSecret);
-  }
-
-  const res = await fetch(env.tokenUrl, { method: "POST", headers, body });
-  if (!res.ok) {
-    throw new Error(
-      `Token refresh failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
-    );
-  }
-  const data = (await res.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
-  if (!data.access_token) throw new Error("Token refresh returned no access token");
-
-  const patch: Record<string, unknown> = {
-    accessToken: data.access_token,
-    updatedAt: Date.now(),
-  };
-  if (data.expires_in) patch.expiresAt = Date.now() + data.expires_in * 1000;
-  if (data.refresh_token) patch.refreshToken = data.refresh_token;
-  await db.patch(credId, patch);
-  return data.access_token;
+/** Fresh enough to use without a provider round trip. A credential with no
+ *  `expiresAt` (long-lived token) is always fresh. */
+export function tokenIsFresh(
+  cred: { expiresAt?: number | undefined },
+  now = Date.now(),
+): boolean {
+  return !cred.expiresAt || cred.expiresAt > now + REFRESH_SKEW_MS;
 }
 
-/** Action-safe wrapper: refresh if needed and return the token. Actions have
- *  no ctx.db, so they call this internalMutation instead. */
-export const refreshIfNeeded = internalMutation({
-  args: { credId: v.id("socialCredentials") },
-  handler: async (ctx, { credId }) => {
-    return await ensureFreshSocialToken(ctx.db, credId);
-  },
-});
-
-/** Internal query used by actions to fetch a credential id by (project, platform). */
-export const getCredId = internalQuery({
+/**
+ * The credential DOCUMENT for (project, platform) — the social handoff query
+ * used by the executor. Callers take `credential._id` from this document;
+ * they never cast the document itself to an id (the BP-04 defect).
+ */
+export const getCredential = internalQuery({
   args: { projectId: v.id("projects"), platform: v.string() },
   handler: async (ctx, { projectId, platform }) => {
     return await ctx.db
@@ -95,5 +57,109 @@ export const getCredId = internalQuery({
         q.eq("projectId", projectId).eq("platform", platform),
       )
       .first();
+  },
+});
+
+/** The credential document by id — used by the refresh action to load the
+ *  secrets it needs (server-to-server; never reachable from a client). */
+export const getCredentialById = internalQuery({
+  args: { credId: v.id("socialCredentials") },
+  handler: async (ctx, { credId }) => await ctx.db.get(credId),
+});
+
+/** Claim the right to refresh this credential: at most one lease holder, and
+ *  the version observed at claim time so a late save can be refused. */
+export const claimRefresh = internalMutation({
+  args: { credId: v.id("socialCredentials"), leaseMs: v.number() },
+  handler: async (ctx, { credId, leaseMs }) => {
+    const cred = await ctx.db.get(credId);
+    if (!cred) return { status: "missing" as const };
+    const now = Date.now();
+    if (cred.refreshLeaseId && cred.refreshLeaseUntil && cred.refreshLeaseUntil > now) {
+      return { status: "busy" as const };
+    }
+    // Either no lease, or an expired one (a crashed attempt expires safely).
+    const leaseId = crypto.randomUUID();
+    await ctx.db.patch(credId, {
+      refreshLeaseId: leaseId,
+      refreshLeaseUntil: now + leaseMs,
+    });
+    return {
+      status: "claimed" as const,
+      leaseId,
+      tokenVersion: cred.tokenVersion ?? 0,
+    };
+  },
+});
+
+/** Save a refresh result only while (a) our lease is still held and
+ *  unexpired and (b) the token version is still the one we claimed — a stale
+ *  rotating-token response can never overwrite a newer token. A newly
+ *  rotated refresh token supplied by the provider is saved here. */
+export const saveRefreshResult = internalMutation({
+  args: {
+    credId: v.id("socialCredentials"),
+    leaseId: v.string(),
+    expectedVersion: v.number(),
+    accessToken: v.string(),
+    expiresAt: v.optional(v.number()),
+    refreshToken: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const cred = await ctx.db.get(args.credId);
+    if (!cred) return { applied: false as const, reason: "missing" as const };
+    const leaseHeld =
+      cred.refreshLeaseId === args.leaseId &&
+      !!cred.refreshLeaseUntil &&
+      cred.refreshLeaseUntil > Date.now();
+    if (!leaseHeld) {
+      return { applied: false as const, reason: "lease_lost" as const };
+    }
+    const version = cred.tokenVersion ?? 0;
+    if (version !== args.expectedVersion) {
+      return { applied: false as const, reason: "stale_version" as const };
+    }
+    const patch: Record<string, unknown> = {
+      accessToken: args.accessToken,
+      updatedAt: Date.now(),
+      tokenVersion: version + 1,
+      refreshLeaseId: undefined,
+      refreshLeaseUntil: undefined,
+      refreshStatus: "ok",
+    };
+    if (args.expiresAt !== undefined) patch.expiresAt = args.expiresAt;
+    if (args.refreshToken) patch.refreshToken = args.refreshToken;
+    await ctx.db.patch(args.credId, patch);
+    return { applied: true as const };
+  },
+});
+
+/** Release a failed claim without touching tokens. A stale lease id (from an
+ *  attempt that already lost its claim) is a no-op. */
+export const releaseRefresh = internalMutation({
+  args: { credId: v.id("socialCredentials"), leaseId: v.string() },
+  handler: async (ctx, { credId, leaseId }) => {
+    const cred = await ctx.db.get(credId);
+    if (!cred || cred.refreshLeaseId !== leaseId) return;
+    await ctx.db.patch(credId, {
+      refreshLeaseId: undefined,
+      refreshLeaseUntil: undefined,
+    });
+  },
+});
+
+/** The provider rejected this credential (revoked / expired / no refresh
+ *  token): record the reconnect state so the UI offers "reconnect" instead of
+ *  pretending, and drop any held lease. Never stores provider text. */
+export const markNeedsReconnect = internalMutation({
+  args: { credId: v.id("socialCredentials") },
+  handler: async (ctx, { credId }) => {
+    const cred = await ctx.db.get(credId);
+    if (!cred) return;
+    await ctx.db.patch(credId, {
+      refreshStatus: "needs_reconnect",
+      refreshLeaseId: undefined,
+      refreshLeaseUntil: undefined,
+    });
   },
 });

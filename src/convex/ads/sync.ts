@@ -51,10 +51,16 @@ export const syncPlatform = moduleAction("promote", {
       platform,
     });
     if (!cred) throw new Error(`No ${platform} credential — connect the platform first`);
-    const accessToken = await ctx.runMutation(
-      internal.ads.credentials.refreshIfNeeded,
+    // BP-04: the provider request runs in an internal action (a mutation may
+    // not fetch). A rejected/expired credential surfaces here as the action's
+    // safe, redacted message and the sync stops honestly instead of proceeding
+    // with a dead token.
+    const refreshed = await ctx.runAction(
+      internal.ads.credentialActions.refreshIfNeeded,
       { credId: cred._id },
     );
+    if (!refreshed.ok) throw new Error(refreshed.message);
+    const accessToken = refreshed.accessToken;
 
     // 2. Sync accounts
     let accounts;

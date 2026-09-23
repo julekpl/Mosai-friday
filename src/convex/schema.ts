@@ -362,6 +362,15 @@ const schema = defineSchema(
       // provider-side account to post as (page id, open_id, …)
       providerAccountId: v.optional(v.string()),
       accountLabel: v.optional(v.string()),
+      // BP-04 — refresh bookkeeping, written only by internal server
+      // functions (the refresh action + its claim/save mutations). The client
+      // never receives tokens; `refreshStatus` is the safe, UI-facing signal.
+      refreshStatus: v.optional(
+        v.union(v.literal("ok"), v.literal("needs_reconnect")),
+      ),
+      tokenVersion: v.optional(v.number()),
+      refreshLeaseId: v.optional(v.string()),
+      refreshLeaseUntil: v.optional(v.number()),
       connectedBy: v.id("users"),
       createdAt: v.number(),
       updatedAt: v.number(),
@@ -785,6 +794,15 @@ const schema = defineSchema(
       expiresAt: v.optional(v.number()),
       scope: v.optional(v.string()),
       accountLabel: v.optional(v.string()),
+      // BP-04 — refresh bookkeeping, written only by internal server
+      // functions (the refresh action + its claim/save mutations). The client
+      // never receives tokens; `refreshStatus` is the safe, UI-facing signal.
+      refreshStatus: v.optional(
+        v.union(v.literal("ok"), v.literal("needs_reconnect")),
+      ),
+      tokenVersion: v.optional(v.number()),
+      refreshLeaseId: v.optional(v.string()),
+      refreshLeaseUntil: v.optional(v.number()),
       connectedBy: v.id("users"),
       createdAt: v.number(),
       updatedAt: v.number(),

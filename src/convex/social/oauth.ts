@@ -261,6 +261,14 @@ export const storeCred = internalMutation({
         providerAccountId: args.providerAccountId,
         accountLabel: args.accountLabel,
         updatedAt: now,
+        // BP-04: a fresh OAuth handshake supersedes any in-flight refresh —
+        // bump the version so a concurrent rotating-token response can never
+        // overwrite these tokens, drop a held lease, and clear the
+        // `needs_reconnect` state this reconnect just resolved.
+        tokenVersion: (existing.tokenVersion ?? 0) + 1,
+        refreshLeaseId: undefined,
+        refreshLeaseUntil: undefined,
+        refreshStatus: "ok" as const,
       });
       return existing._id;
     }

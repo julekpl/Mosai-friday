@@ -117,10 +117,15 @@ export const execute = moduleAction("promote", {
       platform,
     });
     if (!cred) throw new Error(`No ${platform} credential — reconnect the platform`);
-    const accessToken = await ctx.runMutation(
-      internal.ads.credentials.refreshIfNeeded,
+    // BP-04: refresh runs in an internal action; a rejection surfaces as a
+    // safe, redacted reconnect message and the change is not executed against
+    // the provider with a dead token.
+    const refreshed = await ctx.runAction(
+      internal.ads.credentialActions.refreshIfNeeded,
       { credId: cred._id },
     );
+    if (!refreshed.ok) throw new Error(refreshed.message);
+    const accessToken = refreshed.accessToken;
 
     const adapter = getAdapter(platform);
     let result: { ok: true; providerRef: string } | { ok: false; error: string };

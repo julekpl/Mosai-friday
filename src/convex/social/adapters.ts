@@ -57,7 +57,9 @@ const facebookAdapter: SocialPublisherAdapter = {
     if (!res.ok) {
       return {
         ok: false,
-        error: `Facebook publish failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
+        // BP-04: only the HTTP status is safe to surface — a provider body
+        // may echo tokens or account data and is never recorded on a post.
+        error: `Facebook publish failed (HTTP ${res.status})`,
       };
     }
     const data = (await res.json()) as { id?: string; post_id?: string };
@@ -116,7 +118,7 @@ const instagramAdapter: SocialPublisherAdapter = {
     if (!publish.ok) {
       return {
         ok: false,
-        error: `Instagram publish failed (${publish.status}): ${(await publish.text()).slice(0, 200)}`,
+        error: `Instagram publish failed (HTTP ${publish.status})`,
       };
     }
     const pd = (await publish.json()) as { id?: string };
@@ -165,7 +167,7 @@ const linkedinAdapter: SocialPublisherAdapter = {
     if (!res.ok) {
       return {
         ok: false,
-        error: `LinkedIn publish failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
+        error: `LinkedIn publish failed (HTTP ${res.status})`,
       };
     }
     const data = (await res.json()) as { id?: string };
@@ -193,7 +195,7 @@ const xAdapter: SocialPublisherAdapter = {
     if (!res.ok) {
       return {
         ok: false,
-        error: `X publish failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
+        error: `X publish failed (HTTP ${res.status})`,
       };
     }
     const data = (await res.json()) as { data?: { id?: string } };
@@ -233,7 +235,7 @@ const tiktokAdapter: SocialPublisherAdapter = {
     if (!res.ok) {
       return {
         ok: false,
-        error: `TikTok publish init failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
+        error: `TikTok publish init failed (HTTP ${res.status})`,
       };
     }
     const data = (await res.json()) as {

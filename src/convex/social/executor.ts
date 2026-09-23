@@ -11,6 +11,7 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { getSocialAdapter } from "./adapters";
 import { isSocialPlatform } from "./platforms";
+import type { RefreshOutcome } from "./credentials";
 import { capabilityMessage } from "../lib/capabilities";
 
 /**
@@ -136,14 +137,32 @@ export const runDue = internalAction({
       {},
     );
     for (const post of due) {
-      await publishOne(ctx, post._id);
-      // publishOne never throws — failures are recorded honestly per post.
+      try {
+        await publishOne(ctx, post._id);
+        // publishOne records failures honestly on the post itself.
+      } catch {
+        // Belt and braces: one post's unexpected throw must never abort the
+        // batch — record a safe failure for THIS post and continue with the
+        // next due post. Nothing here claims the post was published.
+        try {
+          await ctx.runMutation(internal.social.executor.markFailed, {
+            id: post._id,
+            errorDetail:
+              "Not published — an unexpected internal error occurred while publishing. Reconnect the platform in Promote and retry.",
+          });
+        } catch {
+          // The row itself could not be updated; keep the batch alive anyway.
+        }
+      }
     }
     return { processed: due.length };
   },
 });
 
-type RunCtx = Pick<GenericActionCtx<AnyDataModel>, "runQuery" | "runMutation">;
+type RunCtx = Pick<
+  GenericActionCtx<AnyDataModel>,
+  "runQuery" | "runMutation" | "runAction"
+>;
 
 /** Publish a single post via its platform adapter. Never throws — records
  *  the outcome (published/failed) on the post itself. */
@@ -191,11 +210,18 @@ async function publishOne(
     return { ok: false, error: err };
   }
 
-  const credId = (await ctx.runQuery(internal.social.credentials.getCredId, {
-    projectId: post.projectId,
-    platform: post.channel,
-  })) as Id<"socialCredentials"> | null;
-  if (!credId) {
+  // BP-04 handoff: the credential DOCUMENT comes from a typed internal query,
+  // and it is `credential._id` — never the document itself — that travels to
+  // the refresh action (the old code cast the document to an Id here, which
+  // aborted the publish at argument validation).
+  const credential = (await ctx.runQuery(
+    internal.social.credentials.getCredential,
+    { projectId: post.projectId, platform: post.channel },
+  )) as {
+    _id: Id<"socialCredentials">;
+    providerAccountId?: string | undefined;
+  } | null;
+  if (!credential) {
     const err = `Platform "${post.channel}" is not connected — connect it in Promote before publishing.`;
     await ctx.runMutation(internal.social.executor.markFailed, {
       id: postId,
@@ -204,18 +230,26 @@ async function publishOne(
     return { ok: false, error: err };
   }
 
-  const accessToken = (await ctx.runMutation(
-    internal.social.credentials.refreshIfNeeded,
-    { credId },
-  )) as string;
-
-  const cred = (await ctx.runQuery(internal.social.executor.getCred, {
-    credId,
-  })) as { providerAccountId?: string } | null;
+  // The token refresh runs in an internal ACTION (Convex forbids `fetch` in
+  // mutations; the action owns the lease/version protocol). Its failure is
+  // caught at THIS post's boundary: the post records the action's redacted
+  // message as its honest failure and the due-post batch continues.
+  const refreshed = (await ctx.runAction(
+    internal.social.credentialActions.refreshIfNeeded,
+    { credId: credential._id },
+  )) as RefreshOutcome;
+  if (!refreshed.ok) {
+    const err = `Not published — ${refreshed.message}`;
+    await ctx.runMutation(internal.social.executor.markFailed, {
+      id: postId,
+      errorDetail: err,
+    });
+    return { ok: false, error: err };
+  }
 
   const result = await getSocialAdapter(post.channel).publish(
-    accessToken,
-    cred?.providerAccountId,
+    refreshed.accessToken,
+    credential.providerAccountId,
     post.body,
     post.mediaUrl,
   );
