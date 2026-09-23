@@ -6,6 +6,17 @@
 (blueprint baseline; read from `.git/refs/heads/main` — git commands are
 blocked in this environment, blocker **B2**).
 
+**CI-verified commit (reconciliation, 23 Sep 2026):** GitHub `main` =
+`d3f6a8e09e301944789dc2c4487a831dc7698137` (independently confirmed; the
+local `.git/refs/heads/main` now holds the same SHA). CI run
+[`35828575954`](https://github.com/julekpl/Mosai-friday/actions/runs/35828575954)
+— **completed / failure**. Six jobs passed (typecheck, lint, unit, codegen
+drift, e2e, a11y); **both security jobs failed** at their secret-scan steps.
+**BP-01 status remains `implemented_unverified` and the release gate is
+blocked — CI is not green and must never be described as green while these
+failures stand.** See *CI reconciliation* and the *Owner remediation
+checklist* below.
+
 ---
 
 ## Outcome
@@ -19,6 +30,13 @@ retention, the smoke assertions match the current landing copy, stale status
 claims in `STATUS.md` are corrected to agree with executable code, and the
 T2.5 "done" discrepancy is reconciled as **not implemented** (fix belongs to
 BP-05 — deliberately not done here).
+
+CI run **35828575954** on `d3f6a8e` proves the split works structurally: both
+security jobs **executed independently** (a history finding no longer skips
+the working-tree scan and the audits), and the browser/typecheck/lint/unit/
+codegen jobs all **passed** on that exact commit. The run as a whole is a
+**failure**: both scans found real exposures. That is the honest state; the
+release gate stays blocked pending owner remediation (checklist below).
 
 ## Scope (files changed)
 
@@ -79,11 +97,11 @@ rotation/untracking action, never an allow-list entry.
 
 | Criterion | Demonstration |
 |---|---|
-| **All existing CI jobs execute and pass, including security checks previously skipped after the history failure** | The split guarantees execution: `security-history` and `security` are separate jobs, so a history finding can no longer skip the working-tree scan, local scan, `audit:functions`, `audit:capabilities` or `bun audit`. Every job's command is green locally **except two owner-gated honest reds, recorded not hidden**: (1) `scan:secrets` fails on the tracked `.env.keys` — fix is rotation + untracking per runbook, `git` blocked for agents (B2/B3); (2) `security-history` needs the gitleaks binary + git history — owner-run, command below. The `codegen` job's dated TODO (warns and skips without `CONVEX_DEPLOY_KEY`) is pre-existing, staged honesty, unchanged. |
+| **All existing CI jobs execute and pass, including security checks previously skipped after the history failure** | **Execute (the named defect): demonstrated by run 35828575954** — `security` and `security-history` are separate jobs; the history failure ran in its own job and did **not** skip the working-tree scan, which executed and failed on its own finding. (Within `security`, steps are sequential fail-fast: its later steps — local scan, both audits, `bun audit` — did not run after the first scan failed; their commands were verified green locally this chat. Optional `if: always()` hardening recorded, out of scope.) **Pass: NOT met.** Both security jobs **failed** (working-tree: tracked `.env.keys`; full-history: at least one historical credential — values never read or printed). Six other jobs passed on `d3f6a8e`. No scan may be weakened or allow-listed to change this; the fix is the owner remediation checklist below. **Release gate: blocked.** |
 | **Broken auth fails the relevant gate** | **Planted and observed this chat:** `RequireAuth`'s signed-out redirect was disabled → `a11y "app has no serious axe violations"` **failed** (its settle asserts `/auth?returnTo=%2Fapp` and never arrived). Reverted → **7/7 green** on re-run. |
 | **Wrong CTA navigation fails the relevant gate** | **Planted and observed this chat:** hero CTA `href="/auth"` → `"/signup"` → `smoke "the landing page renders and routes to sign-in"` **failed**: `Expected pattern: /\/auth$/, Received: http://localhost:5173/signup` (screenshot + error-context written to `test-results/`, exactly what CI uploads). Reverted → green. |
 | **Planted synthetic secret fixtures fail the relevant gates** | Proven earlier this chat: a synthetic `CONVEX_DEPLOY_KEY` fixture → scanner printed the finding with the value redacted, exit 1; fixture removed afterwards. Permanent regressions: `tests/unit/secret-scan.test.ts` + `secret-scan-env.test.ts` (6 tests, green in the 295) plant dummy keys in throwaway directories and assert exit 1 without echoing the value. |
-| **CI evidence attached to the exact commit** | Configured: artifacts are named `e2e-results-${{ github.sha }}` / `a11y-results-${{ github.sha }}`, uploaded on `failure()`, 7-day retention, sanitized by construction (test-only double, synthetic data, no credentials). Actually *attaching a run* to a commit requires pushing/Actions — **owner-run (B2)**; the workflow definition guarantees the SHA binding whenever CI runs. |
+| **CI evidence attached to the exact commit** | **Now has concrete evidence:** run `35828575954` is bound to commit `d3f6a8e09e301944789dc2c4487a831dc7698137` — typecheck, lint, unit, codegen drift, e2e and a11y **passed on that exact SHA**; both security jobs failed there (recorded above, not hidden). Failure artifacts remain configured as `e2e-results-${{ github.sha }}` / `a11y-results-${{ github.sha }}`, 7-day retention, sanitized by construction (test-only double, synthetic data, no credentials) — uploaded only for failing runs; in this run the failures were in the security jobs, which produce no browser artifacts. The criterion's *evidence* half is met; the *all-jobs-pass* half remains blocked on owner remediation. |
 | **STATUS agrees with executable code** | Stale claims corrected (Inventory below) and re-verified against today's outputs: 295 unit / 15+1 e2e / 5 a11y / audits exit 0 / check red only at `scan:secrets` / R4 green / T2.5 not implemented / missing docs in §7. |
 
 ## Inventory — skipped tests, expected failures, stale claims (scope item 6)
@@ -187,14 +205,109 @@ git / gitleaks                → blocked / not installed (B2): owner-run eviden
 
 ## Proof / remaining owner-run evidence (B2, B3)
 
-1. Push the commit and attach the CI run (workflow guarantees SHA-named
-   artifacts); agent cannot run git/GitHub commands.
-2. Full-history scan: `gitleaks detect --no-banner --config .gitleaks.toml
-   --redact --exit-code 1` — never paste findings.
-3. Rotate the dotenvx key + OTP key and untrack `.env.keys`
-   (`docs/runbooks/secret-rotation.md`) — after this `bun run check` goes fully
-   green. **Not** an allow-list entry.
+1. ~~Push the commit and attach the CI run~~ — **done externally:** run
+   `35828575954` on `d3f6a8e09e301944789dc2c4487a831dc7698137`;
+   typecheck, lint, unit, codegen drift, e2e and a11y passed on that SHA;
+   **both security jobs failed** (recorded above — CI is not green).
+2. Full-history scan outcome is now known at the job level (failed, at least
+   one historical credential) but its findings stay owner-side: `gitleaks
+   detect --no-banner --config .gitleaks.toml --redact --exit-code 1` —
+   never paste findings.
+3. Rotate the dotenvx key + (decision §6 #2) the OTP key and untrack
+   `.env.keys` (`docs/runbooks/secret-rotation.md`) — after this `bun run
+   check` and the `security` job can go fully green. **Not** an allow-list
+   entry.
 4. Provide B1 documents (or record owner answers) when available.
+
+## CI reconciliation (independent read-only check, 23 September 2026)
+
+Commit `d3f6a8e09e301944789dc2c4487a831dc7698137` (GitHub `main`, matches
+local `.git/refs/heads/main`) · run
+[`35828575954`](https://github.com/julekpl/Mosai-friday/actions/runs/35828575954)
+· **completed / failure**:
+
+| Job | Result | Note |
+|---|---|---|
+| typecheck | ✅ passed | `tsc -b --noEmit` clean on `d3f6a8e` |
+| lint | ✅ passed | 0 errors (25 known warnings) |
+| unit | ✅ passed | 295/295 incl. green R4 |
+| codegen drift (Convex) | ✅ passed | bindings in sync on this commit |
+| e2e (Playwright journeys) | ✅ passed | hermetic against the test-only double |
+| a11y (axe) | ✅ passed | zero serious/critical, no allow-list |
+| install (frozen lockfile) | ✅ passed (implied by run) | `bun.lock` clean |
+| **security** (working tree · functions · capabilities · audit) | ❌ **failed** | at the working-tree secret-scan step — tracked `.env.keys` (rule `dotenvx-private-key`, line 8; value redacted, never read) |
+| **security-history** (full-history secret scan) | ❌ **failed** | at the gitleaks history step — at least one historical credential (known: the dotenvx key; the OTP `x-api-key` formerly in `emailOtp.ts`). Findings redacted; none reproduced anywhere |
+
+Consequences recorded honestly:
+
+- The **split fixes exactly the defect it was built for**: the
+  `security-history` failure did **not** skip the working-tree scan —
+  `security` executed independently and failed on its own finding (before
+  BP-01, one red history step silently skipped every other check).
+- **Within** the `security` job, steps remain sequential fail-fast: because
+  the working-tree gitleaks step failed first, that job's later steps (local
+  `scan:secrets`, `audit:functions`, `audit:capabilities`, `bun audit`) did
+  **not** execute in this run. Their commands were verified green locally on
+  the same tree this chat (see *Verification*). Making those steps run
+  `if: always()` would be a small optional hardening — **out of BP-01 scope;
+  recorded, not done.**
+- **CI is not green.** BP-01 stays `implemented_unverified`; the **release
+  gate is blocked** until both security jobs pass through remediation, never
+  through weakened rules or allow-list entries.
+- The six passing jobs are SHA-bound evidence that the test/CI repairs from
+  this package hold on the real runner (this also re-resolves the old dispute
+  between STATUS's "13 e2e passed locally" and the baseline red run: the
+  baseline failed on stale assertions; the repaired suite passes).
+
+## Owner remediation checklist (redacted — no values, no rotation by agents)
+
+### Finding 1 — working-tree scan (`security` job)
+
+**What:** the tracked file `.env.keys` at the repository root, line 8,
+matches the `dotenvx-private-key` rule. The value was never read or printed;
+the scanner redacts it. **Rule of record:** rotation is the fix; the file is
+already covered by `.gitignore` (`.env*`, `!.env.example`) but remains
+*tracked*, which is why the scan is red.
+
+| # | Action | Who |
+|---|---|---|
+| 1 | Rotate the dotenvx private key (and decide, per `STATUS.md` §6 #2, whether the historical OTP email key is also yours to rotate) strictly per `docs/runbooks/secret-rotation.md` | **Owner** |
+| 2 | Untrack without deleting locally: `git rm --cached .env.keys && git commit` — the local file stays for decryption and remains ignored | **Owner** (git is blocked for agents — B2) |
+| 3 | Keep `.gitleaks.toml` untouched — no path allow-list for `.env.keys`, ever | Freebuff (already the state; must stay) |
+| 4 | Verify: `bun run scan:secrets` exits 0 locally; re-run CI and confirm the `security` job reaches and passes its scan steps while `audit:functions` / `audit:capabilities` / `bun audit` still execute | Owner triggers CI · Freebuff verifies outputs when visible |
+
+**Freebuff can safely do now:** keep both scans exactly as written; keep the
+finding documented redacted in `STATUS.md`/this report; refuse any
+allow-list change; supply and verify these commands; re-run every local gate.
+**Freebuff must not:** edit `.env*` files (platform rule), run git, rotate or
+handle any credential value, or mark the gate green.
+
+### Finding 2 — full-history scan (`security-history` job)
+
+**What:** gitleaks over the full history reports at least one historical
+credential. Known candidates (from the runbook and `.gitleaks.toml` rule
+descriptions, not from pasted findings): the dotenvx private key formerly in
+tracked `.env.keys`, and the OTP email `x-api-key` formerly committed in
+`src/convex/auth/emailOtp.ts` while the repository was public. **No finding
+content has been reproduced anywhere in docs, chat or tests.**
+
+| # | Action | Who |
+|---|---|---|
+| 1 | **Rotate first, always** — purge does not un-leak a live credential. Rotate the dotenvx key and (decision §6 #2) the OTP key; revoke at the provider | **Owner** |
+| 2 | Authorize a history purge (e.g. `git filter-repo` / BFG) for the two known files across history — **this is a rewrite + force-push: explicit owner authorization, coordinated clones, downtime note**. Record the rewrite commit | **Owner** (git blocked for agents; ticket requires explicit operational authorization) |
+| 3 | After rewrite: re-run `gitleaks detect --no-banner --config .gitleaks.toml --redact --exit-code 1` locally and CI — findings are never pasted into chat/docs; the exit code is the signal | **Owner** runs · Freebuff interprets only exit status if provided |
+| 4 | Alternative (owner's call, still no allow-list): if a purge is declined, the `security-history` job **stays red as the honest state of the repository** and the release gate stays blocked until the owner explicitly records that accepted-risk decision — a green claim by any other means is prohibited | **Owner decision, recorded in STATUS** |
+| 5 | Keep `--redact` on every gitleaks invocation; never echo matched spans | Everyone (already enforced in the workflow) |
+
+**Freebuff can safely do now:** keep the `security-history` job failing
+honestly; document the run/SHA evidence (done); verify the workflow still
+passes `--redact`; provide the exact commands; refuse any allow-list or
+rule-weakening PR. **Freebuff must not:** run or paste history-scan findings,
+rewrite/force-push history, rotate credentials, or declare the job green.
+
+**Release gate:** blocked until Findings 1 and 2 are remediated by the owner
+and a subsequent CI run on a real commit shows **all jobs green** — including
+both security jobs — without any change to scan rules or allow-lists.
 
 ## Data migration
 
