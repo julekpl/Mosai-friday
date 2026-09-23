@@ -6,16 +6,21 @@
 (blueprint baseline; read from `.git/refs/heads/main` — git commands are
 blocked in this environment, blocker **B2**).
 
-**CI-verified commit (reconciliation, 23 Sep 2026):** GitHub `main` =
-`d3f6a8e09e301944789dc2c4487a831dc7698137` (independently confirmed; the
-local `.git/refs/heads/main` now holds the same SHA). CI run
-[`35828575954`](https://github.com/julekpl/Mosai-friday/actions/runs/35828575954)
-— **completed / failure**. Six jobs passed (typecheck, lint, unit, codegen
-drift, e2e, a11y); **both security jobs failed** at their secret-scan steps.
+**CI evidence (two commits, two runs — 23 September 2026):**
+
+| Commit | Role | Run | Result |
+|---|---|---|---|
+| `d3f6a8e09e301944789dc2c4487a831dc7698137` | **implementation commit** (BP-01 code/tests/CI changes) | [`35828575954`](https://github.com/julekpl/Mosai-friday/actions/runs/35828575954) | **completed / failure** — typecheck, lint, unit, codegen drift, e2e, a11y passed; **both security jobs failed** at their secret-scan steps |
+| `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` | **documentation commit** (this report + PROGRESS.md + STATUS.md reconciliation); local `.git/refs/heads/main` now holds this SHA | [`35830549968`](https://github.com/julekpl/Mosai-friday/actions/runs/35830549968) | **completed / failure** — install, typecheck, lint, unit, codegen, e2e, a11y passed; **the same two secret-scan jobs failed** |
+
+The documentation commit changed only `.md` files, and its run reproduces the
+implementation run exactly: same six/seven green jobs, same two red scans.
 **BP-01 status remains `implemented_unverified` and the release gate is
 blocked — CI is not green and must never be described as green while these
 failures stand.** See *CI reconciliation* and the *Owner remediation
-checklist* below.
+checklist* below. **Forward rule:** any future commit (including the next
+documentation edit) triggers a fresh CI run whose result does not exist until
+it completes — it must never be claimed or implied in advance.
 
 ---
 
@@ -31,12 +36,13 @@ claims in `STATUS.md` are corrected to agree with executable code, and the
 T2.5 "done" discrepancy is reconciled as **not implemented** (fix belongs to
 BP-05 — deliberately not done here).
 
-CI run **35828575954** on `d3f6a8e` proves the split works structurally: both
-security jobs **executed independently** (a history finding no longer skips
-the working-tree scan and the audits), and the browser/typecheck/lint/unit/
-codegen jobs all **passed** on that exact commit. The run as a whole is a
-**failure**: both scans found real exposures. That is the honest state; the
-release gate stays blocked pending owner remediation (checklist below).
+CI runs **35828575954** (`d3f6a8e`, implementation) and **35830549968**
+(`dd9c163`, documentation) prove the split works structurally: both security
+jobs **executed independently** (a history finding no longer skips the
+working-tree scan), and the install/typecheck/lint/unit/codegen/browser jobs
+all **passed** on both exact commits. Each run as a whole is a **failure**:
+both scans found real exposures. That is the honest state; the release gate
+stays blocked pending owner remediation (checklist below).
 
 ## Scope (files changed)
 
@@ -101,7 +107,7 @@ rotation/untracking action, never an allow-list entry.
 | **Broken auth fails the relevant gate** | **Planted and observed this chat:** `RequireAuth`'s signed-out redirect was disabled → `a11y "app has no serious axe violations"` **failed** (its settle asserts `/auth?returnTo=%2Fapp` and never arrived). Reverted → **7/7 green** on re-run. |
 | **Wrong CTA navigation fails the relevant gate** | **Planted and observed this chat:** hero CTA `href="/auth"` → `"/signup"` → `smoke "the landing page renders and routes to sign-in"` **failed**: `Expected pattern: /\/auth$/, Received: http://localhost:5173/signup` (screenshot + error-context written to `test-results/`, exactly what CI uploads). Reverted → green. |
 | **Planted synthetic secret fixtures fail the relevant gates** | Proven earlier this chat: a synthetic `CONVEX_DEPLOY_KEY` fixture → scanner printed the finding with the value redacted, exit 1; fixture removed afterwards. Permanent regressions: `tests/unit/secret-scan.test.ts` + `secret-scan-env.test.ts` (6 tests, green in the 295) plant dummy keys in throwaway directories and assert exit 1 without echoing the value. |
-| **CI evidence attached to the exact commit** | **Now has concrete evidence:** run `35828575954` is bound to commit `d3f6a8e09e301944789dc2c4487a831dc7698137` — typecheck, lint, unit, codegen drift, e2e and a11y **passed on that exact SHA**; both security jobs failed there (recorded above, not hidden). Failure artifacts remain configured as `e2e-results-${{ github.sha }}` / `a11y-results-${{ github.sha }}`, 7-day retention, sanitized by construction (test-only double, synthetic data, no credentials) — uploaded only for failing runs; in this run the failures were in the security jobs, which produce no browser artifacts. The criterion's *evidence* half is met; the *all-jobs-pass* half remains blocked on owner remediation. |
+| **CI evidence attached to the exact commit** | **Concrete evidence on two exact commits:** implementation `d3f6a8e` → run `35828575954` and documentation `dd9c163` → run `35830549968` — typecheck, lint, unit, codegen(drift), e2e and a11y **passed on both SHAs** (install passed on the latter, explicitly); **both security jobs failed on both** (recorded above, not hidden). Failure artifacts remain configured as `e2e-results-${{ github.sha }}` / `a11y-results-${{ github.sha }}`, 7-day retention, sanitized by construction (test-only double, synthetic data, no credentials) — uploaded only for failing runs; in both runs the failures were in the security jobs, which produce no browser artifacts. The criterion's *evidence* half is met; the *all-jobs-pass* half remains blocked on owner remediation. |
 | **STATUS agrees with executable code** | Stale claims corrected (Inventory below) and re-verified against today's outputs: 295 unit / 15+1 e2e / 5 a11y / audits exit 0 / check red only at `scan:secrets` / R4 green / T2.5 not implemented / missing docs in §7. |
 
 ## Inventory — skipped tests, expected failures, stale claims (scope item 6)
@@ -205,10 +211,13 @@ git / gitleaks                → blocked / not installed (B2): owner-run eviden
 
 ## Proof / remaining owner-run evidence (B2, B3)
 
-1. ~~Push the commit and attach the CI run~~ — **done externally:** run
-   `35828575954` on `d3f6a8e09e301944789dc2c4487a831dc7698137`;
-   typecheck, lint, unit, codegen drift, e2e and a11y passed on that SHA;
-   **both security jobs failed** (recorded above — CI is not green).
+1. ~~Push the commit and attach the CI run~~ — **done externally, twice:**
+   implementation `d3f6a8e09e301944789dc2c4487a831dc7698137` → run
+   `35828575954`, and documentation
+   `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` → run `35830549968`; both
+   **completed/failure** with install/typecheck/lint/unit/codegen/e2e/a11y
+   passed and **both security jobs failed** (recorded above — CI is not
+   green). Any subsequent commit requires a fresh run, not an assumption.
 2. Full-history scan outcome is now known at the job level (failed, at least
    one historical credential) but its findings stay owner-side: `gitleaks
    detect --no-banner --config .gitleaks.toml --redact --exit-code 1` —
@@ -219,12 +228,12 @@ git / gitleaks                → blocked / not installed (B2): owner-run eviden
    entry.
 4. Provide B1 documents (or record owner answers) when available.
 
-## CI reconciliation (independent read-only check, 23 September 2026)
+## CI reconciliation (independent read-only checks, 23 September 2026)
 
-Commit `d3f6a8e09e301944789dc2c4487a831dc7698137` (GitHub `main`, matches
-local `.git/refs/heads/main`) · run
-[`35828575954`](https://github.com/julekpl/Mosai-friday/actions/runs/35828575954)
-· **completed / failure**:
+**Run 1 — implementation commit `d3f6a8e09e301944789dc2c4487a831dc7698137`** ·
+run [`35828575954`](https://github.com/julekpl/Mosai-friday/actions/runs/35828575954)
+· **completed / failure** (at the time, GitHub `main` and local
+`.git/refs/heads/main` both held this SHA):
 
 | Job | Result | Note |
 |---|---|---|
@@ -258,6 +267,31 @@ Consequences recorded honestly:
   this package hold on the real runner (this also re-resolves the old dispute
   between STATUS's "13 e2e passed locally" and the baseline red run: the
   baseline failed on stale assertions; the repaired suite passes).
+
+**Run 2 — documentation commit `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6`**
+(this report + `PROGRESS.md` + `STATUS.md` only; local `.git/refs/heads/main`
+now holds this SHA) · run
+[`35830549968`](https://github.com/julekpl/Mosai-friday/actions/runs/35830549968)
+· **completed / failure**:
+
+| Job | Result |
+|---|---|
+| install (frozen lockfile) | ✅ passed |
+| typecheck | ✅ passed |
+| lint | ✅ passed |
+| unit | ✅ passed |
+| codegen (drift) | ✅ passed |
+| e2e (Playwright journeys) | ✅ passed |
+| a11y (axe) | ✅ passed |
+| **security** (working tree · functions · capabilities · audit) | ❌ **failed** — same working-tree finding (tracked `.env.keys`, value redacted) |
+| **security-history** (full-history secret scan) | ❌ **failed** — same historical finding (values owner-side, redacted) |
+
+The documentation commit touched only `.md` files and the outcome is
+byte-for-byte consistent with run 1: the reds are the credentials, not the
+docs. Two identical failures on two consecutive commits is stronger evidence
+that remediation — not more documentation — is what unblocks the gate.
+**Forward rule:** any new commit triggers a fresh run; its result is unknown
+until GitHub reports it and must not be predicted or pre-recorded here.
 
 ## Owner remediation checklist (redacted — no values, no rotation by agents)
 

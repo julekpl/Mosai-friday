@@ -60,7 +60,7 @@ its slice boundary — it never continues into the next package.
 | Chat | Package/Slice | Order | Backlog mapping | Depends on (must be complete first) | Status |
 |---|---|---|---|---|---|
 | 0 | save-and-organize (this chat) | — | — | — | complete |
-| 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | implemented_unverified (chat 1, 23 Sep 2026 — report: `docs/implementation/reports/BP-01-repair-baseline.md`; all local gates re-run green, plant/observe demonstrations done (broken auth, wrong CTA, synthetic secret), STATUS/T2.5/missing-docs reconciled; **CI run `35828575954` on `d3f6a8e09e301944789dc2c4487a831dc7698137` = completed/failure** — typecheck, lint, unit, codegen drift, e2e, a11y passed on that SHA, **BOTH security jobs failed at their secret-scan steps → release gate BLOCKED, CI not green**; full-history findings + rotation/untracking remain owner-run (B2/B3) — remediation checklist in the report |
+| 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | implemented_unverified (chat 1, 23 Sep 2026 — report: `docs/implementation/reports/BP-01-repair-baseline.md`; all local gates re-run green, plant/observe demonstrations done (broken auth, wrong CTA, synthetic secret), STATUS/T2.5/missing-docs reconciled; **two CI runs, both completed/FAILURE:** implementation commit `d3f6a8e09e301944789dc2c4487a831dc7698137` → run `35828575954`, documentation commit `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` (current local `.git/refs/heads/main`) → run `35830549968` — install/typecheck/lint/unit/codegen/e2e/a11y passed on both, **BOTH security jobs failed their secret-scan steps on both → release gate BLOCKED, CI not green**; full-history findings + rotation/untracking remain owner-run (B2/B3) — remediation checklist in the report; any new commit needs a fresh run, never assumed |
 | 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | not_started |
 | 3 | **BP-03** stop false publishing/readiness | A | T2.13 | BP-01; truthful labels allowed before BP-13 deployment exists (§5 BP-03) | not_started |
 | 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | not_started |
@@ -188,7 +188,7 @@ Numbering used across chats: **O** = owner decision (blueprint §9 + STATUS §6)
 |---|---|---|---|
 | **B1** | **Missing reference documents.** Not present anywhere in this workspace: `MOSAI_CODE_PRODUCT_BLUEPRINT_V2.md`; pack files `01–09` (only `README`, `STATUS`, `10-build-backlog` exist) including the blueprint-named `04-adrs.md`, `05-design-system.md`, `07-ai-agent-config.md`, `08-module-contracts.md`; `MOSAI-READINESS-AUDIT-2026-09-23.md`. Please provide them (paste/upload). | BP-01 "bring the missing reference documents into the pack"; BP-09/S3 eval floors (from `07`); ADR-dependent choices (ADR-3/4/6/7) in BP-13/14/15 | BP-01's test/CI repairs; everything not needing those texts. If unprovided, BP-01 records them as permanently missing with documented impact — **the blueprint forbids inventing their content** |
 | **B2** | **Git is blocked** ("Vly manages version control"). Cannot run `git status/diff/log`, history secret scan, or attach CI evidence to a commit from this environment; GitHub CI run 35790335737 not verifiable from here. | BP-01 history investigation, working-tree cleanliness proof, "CI evidence attached to the exact commit" | All local gates (`bun run check`, `test:e2e`, `test:a11y`, `check:codegen`), file-level inspection, unit regressions. Options: enable git, or you run git/GitHub steps and paste results, or record as owner-run evidence |
-| **B3** | `.env.keys` and `.env.local` still sit at the repo root; T0.1's rotation/history-purge owner actions are outstanding. Never read, printed, committed or allow-listed. **CI-confirmed 23 Sep 2026:** run `35828575954` on `d3f6a8e` — the `security` job fails at the working-tree scan (tracked `.env.keys`, value redacted) and `security-history` fails at the full-history scan; **release gate blocked until both pass through owner remediation, never through weakened rules or allow-lists** (checklist: `docs/implementation/reports/BP-01-repair-baseline.md` § *Owner remediation checklist*). | BP-01 acceptance "all CI jobs pass" + release gate (implemented_unverified stays) | All code work; the runbook exists (`docs/runbooks/secret-rotation.md`) |
+| **B3** | `.env.keys` and `.env.local` still sit at the repo root; T0.1's rotation/history-purge owner actions are outstanding. Never read, printed, committed or allow-listed. **CI-confirmed 23 Sep 2026 (two runs, same result):** implementation `d3f6a8e` / run `35828575954` and documentation `dd9c163` / run `35830549968` — in both, the `security` job fails at the working-tree scan (tracked `.env.keys`, value redacted) and `security-history` fails at the full-history scan; **release gate blocked until both pass through owner remediation, never through weakened rules or allow-lists** (checklist: `docs/implementation/reports/BP-01-repair-baseline.md` § *Owner remediation checklist*). | BP-01 acceptance "all CI jobs pass" + release gate (implemented_unverified stays) | All code work; the runbook exists (`docs/runbooks/secret-rotation.md`) |
 | **O1** | Final packages, add-on terms, prices, **cancellation/proration/discount rules** | BP-06/S1 cancellation verification, BP-06/S3 final pricing display | catalog abstraction, reconciliation tests, admin auth (blueprint §9) |
 | **O2** | Sign-in model beyond OTP; **approved transactional email service + sending domain** (T0.8/ADR-9) | BP-02 email-gateway implementation, BP-17/S2 real sends | OTP error/focus/rate-limit tests, gateway interface, all non-send work |
 | **O3** | Launch countries/languages + specific EU data requirements | capability matrix fill (STATUS §5 #4), localization claims, BP-20 residency rows | locale-ready UI, provider capability matrix, data inventory |
@@ -211,7 +211,7 @@ additionally needs an approved real-provider journey with a stored receipt
 
 | Package | Code-level evidence (tests) | External evidence still needed |
 |---|---|---|
-| BP-01 | all CI jobs green on the commit; planted secret fails scan; broken CTA/redirect fails e2e; skipped/expected-failure inventory documented; STATUS matches code | **Run `35828575954` on `d3f6a8e` obtained (23 Sep 2026): 6/8 jobs passed incl. e2e+a11y on the exact SHA; both security jobs FAILED (tracked `.env.keys` + historical credential) — not green, not allow-listed; history findings stay owner-side (needs B2/B3) until remediation makes a later run fully green** |
+| BP-01 | all CI jobs green on the commit; planted secret fails scan; broken CTA/redirect fails e2e; skipped/expected-failure inventory documented; STATUS matches code | **Runs `35828575954` (impl `d3f6a8e`) and `35830549968` (docs `dd9c163`) obtained 23 Sep 2026: install/typecheck/lint/unit/codegen/e2e/a11y passed on both exact SHAs; both security jobs FAILED both runs (tracked `.env.keys` + historical credential) — not green, not allow-listed; history findings stay owner-side (needs B2/B3) until remediation makes a later run fully green** |
 | BP-02 | `tests/unit/auth-lifecycle.test.ts`, `tests/e2e/auth-lifecycle.spec.ts`: OTP sign-in, expired/wrong/resend, backend-down retry, returnTo rejection, non-admin denied, keyboard paths | real OTP inbox delivery (O2/O7) |
 | BP-03 | `tests/unit/publish-truth.test.ts`: client cannot write live/published/paid/sent or SEO/WCAG booleans; failed release keeps previous; badge opens receipt | none until BP-13 deployment (then real deploy receipt) |
 | BP-04 | `tests/unit/{social-execution,credential-refresh}.test.ts`: correct credential ID to adapter, refresh via action, revoked→reconnect, concurrent-refresh lease, one failure ≠ batch abort | controlled provider refresh test after configuration (O7) — not a campaign blast |
@@ -295,18 +295,24 @@ T2.5 as **not implemented** (BP-05 owns it), and recorded the missing B1
 documents in `STATUS.md` §7 without inventing their content. Acceptance
 demonstrations: broken auth, wrong CTA navigation and a planted synthetic
 secret each failed the relevant gate and were reverted to green (outputs in
-the report). **CI reconciliation (independent check, 23 Sep 2026):** GitHub
-`main` = `d3f6a8e09e301944789dc2c4487a831dc7698137` (matches local
-`.git/refs/heads/main`); run `35828575954` = completed/**failure** —
-typecheck, lint, unit, codegen drift, e2e and a11y **passed on that exact
-commit**; **both security jobs failed** at their secret-scan steps (working
-tree: tracked `.env.keys`; full history: ≥1 historical credential — values
-redacted, never reproduced). The split is proven (the history failure no
+the report). **CI reconciliation (independent checks, 23 Sep 2026):** two commits, two
+runs, identical outcome — implementation
+`d3f6a8e09e301944789dc2c4487a831dc7698137` → run `35828575954`, and the
+documentation commit
+`dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` (this report + PROGRESS + STATUS;
+current local `.git/refs/heads/main`) → run `35830549968`. Both runs
+completed/**failure**: install/typecheck/lint/unit/codegen/e2e/a11y
+**passed on the exact SHA**; **both security jobs failed** at their
+secret-scan steps (working tree: tracked `.env.keys`; full history: ≥1
+historical credential — values redacted, never reproduced). The split is
+proven (the history failure no
 longer skips the working-tree scan), but **BP-01 stays
 `implemented_unverified` and the release gate is BLOCKED; CI must never be
 described as green** until a later run passes both security jobs through the
 owner remediation checklist (report § *Owner remediation checklist* — what
-Freebuff may do vs. what requires owner action). Remaining for the owner:
+Freebuff may do vs. what requires owner action). Any new commit (including
+future doc edits) triggers a fresh run — its result must not be claimed
+before it exists. Remaining for the owner:
 rotate/untrack the exposed credentials (never allow-list), authorize + run
 the history purge, provide B1 documents.
 
