@@ -1,35 +1,52 @@
 /**
- * External delivery gate (BP-03 review follow-up).
+ * External delivery gate (BP-03 review follow-ups).
  *
  * A prepared release is NOT externally delivered. The public read paths
  * (`cms.getPublishedByPath`, `storefront.getPublishedPage`) may serve
- * approved content only when the site's build holds a **verified
- * deployment**: a `buildReleaseAudits` row in phase `verified` whose
+ * content only from the **last confirmed public release**: the newest
+ * `buildReleaseAudits` row that is phase `verified` AND whose
  * `deploymentId` points at a `buildDeployments` row in state `succeeded`.
  * Both rows are written exclusively by server code holding the provider
  * receipt (BP-13's verifier); no client-callable function can create them.
  *
- * Until BP-13 exists, no verified deployment can exist — so nothing is
- * served externally after a mere preparation, while owner preview stays
- * intact (the workspace renders drafts directly through
- * `buildWorkspace.getPreviewData` / `builds.getReadiness`, which do not use
- * this gate). The last confirmed public release keeps serving: its audit
- * remains `verified` unless a newer phase supersedes it.
+ * BP-03: "Continue serving the last confirmed public release when a new
+ * publish fails." Therefore the gate must NOT read the newest audit
+ * (a later prepared or failed release would cut off a still-verified
+ * earlier one) and must NOT read pages through their mutable
+ * `publishedRevisionId` pointer (release B's preparation moves it, which
+ * would leak B's content under a fallback to A's audit). Instead:
+ *
+ *  - `selectConfirmedRelease` picks the newest audit whose receipt chain is
+ *    intact (verified + succeeded deployment) — earlier than a newer
+ *    prepared/failed audit is fine;
+ *  - the audit's `revisionIds` pin the exact content that release served;
+ *    readers resolve a page through that pin, never the current pointer.
+ *
+ * Paths (new pages) and redirects that exist only in a later, unverified
+ * release stay hidden: a page not in the pinned revision set has nothing to
+ * serve, and redirects must only be honored once the release that produced
+ * them is itself verified.
  */
 import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
-/** Result of the delivery gate: whether external serving is allowed. */
+/** Result of the delivery gate: the confirmed release, or why there is none. */
 export type DeliveryGate =
-  | { allowed: true; audit: Doc<"buildReleaseAudits"> }
+  | {
+      allowed: true;
+      audit: Doc<"buildReleaseAudits">;
+      /** revision ids this release pinned, by page */
+      pinnedByPage: Map<Id<"cmsPages">, Id<"pageRevisions">>;
+    }
   | { allowed: false; reason: "no_verified_deployment" };
 
 /**
- * Is there a verified, still-current deployment for this project's site?
- * Reads the build's newest release audit and requires the receipt chain:
- * audit phase `verified` + deployment state `succeeded`.
+ * The last confirmed public release for a project's website build: the
+ * newest audit with an intact verified-deployment receipt chain. Returns
+ * `allowed: false` when none exists (nothing externally delivered yet, or
+ * every verified release has been superseded by a failed/canceled one).
  */
-export async function hasVerifiedDeployment(
+export async function selectConfirmedRelease(
   ctx: Pick<QueryCtx, "db">,
   projectId: Id<"projects">,
 ): Promise<DeliveryGate> {
@@ -44,16 +61,36 @@ export async function hasVerifiedDeployment(
     .query("buildReleaseAudits")
     .withIndex("by_build", (q) => q.eq("buildId", websiteBuild._id))
     .collect();
-  // Newest audit decides the current phase; a later failed/canceled
-  // deployment attempt supersedes an older verified one.
   audits.sort((a, b) => b.createdAt - a.createdAt);
-  const latest = audits[0];
-  if (!latest || latest.phase !== "verified" || !latest.deploymentId) {
-    return { allowed: false, reason: "no_verified_deployment" };
+
+  // Newest audit whose receipt chain is intact. A newer prepared or failed
+  // audit does NOT disqualify an older verified one — that is exactly the
+  // "last confirmed release keeps serving" guarantee.
+  for (const audit of audits) {
+    if (audit.phase !== "verified" || !audit.deploymentId) continue;
+    const deployment = await ctx.db.get(audit.deploymentId);
+    if (deployment && deployment.state === "succeeded") {
+      const pinnedByPage = new Map<Id<"cmsPages">, Id<"pageRevisions">>();
+      for (const revisionId of audit.revisionIds) {
+        const revision = await ctx.db.get(revisionId);
+        if (revision) {
+          pinnedByPage.set(revision.pageId, revision._id);
+        }
+      }
+      return { allowed: true, audit, pinnedByPage };
+    }
   }
-  const deployment = await ctx.db.get(latest.deploymentId);
-  if (!deployment || deployment.state !== "succeeded") {
-    return { allowed: false, reason: "no_verified_deployment" };
-  }
-  return { allowed: true, audit: latest };
+  return { allowed: false, reason: "no_verified_deployment" };
+}
+
+/**
+ * Convenience wrapper for readers that only need the yes/no gate plus the
+ * pinned revision for one page (resolved from the audit's pins, never from
+ * the page's current `publishedRevisionId`).
+ */
+export async function hasVerifiedDeployment(
+  ctx: Pick<QueryCtx, "db">,
+  projectId: Id<"projects">,
+): Promise<DeliveryGate> {
+  return selectConfirmedRelease(ctx, projectId);
 }

@@ -703,4 +703,282 @@ describe("External delivery is gated on a verified deployment receipt (review fo
       expect(result.document).toEqual(DOC);
     }
   });
+
+  /** Simulate BP-13's server-written verification of the newest audit. */
+  async function verifyNewestAudit(
+    t: TestBackend,
+    projectId: string,
+    buildId: string,
+    siteId: string,
+  ) {
+    const now = Date.now();
+    const deploymentId = await t.run((ctx) =>
+      ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "succeeded",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    await t.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect();
+      audits.sort((a, b) => b.createdAt - a.createdAt);
+      ctx.db.patch(audits[0]._id, { phase: "verified", deploymentId });
+    });
+  }
+
+  it("keeps serving A's pinned revision across B prepare/fail and serves B once verified", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+
+    // Release A: prepare + verify. The homepage serves DOC.
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const aAudit = (
+      await t.run(async (ctx) =>
+        ctx.db
+          .query("buildReleaseAudits")
+          .withIndex("by_build", (q) => q.eq("buildId", buildId))
+          .collect(),
+      )
+    ).sort((a, b) => b.createdAt - a.createdAt)[0];
+    const aRevisionId = aAudit.revisionIds[0];
+    const aServed = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(aServed?.revision.document).toEqual(DOC);
+
+    // Release B: a new draft with different content is prepared.
+    const before = await t.run((ctx) => ctx.db.get(pageId));
+    await t.run((ctx) =>
+      ctx.db.patch(before!.latestDraftRevisionId!, {
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "blk_b_hero",
+              type: "hero",
+              version: 1,
+              props: { heading: "Release B headline" },
+            },
+          ],
+        },
+      }),
+    );
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    // B's preparation moved the page pointer to B's revision — the public
+    // path must STILL serve A's pinned revision (last confirmed release),
+    // not nothing and not B.
+    const stillA = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(stillA?.revision.document).toEqual(DOC);
+    expect(stillA?.revision._id).toBe(aRevisionId);
+    const stillASf = await tenant.as.query(api.storefront.getPublishedPage, {
+      projectId,
+      path: "/",
+    });
+    expect(stillASf.kind).toBe("page");
+    if (stillASf.kind === "page") {
+      expect(stillASf.document).toEqual(DOC);
+    }
+
+    // B's deployment then FAILS (superseding audit is non-verified): A
+    // keeps serving on both paths.
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect();
+      audits.sort((a, b) => b.createdAt - a.createdAt);
+      const failedDeployment = await ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "failed",
+        createdAt: now,
+        updatedAt: now,
+      });
+      ctx.db.patch(audits[0]._id, {
+        phase: "failed",
+        deploymentId: failedDeployment,
+      });
+    });
+    const afterFail = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(afterFail?.revision.document).toEqual(DOC);
+    expect(afterFail?.revision._id).toBe(aRevisionId);
+    const afterFailSf = await tenant.as.query(api.storefront.getPublishedPage, {
+      projectId,
+      path: "/",
+    });
+    expect(afterFailSf.kind).toBe("page");
+    if (afterFailSf.kind === "page") {
+      expect(afterFailSf.document).toEqual(DOC);
+    }
+
+    // B is then verified: both paths switch to B.
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const nowB = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(nowB?.revision.document).toEqual({
+      schemaVersion: 1,
+      blocks: [
+        {
+          id: "blk_b_hero",
+          type: "hero",
+          version: 1,
+          props: { heading: "Release B headline" },
+        },
+      ],
+    });
+    const nowBSf = await tenant.as.query(api.storefront.getPublishedPage, {
+      projectId,
+      path: "/",
+    });
+    expect(nowBSf.kind).toBe("page");
+    if (nowBSf.kind === "page") {
+      expect(nowBSf.document).toEqual({
+        schemaVersion: 1,
+        blocks: [
+          {
+            id: "blk_b_hero",
+            type: "hero",
+            version: 1,
+            props: { heading: "Release B headline" },
+          },
+        ],
+      });
+    }
+  });
+
+  it("pages and redirects added by B stay hidden until B is verified", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId } = await seedSite(t, tenant, projectId);
+
+    // A: prepare + verify (only the homepage exists).
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+
+    // B: add a NEW page and a redirect, then prepare.
+    const site = await t.run(async (ctx) =>
+      ctx.db
+        .query("sites")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .first(),
+    );
+    await tenant.as.mutation(api.cms.createPage, {
+      siteId: site!._id,
+      title: "New in B",
+      slug: "new-in-b",
+      parentId: (
+        await t.run(async (ctx) =>
+          ctx.db
+            .query("cmsPages")
+            .withIndex("by_site_path", (q) =>
+              q.eq("siteId", site!._id).eq("fullPath", "/"),
+            )
+            .first(),
+        )
+      )!._id,
+    });
+    const newPage = await t.run(async (ctx) =>
+      ctx.db
+        .query("cmsPages")
+        .withIndex("by_site_path", (q) =>
+          q.eq("siteId", site!._id).eq("fullPath", "/new-in-b"),
+        )
+        .first(),
+    );
+    // Give the new page a valid draft so B's all-or-nothing preparation
+    // accepts it.
+    await t.run((ctx) =>
+      ctx.db.patch(newPage!.latestDraftRevisionId!, {
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "blk_new_hero",
+              type: "hero",
+              version: 1,
+              props: { heading: "New in B" },
+            },
+          ],
+        },
+      }),
+    );
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    // Before verification the new page is not served...
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/new-in-b",
+      }),
+    ).toBeNull();
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/new-in-b",
+      }),
+    ).toMatchObject({ kind: "not_found" });
+
+    // ...and B's new redirect is not honored.
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("cmsRedirects", {
+        siteId: site!._id,
+        projectId,
+        fromPath: "/old-path",
+        to: "/new-in-b",
+        statusCode: 301,
+        createdAt: now,
+      }),
+    );
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/old-path",
+      }),
+    ).toMatchObject({ kind: "not_found" });
+
+    // After verification both the new page and the redirect open up.
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const page = await t.run((ctx) => ctx.db.get(newPage!._id));
+    expect(
+      (
+        await tenant.as.query(api.cms.getPublishedByPath, {
+          siteId,
+          fullPath: "/new-in-b",
+        })
+      )?.page._id,
+    ).toBe(page?._id);
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/old-path",
+      }),
+    ).toMatchObject({ kind: "redirect", to: "/new-in-b" });
+  });
 });

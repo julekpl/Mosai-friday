@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { moduleQuery, type OrgAccess } from "./guards";
 import type { CapabilityKey } from "./lib/capabilities";
-import { hasVerifiedDeployment } from "./lib/deliveryGate";
+import { selectConfirmedRelease } from "./lib/deliveryGate";
 
 /* ── Storefront read model (svelte-commerce pattern) ──────────────────────
  *
@@ -290,6 +290,13 @@ export const getPublishedPage = moduleQuery("sell", {
 
     const clean = ("/" + path.replace(/^\/+|\/+$/g, "")).replace(/\/+/g, "/");
 
+    // BP-03: the gate first — content is externally delivered only from the
+    // last confirmed release (verified audit + succeeded deployment, both
+    // server-written). Redirects belong to the release that created them,
+    // so they are honored only once the gate confirms a confirmed release.
+    const gate = await selectConfirmedRelease(ctx, projectId);
+    if (!gate.allowed) return { kind: "not_found" as const };
+
     // explicit redirect table first (§33)
     const redirects = await ctx.db
       .query("cmsRedirects")
@@ -298,7 +305,22 @@ export const getPublishedPage = moduleQuery("sell", {
       )
       .collect();
     const redirect = redirects[0];
-    if (redirect) return { kind: "redirect" as const, to: redirect.to };
+    if (redirect) {
+      // A redirect belongs to the release that produced its target. Honor it
+      // only when the target page is pinned by the confirmed release — a
+      // redirect added by a later, unverified preparation (whose target is
+      // not yet externally delivered) stays hidden until that release is
+      // verified.
+      const target = await ctx.db
+        .query("cmsPages")
+        .withIndex("by_site_path", (q) =>
+          q.eq("siteId", site._id).eq("fullPath", redirect.to),
+        )
+        .first();
+      if (target && gate.pinnedByPage.has(target._id)) {
+        return { kind: "redirect" as const, to: redirect.to };
+      }
+    }
 
     const page = await ctx.db
       .query("cmsPages")
@@ -306,16 +328,16 @@ export const getPublishedPage = moduleQuery("sell", {
         q.eq("siteId", site._id).eq("fullPath", clean),
       )
       .first();
-    // BP-03: approved content is not externally delivered until a verified
-    // deployment receipt exists (server-written; BP-13's verifier is the
-    // only writer). Prepared content stays preview-only.
-    const gate = await hasVerifiedDeployment(ctx, projectId);
-    if (!gate.allowed) return { kind: "not_found" as const };
-    if (!page || page.status !== "published" || !page.publishedRevisionId) {
+    if (!page || page.status !== "published") {
       return { kind: "not_found" as const };
     }
-    // Drafts can never leak: only the published pointer is read (§133.13).
-    const revision = await ctx.db.get(page.publishedRevisionId);
+    // Resolve content from the confirmed release's pinned revision — never
+    // the mutable `publishedRevisionId` pointer (§133.13 holds: drafts can
+    // never leak; a later unverified preparation cannot leak through here
+    // either, because the pin predates it).
+    const pinnedId = gate.pinnedByPage.get(page._id);
+    if (!pinnedId) return { kind: "not_found" as const };
+    const revision = await ctx.db.get(pinnedId);
     if (!revision) return { kind: "not_found" as const };
     return {
       kind: "page" as const,

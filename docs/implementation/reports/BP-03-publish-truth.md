@@ -248,6 +248,61 @@ implemented: no adapter, no deployment writer, no public URL; the verified
 deployments in the tests are hand-written test fixtures proving the gate
 opens only on the receipt chain.
 
+---
+
+## Second review follow-up (same chat, 23 September 2026 — GitHub commit
+`d8d8c35`, CI run 35870794832: unit/typecheck/lint/codegen/e2e/a11y passed on
+that exact SHA; both security scans failed on the known secret findings;
+release remains BLOCKED; CI not called green overall)
+
+The review found one remaining acceptance gap: the delivery gate read only
+the **newest** audit and resolved pages through the **current** page
+pointer, so after release A was verified and release B was merely prepared
+(or B's deployment failed), both public read paths returned nothing —
+violating BP-03's "Continue serving the last confirmed public release when
+a new publish fails" — and a naive fallback to A's audit would have leaked
+B's content, because B's preparation moves each page's
+`publishedRevisionId`.
+
+**Fix (red-first — both new tests failed against the `d8d8c35` code before
+the fix):**
+
+- `lib/deliveryGate.ts` now selects the **last confirmed release**: the
+  newest audit whose receipt chain is intact (phase `verified` +
+  `deploymentId` → `buildDeployments.state = "succeeded"`). A newer
+  prepared or failed audit no longer disqualifies an older verified one.
+- Readers resolve a page from the confirmed audit's **pinned revisions**
+  (`revisionIds` mapped by page), never from the mutable
+  `publishedRevisionId` pointer — so B's content cannot leak under A, and
+  pages that exist only in a later unverified release are not served.
+- Redirects added by B are honored only once B's release is verified: a
+  redirect is returned only when its target page is pinned by the confirmed
+  release (a redirect retargeting an already-confirmed A path still
+  resolves safely inside A's content — no leak path).
+
+**Regressions added to `tests/unit/publish-truth.test.ts`:**
+1. A verified → B prepared → both paths still serve A's pinned revision
+   (asserted by revision id and document) → B's deployment fails → both
+   still serve A → B verified → both serve B.
+2. A new page and a new redirect added by B stay hidden (both paths) until
+   B is verified; after verification the page serves and the redirect
+   resolves.
+
+**Gates after the fix:** unit **330/330** (16/16 BP-03 suite), codegen,
+tsc, lint (0 errors), `audit:functions` ✓, `audit:capabilities` ✓; `bun run
+check` exits 1 **only** at the pre-existing `.env.keys` secret-scan finding
+(B3, untouched). e2e/a11y were not re-run locally; CI run 35870794832
+passed them at `d8d8c35`, and the commits autosaved after it have **unknown
+ci status that must not be assumed**. Release gate remains BLOCKED (B3).
+No BP-13 adapter or real publish was added; the verified/failed deployments
+in the tests remain hand-written fixtures proving the gate's behavior.
+
+**Handoff correction (recorded here because it fixes this report's own
+text):** BP-02 is **sign-in/recovery/privileged access** — not "fix the CI
+pipeline" as an earlier version of this report's handoff prompt stated.
+BP-02 is already being worked by Codex in an isolated branch; **no new BP-02
+chat should be started and BP-03 must not overwrite that work.**
+
 ## Proof
 
 - `tests/unit/publish-truth.test.ts` — the five acceptance classes plus the

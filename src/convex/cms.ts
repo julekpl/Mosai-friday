@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
 import { sanitizeDocument, validateDocument } from "../lib/cms/blocks";
-import { hasVerifiedDeployment } from "./lib/deliveryGate";
+import { selectConfirmedRelease } from "./lib/deliveryGate";
 
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
  *
@@ -187,7 +187,7 @@ export const getPublishedByPath = query({
   handler: async (ctx, { siteId, fullPath }) => {
     const site = await ctx.db.get(siteId);
     if (!site || site.status === "suspended") return null;
-    const gate = await hasVerifiedDeployment(ctx, site.projectId);
+    const gate = await selectConfirmedRelease(ctx, site.projectId);
     if (!gate.allowed) return null;
     const page = await ctx.db
       .query("cmsPages")
@@ -195,9 +195,15 @@ export const getPublishedByPath = query({
         q.eq("siteId", siteId).eq("fullPath", fullPath === "" ? "/" : fullPath),
       )
       .first();
-    if (!page || page.status !== "published" || !page.publishedRevisionId)
-      return null;
-    const revision = await ctx.db.get(page.publishedRevisionId);
+    if (!page || page.status !== "published") return null;
+    // Resolve content from the confirmed release's pinned revision — never
+    // the page's current `publishedRevisionId`, which a later unverified
+    // preparation may already have moved (that would leak B under A).
+    // A page pinned by the confirmed release is by definition published;
+    // a page that exists only in a later, unverified release stays hidden.
+    const pinnedId = gate.pinnedByPage.get(page._id);
+    if (!pinnedId) return null;
+    const revision = await ctx.db.get(pinnedId);
     if (!revision || revision.state !== "published") return null;
     return { page, revision };
   },

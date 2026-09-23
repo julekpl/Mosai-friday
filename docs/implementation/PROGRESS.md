@@ -432,3 +432,27 @@ tsc/lint/codegen/audits exit 0; `check` still exit 1 only at the pre-
 existing secret-scan finding (B3). e2e/a11y not re-run locally; CI for the
 post-`be1ade5a` autosaved commits is unknown (B2) and not assumed. BP-13
 still not implemented. BP-03 main-branch exception does NOT carry to BP-02.
+
+**BP-03 second review follow-up (same chat, 23 Sep 2026, GitHub commit
+`d8d8c35`, CI run 35870794832: unit/typecheck/lint/codegen/e2e/a11y passed
+on that exact SHA; both security scans failed on the known secret findings;
+release stays BLOCKED; CI not called green).** One remaining acceptance gap
+fixed red-first: the delivery gate read only the newest audit and resolved
+pages via the mutable `publishedRevisionId` pointer, so after A verified +
+B merely prepared (or B failed) both public paths served nothing — and a
+naive fallback to A's audit would have leaked B content. `deliveryGate` now
+selects the **last confirmed release** (newest audit with verified phase +
+succeeded deployment; a newer prepared/failed audit no longer disqualifies
+it) and readers resolve pages from the audit's **pinned revisions** (never
+the current pointer); B-only pages stay hidden until B verifies, and B
+redirects resolve only once their target page is pinned by the confirmed
+release. Regressions: A verified → B prepared → B failed (both paths keep
+serving A's pinned revision, by id and document) → B verified (both serve
+B); new page + redirect from B hidden until verification. Gates: unit
+**330/330** (16/16 BP-03), codegen/tsc/lint/audits exit 0; `check` exit 1
+only at the pre-existing secret-scan finding (B3). e2e/a11y not re-run
+locally; CI for commits autosaved after `d8d8c35` unknown (B2), not
+assumed. **Handoff correction:** BP-02 is sign-in/recovery/privileged
+access (NOT "fix the CI pipeline"); BP-02 is already in progress by Codex
+in an isolated branch — do not start or overwrite it. No BP-13 adapter or
+real publish added.
