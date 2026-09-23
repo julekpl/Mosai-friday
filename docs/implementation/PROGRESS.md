@@ -1,0 +1,286 @@
+# PROGRESS — MOSAI implementation against the saved blueprint
+
+**Created:** 23 September 2026 (chat 0 — save-and-organize only; no application
+changes were made in this chat). **Blueprint of record:**
+`docs/MOSAI-IMPLEMENTATION-BLUEPRINT.md` (saved verbatim this chat).
+**Repository baseline:** branch `main`, commit
+`a3edd69bf813e4705f9d189fe43079aee3f2257e` — read directly from
+`.git/refs/heads/main`; this is **identical to the blueprint's stated baseline**
+(blueprint header). Git *commands* are blocked in this environment
+("Git and GitHub commands are blocked; Vly manages version control."), so
+branch/commit are verified by reading `.git` files, and working-tree cleanliness
+could not be confirmed with `git status` (see Blockers B2).
+
+**Status vocabulary (per chat instructions):** `not_started` · `in_progress` ·
+`blocked` · `implemented_unverified` · `complete`.
+**Report convention:** each finished chat writes
+`docs/implementation/reports/<PACKAGE-ID>-<short-name>.md` and updates this file.
+
+---
+
+## 1. Blueprint chapter index (IDs of record)
+
+Chapters 1–4 and 6–11 are **shared guidance applied throughout every chat**;
+chapter 5 holds the per-chat work packages.
+
+| Chapter | Content | Applies |
+|---|---|---|
+| 1 | How to use this blueprint; source-of-truth order (owner/security → code+tests → contracts → ticket prose); T2.5 discrepancy must be reconciled | every chat |
+| 2 | What "working" means; evidence levels (Implemented / Configured / Connected / Operational / Ready to release) | every chat |
+| 3 | Dependency & delivery map (orders A–E), predecessor checks, phase gates | ordering (§3) |
+| 4 | Shared contracts: §4.1 boundaries & identifiers (`src/shared/*`, `src/convex/modules/<domain>/`, registry mapping); §4.2 external execution protocol (validate → persist+hash → claim → action → receipt → reconcile); §4.3 proposed records (Job, Provider receipt, Event/outbox/inbox, Connection, Fact/evidence, Metric observation, Approval, AI run) | every chat |
+| 5 | Code work packages **BP-01 … BP-20** (see §2) | one chat per package/slice |
+| 6 | Integration verification matrix (provider → entry point → proof) | adapter chats |
+| 7 | Migrations, rollout, rollback rules | any schema/data chat |
+| 8 | End-to-end acceptance scenarios **J01–J15**; required UI states | release evidence |
+| 9 | Decisions register: recorded decisions to preserve + 7 owner-input rows | every chat |
+| 10 | First implementation assignment (BP-01 → BP-04 → BP-03, prepare BP-05) + per-ticket handoff text | ordering (§10) |
+| 11 | Sources and verification boundary | every chat |
+
+## 2. Work packages, backlog mapping and chat order
+
+**Ordering-conflict resolution (chapter 3 vs chapter 10), resolved before
+implementation:** chapter 3 lists Order A as BP-01–04 (numeric), while chapter
+10's explicit "First implementation assignment" says BP-01 → BP-04 → BP-03 and
+does not mention BP-02. Resolution: **chapter 10 controls the first three
+implementation chats** (it is the blueprint's explicit assignment and gives the
+rationale: bounded, demonstrable, no whole-module claims); **BP-02 remains part
+of Order A and runs fourth**, so Order A still completes before Order B, per the
+chapter-3 map and the backlog rule "do not start a phase until the previous
+phase's gate passes." BP-05 is *prepared* during Order A (analysis only) and
+*implemented* fifth, first package of Order B, as chapter 10 directs. No other
+deviation from chapter 3's A→E sequence.
+
+**Slice rule:** packages that specify PR slices get one chat per slice (IDs
+`BP-nn/Sk`, parent ID retained). Packages judged too large for one coherent
+change were split provisionally below (marked †); the split is refined at chat
+start if reality differs, always retaining the parent BP ID. A chat stops at
+its slice boundary — it never continues into the next package.
+
+| Chat | Package/Slice | Order | Backlog mapping | Depends on (must be complete first) | Status |
+|---|---|---|---|---|---|
+| 0 | save-and-organize (this chat) | — | — | — | complete |
+| 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | not_started |
+| 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | not_started |
+| 3 | **BP-03** stop false publishing/readiness | A | T2.13 | BP-01; truthful labels allowed before BP-13 deployment exists (§5 BP-03) | not_started |
+| 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | not_started |
+| 5 | **BP-05** export/deletion lifecycle | B | T2.5 | Order A; decisions already recorded (D2) | not_started |
+| 6 | **BP-06/S1** provider-backed price display & cancellation | B | T2.4 + owner rules | BP-05 not required; T2.4 done; cancellation policy owner decision O1 partially blocks verification | not_started |
+| 7 | **BP-06/S2** organization-level subscription/add-on mapping | B | T2.4 + T2.3 | BP-06/S1 | not_started |
+| 8 | **BP-06/S3** operator catalog/promotions/business statistics | B | admin commerce | BP-06/S2 | not_started |
+| 9 | **BP-07** jobs, events, receipts, approvals | B | T2.6, T2.12 | BP-05 not required; schema/crons exist | not_started |
+| 10 | **BP-08** one connection framework | B | T2.7 | BP-04 (refresh-in-action pattern), BP-07 not required | not_started |
+| 11 | **BP-09/S1**† ModelGateway + run metering (route all model call sites) | B | T2.9 | T0.4 gating exists | not_started |
+| 12 | **BP-09/S2**† ContextPack/ContextInspector (finishes T0.4 → unblocks red test R4) | B | T2.10 | BP-09/S1 | not_started |
+| 13 | **BP-09/S3**† prompt versioning, golden tests, eval floors | B | T2.11 | BP-09/S1; needs `07-ai-agent-config.md` (missing, see B1) | not_started |
+| 14 | **BP-10** accurate ingestion & transparent research | C | E3.1 (part) | Order B (safeFetch/guards exist already) | not_started |
+| 15 | **BP-11** projects, personas, content, journeys | C | E3.1 | BP-10 (facts/evidence links) | not_started |
+| 16 | **BP-12/S1** event/consent contract | C | T2.14 | BP-07 (envelope), BP-08 (connections seam) | not_started |
+| 17 | **BP-12/S2** GA4/GSC account selection & ingestion | C | E3.7 | BP-12/S1; provider accounts (owner input O7) | not_started |
+| 18 | **BP-12/S3** Matomo/PostHog | C | E3.7 | BP-12/S1 | not_started |
+| 19 | **BP-12/S4** GTM installation/diagnostics + forwarders | C | T2.14 | BP-12/S1 | not_started |
+| 20 | **BP-12/S5** evidence-backed recommendations | C | E3.7 | BP-12/S2–S3 (observations) | not_started |
+| 21 | **BP-13/S1** public projection (published-only, separate origin) | D | T2.15 | Order C; public-domain owner decision O4 blocks *real* origin verification only | not_started |
+| 22 | **BP-13/S2** deployment & domain verification | D | T2.15, E3.2 | BP-13/S1; **hosting adapter + domain owner decision O4** | not_started |
+| 23 | **BP-13/S3** CMS completeness (nav, slugs, redirects, media, revisions, locales, forms) | D | E3.2 | BP-13/S1 | not_started |
+| 24 | **BP-13/S4** generated-page quality (SEO, links, a11y audit) | D | E3.2 | BP-13/S3 | not_started |
+| 25 | **BP-13/S5** export parity | D | E3.2 | BP-13/S3 | not_started |
+| 26 | **BP-14/S1** merchant setup & catalog validation | D | E3.4 | Order C; Connect direction decided (D3) | not_started |
+| 27 | **BP-14/S2** checkout/order/payment | D | E3.4 | BP-14/S1; **precise Connect/tax/shipping owner decision O6** before money movement | not_started |
+| 28 | **BP-14/S3** fulfillment/refunds/subscriptions/digital delivery | D | E3.4 | BP-14/S2; O6 | not_started |
+| 29 | **BP-14/S4** public feed submission/diagnostics | D | E3.4 | BP-14/S1 (public endpoint needs BP-13/S1 origin seam) | not_started |
+| 30 | **BP-14/S5** per-store Shopify sync | D | E3.4 | BP-14/S1; per-project credentials (T0.9 guard preserved) | not_started |
+| 31 | **BP-15/S1**† app model: source graph, build jobs, snapshots, runner interface | D | E3.8 | Order C; no external decision for interface work | not_started |
+| 32 | **BP-15/S2**† sandbox execution, preview, approved deploy, rollback | D | E3.8 | BP-15/S1; **sandbox/backend host owner decision O5** | not_started |
+| 33 | **BP-15/S3**† export/portability, cost metering, context grounding | D | E3.8 | BP-15/S2; O5 (portability promise) | not_started |
+| 34 | **BP-16/S1** ad adapter contract + Google verified drafts/creation (paused) | D | E3.6 | Order C; BP-07 (approvals/receipts), BP-08 (connections); Google dev token/test account (O7) | not_started |
+| 35 | **BP-16/S2**† wizard/simple mode, approval, activation, optimization, conversion setup | D | E3.6 | BP-16/S1 | not_started |
+| 36 | **BP-16/S3**† Meta & TikTok validation (OpenAI Ads stays unavailable until official docs+test) | D | E3.6 | BP-16/S1; Meta/TikTok test accounts (O7) | not_started |
+| 37 | **BP-17/S1** contact/import/consent | D | E3.3 | Order C | not_started |
+| 38 | **BP-17/S2** email sending/feedback | D | E3.3 | BP-17/S1, BP-07; **email service/domain owner decision O2** | not_started |
+| 39 | **BP-17/S3** deterministic segments | D | E3.3 | BP-17/S1 | not_started |
+| 40 | **BP-17/S4** automation engine (jobs, not frontend timers) | D | E3.3 | BP-17/S2–S3, BP-07 | not_started |
+| 41 | **BP-17/S5** pipeline/inbox/reporting | D | E3.3 | BP-17/S1 | not_started |
+| 42 | **BP-18** social publishing, comments, reporting | D | E3.5 | **BP-04, BP-07, BP-08 all complete** (blueprint: "After BP-04/BP-07/BP-08") | not_started |
+| 43 | **BP-19** make the power understandable (usability) | E | T2.16 + design contracts | Orders A–D for the screens it touches; user-testing sessions (owner coordination) | not_started |
+| 44 | **BP-20** operations & release proof | E | T2.16, 06-test-strategy | all prior packages; owner RPO/RTO decision | not_started |
+
+† = provisional split made in chat 0 because the package is too large for one
+coherent change (blueprint does not pre-slice it). Sibling slices that the
+blueprint *does* pre-slice (BP-06, BP-12, BP-13, BP-14, BP-17) are verbatim
+from its "PR slices" lines.
+
+**Phase gates (chapter 3):** A exit = known failures have regressions; no false
+live state or broken credential handoff. B exit = shared contracts authorize and
+record work correctly. C exit = correctable facts and actual observations support
+outputs. D exit = every requested tool completes its standalone customer outcome.
+E exit = complete combined journeys pass with users and real test accounts.
+
+## 3. Existing implementation that must be preserved (verified in this tree)
+
+- **Tenancy/authorization:** `guards.ts` org builders `orgQuery/orgMutation/orgAction`
+  + `OrgAccess` (T2.2), `requirePlatformAdmin` + `lib/platformAdmin.ts`,
+  `requireActionUser`; `scripts/audit-public-functions.mjs` (allow-list of 3,
+  keep tiny); `eslint.config.js` raw-`ctx.db` ban; generated cross-tenant suite
+  (169+ cases). Do not create a second tenancy system (§4.1).
+- **Capabilities:** `src/convex/lib/capabilities.ts` canonical registry
+  (`PLAN_MODULES`, 34 capability keys, states `included|locked|needs_setup|unavailable`,
+  `CONVEX_FILE_OWNERS`) + `audit-module-capabilities.mjs`; module builders
+  `moduleQuery/moduleMutation/moduleAction` gate 149 functions (T2.3).
+  §4.1 requires adding an explicit submodule mapping (`build.website`, `build.app`)
+  here rather than renaming strings in components.
+- **Billing (BP-06 base):** `lib/stripe.ts` (test-mode guard, HMAC-SHA256 webhook
+  verify, mandatory idempotency), `billingWebhooks.applyEvent` (idempotent by
+  event id, out-of-order-safe), `lib/billingCatalog.ts`, `lib/billingReconcile.ts`
+  (0-drift target), dunning + wind-down sweep + daily reconcile cron, admin panel
+  guarded by `requirePlatformAdmin` (T2.4). `tests/unit/billing.test.ts` (12).
+- **Deletion (BP-05 base):** `dal.cascadeDeleteProject` is the one engine
+  (incl. the `buildVersions` index fix found by R10); `deletion-completeness.test.ts`
+  generates the table list from the schema; T2.5's four owner decisions (D2 below).
+  Preserve the engine; replace the *entry paths* per BP-05.
+- **Truthful states already enforced:** connections `connected` writable only via
+  internal mutations (T0.10); Shopify deployment-global sync refuses (T0.9);
+  scheduled-post job refuses without `promote.publish` (T2.3); checkout redirect
+  never grants a plan (T2.4).
+- **Safety primitives:** `lib/safeFetch.ts` (SSRF), `src/lib/sanitize.ts` +
+  sink scan in `tests/e2e/sanitized-html.spec.ts`, `.gitleaks.toml` +
+  `scripts/scan-secrets.mjs`, secret-scan unit tests that never echo values.
+- **Test/CI gates:** `bun run check` (typecheck+lint+unit+secrets+audit:functions
+  +audit:capabilities), `test:e2e` (13), `test:a11y` (5, zero serious/critical,
+  no allow-list), `check:codegen`; R1–R12 suite with R4 deliberately red
+  (`it.fails`, blocked on T0.4). Never weaken a gate to go green.
+- **Auth UX (BP-02 base):** OTP-only flow in `Auth.tsx` with T1.8 accessibility
+  (labels, `autocomplete="one-time-code"`, focus management, resend countdown),
+  `RequireAuth` preserving `returnTo`, skip links on all layouts.
+- **BP-03 base:** sanitized `PageRenderer`, CMS revision rules in
+  `WEBSITE-ARCHITECTURE.md` (published content immutable; public reads never
+  return a draft), `StatusBadge`/`ReceiptBadge` requirement (rule 15).
+- **BP-04 nuance:** `social/executor.ts` already contains an internal
+  `executor.getCred` query ("action-safe", ~L212/L238) — verify how much of the
+  credential-handoff fix already exists before rebuilding; ads consumers use
+  `cred._id` and must keep that contract.
+- **BP-14 base:** `SELL-ARCHITECTURE.md` invariants (Product→Variant mandatory,
+  change-control), `M1-BLUEPRINT.md` field model, standalone Sell contract.
+- **BP-15 base:** website generation inside `Build.tsx`/`BuildWorkspace.tsx`/
+  `buildChat`/`buildPlan`/`buildPages` must keep working while app behavior is
+  separated.
+
+## 4. Recorded owner decisions (preserve; do not re-decide)
+
+| # | Decision | Source |
+|---|---|---|
+| D1 | **Bun** is the package manager; `bun.lock` only; Node ≥22.12 pinned; **Convex bindings committed** with `check:codegen` drift gate | T1.1/T1.2, STATUS §6 #8, blueprint §9 |
+| D2 | **Deletion lifecycle:** 30-day grace (`ACCOUNT_DELETION_GRACE_DAYS = 30`); active finalizer cron after grace, only on explicit user request; **skip + report** (no auto-cancel) while a relevant paid subscription is active; delete **solely-owned orgs only**, preserve orgs with other active members; block unresolved shared ownership | T2.5 owner answers (22 Sep 2026), blueprint §9 |
+| D3 | **Stripe:** Connect (connected accounts) for commerce (E3.4); MOSAI platform subscriptions bill the platform account; Stripe Tax enabled; **plans/prices NOT final** → price ids are `STRIPE_PRICE_*` config, unconfigured plan = honest `needs_setup` | T2.4 owner answers, STATUS §6 #1, blueprint §9 |
+| D4 | **Convex is canonical**; CMS composed from existing primitives per ADR-4; no separate headless-CMS DB | blueprint §9 |
+| D5 | Passwordless **email OTP is the current sign-in model** (guest/anonymous removed); no password provider exists, so no reset-password link may be shown | T0.2, blueprint §5 BP-02 |
+| D6 | Source-of-truth order: owner/security → code+tests → contracts → ticket prose; **T2.5 "done" is disproven by code and must be reconciled, not trusted** | blueprint §1 |
+
+## 5. Unresolved questions / blockers (owner input)
+
+Numbering used across chats: **O** = owner decision (blueprint §9 + STATUS §6),
+**B** = environment/asset blocker found in chat 0.
+
+| ID | Question | Blocks | Can proceed meanwhile |
+|---|---|---|---|
+| **B1** | **Missing reference documents.** Not present anywhere in this workspace: `MOSAI_CODE_PRODUCT_BLUEPRINT_V2.md`; pack files `01–09` (only `README`, `STATUS`, `10-build-backlog` exist) including the blueprint-named `04-adrs.md`, `05-design-system.md`, `07-ai-agent-config.md`, `08-module-contracts.md`; `MOSAI-READINESS-AUDIT-2026-09-23.md`. Please provide them (paste/upload). | BP-01 "bring the missing reference documents into the pack"; BP-09/S3 eval floors (from `07`); ADR-dependent choices (ADR-3/4/6/7) in BP-13/14/15 | BP-01's test/CI repairs; everything not needing those texts. If unprovided, BP-01 records them as permanently missing with documented impact — **the blueprint forbids inventing their content** |
+| **B2** | **Git is blocked** ("Vly manages version control"). Cannot run `git status/diff/log`, history secret scan, or attach CI evidence to a commit from this environment; GitHub CI run 35790335737 not verifiable from here. | BP-01 history investigation, working-tree cleanliness proof, "CI evidence attached to the exact commit" | All local gates (`bun run check`, `test:e2e`, `test:a11y`, `check:codegen`), file-level inspection, unit regressions. Options: enable git, or you run git/GitHub steps and paste results, or record as owner-run evidence |
+| **B3** | `.env.keys` and `.env.local` still sit at the repo root; T0.1's rotation/history-purge owner actions are outstanding. Never read, printed, committed or allow-listed. | BP-01 secret-history acceptance (partial) | All code work; the runbook exists (`docs/runbooks/secret-rotation.md`) |
+| **O1** | Final packages, add-on terms, prices, **cancellation/proration/discount rules** | BP-06/S1 cancellation verification, BP-06/S3 final pricing display | catalog abstraction, reconciliation tests, admin auth (blueprint §9) |
+| **O2** | Sign-in model beyond OTP; **approved transactional email service + sending domain** (T0.8/ADR-9) | BP-02 email-gateway implementation, BP-17/S2 real sends | OTP error/focus/rate-limit tests, gateway interface, all non-send work |
+| **O3** | Launch countries/languages + specific EU data requirements | capability matrix fill (STATUS §5 #4), localization claims, BP-20 residency rows | locale-ready UI, provider capability matrix, data inventory |
+| **O4** | **Public customer domain + site-host deployment adapter** (hosting ADR) | BP-13/S2 real deployment/domain verification, public-origin proof | published-only projection, immutable releases, renderer tests (§9) |
+| **O5** | **App sandbox/backend host + portability promise** (ADR-3 spike) | BP-15/S2 deploy claims, BP-15/S3 export promise | source graph, runner interface, budgets, adversarial test spec |
+| **O6** | Precise Stripe Connect model; merchant tax/shipping/refund requirements; supported markets | BP-14/S2–S3 money movement details | catalog/readiness, test webhook infra, order state model |
+| **O7** | Provider app approvals, scopes, **test accounts** (Google Ads dev token, Meta/TikTok apps, GA4/GSC properties, email OTP inbox) | *Operational* evidence for BP-12/S2, BP-16, BP-18, J01 real-inbox | contract fixtures, `needs_setup` states, adapter code |
+| **O8** | (STATUS §6) cut-line rule ADR-8; app-builder audience (#5); app backend location (#6); "Conductor" naming (#7) | BP-15 defaults, BP-19/20 scope details | most code work |
+| **O9** | RPO/RTO and backup scope for BP-20 | BP-20 restore claims | defining safe logs/metrics/runbooks |
+
+Per blueprint §9: do not block all work on these — only the dependent operation
+stays pending, and the chat records `blocked` with the specific dependency.
+**No passwords/API keys may be requested in plaintext conversation.**
+
+## 6. Tests and external evidence needed (per package)
+
+"Implemented" needs reviewed code + green regression/contract tests; "operational"
+additionally needs an approved real-provider journey with a stored receipt
+(blueprint §2). Minimum per package:
+
+| Package | Code-level evidence (tests) | External evidence still needed |
+|---|---|---|
+| BP-01 | all CI jobs green on the commit; planted secret fails scan; broken CTA/redirect fails e2e; skipped/expected-failure inventory documented; STATUS matches code | CI run attached to exact commit (needs B2/owner); history scan result (needs B2/B3) |
+| BP-02 | `tests/unit/auth-lifecycle.test.ts`, `tests/e2e/auth-lifecycle.spec.ts`: OTP sign-in, expired/wrong/resend, backend-down retry, returnTo rejection, non-admin denied, keyboard paths | real OTP inbox delivery (O2/O7) |
+| BP-03 | `tests/unit/publish-truth.test.ts`: client cannot write live/published/paid/sent or SEO/WCAG booleans; failed release keeps previous; badge opens receipt | none until BP-13 deployment (then real deploy receipt) |
+| BP-04 | `tests/unit/{social-execution,credential-refresh}.test.ts`: correct credential ID to adapter, refresh via action, revoked→reconnect, concurrent-refresh lease, one failure ≠ batch abort | controlled provider refresh test after configuration (O7) — not a campaign blast |
+| BP-05 | `tests/unit/account-lifecycle.test.ts` + existing deletion-completeness: free/paid, sole/shared/last-owner, cancel deletion, overdue job, outage, partial retry, cross-tenant denial; unregistered table fails CI | Stripe subscription check proven against live test mode; no deletion of live data without explicit authorization |
+| BP-06 | extend `billing.test.ts`/`entitlements.test.ts`: display=checkout, webhook dup/ordering, org isolation, add-on gates, promotion failures, non-admin denied | Stripe catalog projection + cancellation confirmed by provider (O1, test mode) |
+| BP-07 | `tests/unit/job-execution.test.ts`: single logical operation under concurrency, timeout reconciliation, late-worker loss, stale approval refused, capability removal stops queue, loop→dead-letter | none local; provider idempotency where supported |
+| BP-08 | wrong-tenant/state replay fails; account selection; reconnect; sync freshness; disconnect stops jobs | real OAuth dances per provider (O7) |
+| BP-09 | `tests/ai/`: tenant isolation, forged snapshot rejected (R4 flips green), injection cannot alter tools/args, budget metering, invalid output never published | eval floors measured vs `07` doc (B1); provider spend accounting |
+| BP-10 | `tests/unit/source-provenance.test.ts`: conflicting facts, blocked pages, malicious redirects, same-name businesses; distinct missing-key/empty/timeout/ratelimit states; correction propagates + staleness flags | extraction-quality review on real business examples (O7 keys) |
+| BP-11 | `tests/e2e/base-journey.spec.ts`: reviewed source → evidence-linked persona → journey → approved content reused by another module at exact versions | none |
+| BP-12 | per slice: denied-consent ⇒ zero tracking requests; one order ⇒ one deduped event/destination; repeat import ⇒ no double count; revocation/staleness visible; recommendation reproduces from stored observations | real GA4/GSC/Matomo/PostHog properties (O7) |
+| BP-13 | JS-disabled public render of correct tenant; draft inaccessible; bad publish preserves old site; keyboard form journey; sanitization/axe gates stay green | verified public domain + TLS receipt (O4/O7) |
+| BP-14 | signed-out test checkout; forged/dup webhook no payment; no oversell; refund/fulfillment reconcile; cross-tenant catalog isolation; consent≠purchase | Stripe Connect test-mode receipts, feed acceptance by external endpoint, Shopify store webhooks (O6/O7) |
+| BP-15 | CRUD/auth/app CRUD app builds, persists, tenant-isolated; malicious code cannot reach metadata/internal nets/secrets; cost limit pauses; export in clean env | sandbox provider selection (O5) + real deploy/rollback receipt |
+| BP-16 | contract fixtures per provider: connect→select→validate→create paused→approved change→metrics→pause/revoke; partial-failure compensation; no unexpected spend | Google/Meta/TikTok approved test accounts (O7); OpenAI Ads stays `unavailable` until official docs prove it |
+| BP-17 | duplicate imports; unsubscribe-during-delay blocks send; dup trigger ⇒ no extra message; suppressed/erased excluded; stop prevents future actions; role-protected exports | ESP provider receipts + sender authentication (O2/O7) |
+| BP-18 | schedule→publish→receipt per destination; restart/tz/expiry recovery; partial failure does not duplicate; revoke blocks queued send; unsupported inbox ops show no working control | real approved test post + threaded reply on each supported provider (O7) |
+| BP-19 | state-coverage checks (loading/empty/error/partial/locked/unavailable each with a next step); keyboard/reduced-motion/reflow/token audits stay green | observed sessions: ≥5 nontechnical users, benchmark ≥4/5 task success, 0 critical live/paid misreadings (owner coordinates participants) |
+| BP-20 | gates documented and green: `check`, `test:e2e`, `test:a11y`, `check:codegen`, build; new module-alone/pairwise/removal + registry checks implemented *before* being called gates | restore drill in isolated env (O9), provider-outage exercise, release-proof rows with commit/environment/role/fixture/time, redacted artifacts |
+
+## 7. Reconciliation findings (chat-0 verification, 23 September 2026)
+
+Verified directly in this tree — the audited defects are **still present**:
+
+1. **False live state (BP-03):** `src/convex/buildWorkspace.ts` — `publishSite`
+   (`moduleMutation("build")`, ~L157) patches `status: "live"` after database
+   edits (~L224–225). Confirmed.
+2. **Credential refresh in mutations (BP-04):**
+   `src/convex/social/credentials.ts` — `fetch(env.tokenUrl, …)` at L56 inside the
+   path used by `refreshIfNeeded` (`internalMutation`, L81); `getCredId`
+   (`internalQuery`, L89) returns a document while
+   `social/executor.ts` L194 fetches it as `credId` (cast to re-verify).
+   `src/convex/ads/credentials.ts` — same shape: `fetch` L42,
+   `refreshIfNeeded` `internalMutation` L79, `getCredId` L87. Note the partial
+   fix already present: `social/executor.ts` has its own `executor.getCred`
+   internal query (~L212, comment "action-safe" L238) — verify before rebuilding.
+3. **T2.5 discrepancy confirmed (BP-05 / blueprint §1):**
+   `docs/tickets/T2.5-…md` header says **Status: done**, but
+   `src/convex/lib/dataRegistry.ts` L2 still labels itself the **T2.1 seed**,
+   `billing.deleteAccount` (L386) and `requestAccountDeletion` (L367) are still
+   the old immediate mutations, and `src/convex/crons.ts` contains **no
+   finalizer** (grep for `finalizer|registry` returns nothing). Ticket prose is
+   not proof — reconcile in BP-05 before editing.
+4. **Placeholder backend in CI (BP-01):** `.github/workflows/ci.yml` L162 and
+   L182 fall back to `VITE_CONVEX_URL: https://placeholder.convex.cloud` for the
+   e2e/a11y jobs. Confirmed.
+5. **Smoke test state (BP-01):** `tests/e2e/smoke.spec.ts` exists (31 lines;
+   asserts H1 copy, "mosai", CTA → `/auth`, "Get Started", OTP placeholder,
+   404). `STATUS.md` claims 13 e2e passed locally while the blueprint says the
+   baseline CI run failed — **reproduce first** (BP-01's opening step) rather
+   than trusting either claim; local reproduction is possible (bun 1.3.14,
+   Playwright chromium-1243 installed).
+6. **Missing documents (B1):** glob confirms no
+   `MOSAI_CODE_PRODUCT_BLUEPRINT_V2.md`, no pack `01–09` files, no
+   `MOSAI-READINESS-AUDIT-2026-09-23.md`, and the workspace copies
+   `04/05/07/08` are absent. `docs/tickets/README.md` says T2.5–T2.16 and
+   E3.1–E3.10 ticket files are "create when reached" — expected, not a defect.
+7. **Environment constraints:** git commands blocked (B2); Freebuff runs
+   `bun convex dev --once` + `tsc -b --noEmit` after every turn that touches
+   `src/convex/` or TypeScript respectively; dev servers must never be started
+   or killed manually; no full `bun run build` unless asked.
+8. **Baseline match:** `.git/refs/heads/main` =
+   `a3edd69bf813e4705f9d189fe43079aee3f2257e` = blueprint baseline; file mtimes
+   (Sep 19–22) are consistent with that checkout, but **working-tree cleanliness
+   could not be proven** without git (B2) — each implementation chat must
+   re-inspect before editing and preserve unrelated changes.
+
+## 8. Next chat
+
+**Chat 1 = BP-01 — Repair the baseline and make status documentation
+trustworthy.** Dependencies: none (first package of Order A, named first by
+blueprint §10). Entry checks for that chat: re-read AGENTS.md, the saved
+blueprint, this file, and the chat-0 findings in §7; re-verify branch/commit via
+`.git` files; run the documented gates to *reproduce* current failures before
+editing; ask the B1/B2 questions if still unanswered for the parts they gate.
