@@ -13,6 +13,8 @@ import { platformAdminEmails } from "./lib/platformAdmin";
 import { checkoutConfigured, planCatalog } from "./lib/billingCatalog";
 import { stripeMode, stripeWebhookSecret } from "./lib/stripe";
 
+const ADMIN_OVERVIEW_SAMPLE_LIMIT = 5_000;
+
 /**
  * MOSAI admin panel (T2.4 admin slice).
  *
@@ -76,6 +78,7 @@ export const overview = query({
     organizations: number;
     projects: number;
     subscriptions: number;
+    subscriptionsCapped: boolean;
     activeSubscriptions: number;
     pastDue: number;
     planCounts: Record<string, number>;
@@ -87,13 +90,24 @@ export const overview = query({
     } | null;
   }> => {
     await requirePlatformAdmin(ctx);
-    const LIMIT = 5000;
-    const users = await ctx.db.query("users").take(LIMIT);
-    const organizations = await ctx.db.query("organizations").take(LIMIT);
+    const users = await ctx.db
+      .query("users")
+      .take(ADMIN_OVERVIEW_SAMPLE_LIMIT);
+    const organizations = await ctx.db
+      .query("organizations")
+      .take(ADMIN_OVERVIEW_SAMPLE_LIMIT);
     const projects = await ctx.runQuery(internal.projects.platformCount, {
-      limit: LIMIT,
+      limit: ADMIN_OVERVIEW_SAMPLE_LIMIT,
     });
-    const subscriptions = await ctx.db.query("subscriptions").collect();
+    const subscriptionSample = await ctx.db
+      .query("subscriptions")
+      .take(ADMIN_OVERVIEW_SAMPLE_LIMIT + 1);
+    const subscriptionsCapped =
+      subscriptionSample.length > ADMIN_OVERVIEW_SAMPLE_LIMIT;
+    const subscriptions = subscriptionSample.slice(
+      0,
+      ADMIN_OVERVIEW_SAMPLE_LIMIT,
+    );
 
     const planCounts: Record<string, number> = {};
     for (const user of users) {
@@ -116,10 +130,11 @@ export const overview = query({
 
     return {
       users: users.length,
-      usersCapped: users.length === LIMIT,
+      usersCapped: users.length === ADMIN_OVERVIEW_SAMPLE_LIMIT,
       organizations: organizations.length,
       projects: projects.count,
       subscriptions: subscriptions.length,
+      subscriptionsCapped,
       activeSubscriptions,
       pastDue,
       planCounts,

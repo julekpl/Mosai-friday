@@ -411,6 +411,83 @@ describe("T2.4 — platform admin", () => {
     ).rejects.toThrow(/Platform admin only/i);
   });
 
+  it("marks the subscription counts as a capped sample above the overview limit", async () => {
+    const t = newBackend();
+    const operator = await seedUser(t, {
+      name: "Operator",
+      email: "julian.s.witkowski@gmail.com",
+    });
+    const { organizationId } = await seedOrg(t);
+
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 5_001; index += 1) {
+        await ctx.db.insert("subscriptions", {
+          organizationId: organizationId as Id<"organizations">,
+          provider: "stripe",
+          subscriptionId: `sub_${index}`,
+          customerId: "cus_test",
+          plan: "starter",
+          status: "active",
+          livemode: false,
+          cancelAtPeriodEnd: false,
+          dunningStage: 0,
+          lastEventCreated: index,
+          createdAt: index,
+          updatedAt: index,
+        });
+      }
+    });
+
+    const overview = await operator.as.query(api.admin.overview, {});
+
+    expect(overview).toMatchObject({
+      subscriptions: 5_000,
+      subscriptionsCapped: true,
+      activeSubscriptions: 5_000,
+      pastDue: 0,
+    });
+  });
+
+  it("reports exact current subscription counts below the sample limit", async () => {
+    const t = newBackend();
+    const operator = await seedUser(t, {
+      name: "Operator",
+      email: "julian.s.witkowski@gmail.com",
+    });
+    const { organizationId } = await seedOrg(t);
+
+    await t.run(async (ctx) => {
+      for (const [subscriptionId, status] of [
+        ["sub_active", "active"],
+        ["sub_due", "past_due"],
+      ] as const) {
+        await ctx.db.insert("subscriptions", {
+          organizationId: organizationId as Id<"organizations">,
+          provider: "stripe",
+          subscriptionId,
+          customerId: "cus_test",
+          plan: "starter",
+          status,
+          livemode: false,
+          cancelAtPeriodEnd: false,
+          dunningStage: 0,
+          lastEventCreated: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        });
+      }
+    });
+
+    const overview = await operator.as.query(api.admin.overview, {});
+
+    expect(overview).toMatchObject({
+      subscriptions: 2,
+      subscriptionsCapped: false,
+      activeSubscriptions: 1,
+      pastDue: 1,
+    });
+  });
+
   it("lets an operator override a plan and records the action", async () => {
     const t = newBackend();
     const operator = await seedUser(t, {

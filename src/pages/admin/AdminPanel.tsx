@@ -123,11 +123,17 @@ export default function AdminPanel() {
         <Stat label="organizations" value={overview?.organizations ?? "…"} />
         <Stat label="projects" value={overview?.projects ?? "…"} />
         <Stat
-          label="subscriptions"
+          label="current subscription sample"
           value={overview?.subscriptions ?? "…"}
           hint={
             overview
-              ? `${overview.activeSubscriptions} active · ${overview.pastDue} past due`
+              ? [
+                  overview.subscriptionsCapped
+                    ? "capped at 5,000 rows"
+                    : "all current rows",
+                  `${overview.activeSubscriptions} active`,
+                  `${overview.pastDue} past due`,
+                ].join(" · ")
               : undefined
           }
         />

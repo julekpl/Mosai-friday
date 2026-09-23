@@ -1,0 +1,9 @@
+# BP-06 admin-statistics slice — 23 September 2026
+
+Status: **partial implementation; BP-06 is not complete**. Base: GitHub main `93a0df20ce5bf9568bcf5a2ebbed6080894a32f4`. Branch: `codex/bp-06-admin-stats` in the existing `review-current` checkout.
+
+The admin overview now reads at most 5,001 subscription rows and reports counts from a 5,000-row sample, with a sentinel that distinguishes a capped sample from all current rows. The admin screen labels that scope explicitly. It does not infer revenue, provider settlement, cancellation, prices or promotional performance. Existing non-admin denial remains in force.
+
+Verification: red-first above-limit and below-limit tests were added to `tests/unit/billing.test.ts`; the focused billing suite passed 14/14 after the change. The controller independently ran the full unit suite: 335/335 passed with `BUN_BIN` set. Convex-only TypeScript, focused lint, public-function audit (221 scanned with three existing review notices), and `git diff --check` passed. Whole-app typecheck remains blocked by seven `TS2307` errors for declared but locally missing `three` in untouched `RelationMap.tsx`. No Stripe call, preview journey or secret-scan remediation was performed for this slice.
+
+Owner decisions recorded on 23 September: real package prices should come from the Stripe **test catalog**; paid cancellation should take effect **at the end of the billing period**. These decisions do not make the current customer billing UI truthful. It still shows hard-coded price labels, and its local entitlement downgrade can be described as a completed subscription cancellation without provider confirmation. Those flows, versioned catalog, tax/promotion policy, per-organization purchases and provider tests remain BP-06 work. The blocked release gate from T0.1/B3 remains unchanged.
