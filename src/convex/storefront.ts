@@ -339,7 +339,7 @@ export const getPublishedPage = moduleQuery("sell", {
     // appear before its release verifies); no mutable page.status check —
     // the snapshot is authoritative for the confirmed release.
     const route = gate.routesByPath.get(clean);
-    if (!route) return { kind: "not_found" as const };
+    if (!route || !route.title) return { kind: "not_found" as const };
     const revision = await ctx.db.get(route.revisionId);
     if (!revision) return { kind: "not_found" as const };
     return {

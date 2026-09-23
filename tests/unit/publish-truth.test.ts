@@ -482,6 +482,8 @@ describe("Site delivery view", () => {
  *     preparation promoted it — before any BP-13 deployment exists. External
  *     delivery must be gated on a server-verified deployment receipt;
  *     prepared content is preview-only until then.
+ *  3. Legacy audits without complete immutable route metadata are not
+ *     reconstructed from mutable CMS rows; both public readers fail closed.
  */
 
 describe("Preparation is all-or-nothing (review follow-up 1)", () => {
@@ -870,6 +872,61 @@ describe("External delivery is gated on a verified deployment receipt (review fo
         ],
       });
     }
+  });
+
+  it("fails closed for a verified snapshot missing legacy title/SEO across B prepare/fail", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { buildId, siteId } = await seedSite(t, tenant, projectId);
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    await t.run(async (ctx) => {
+      const audits = await ctx.db.query("buildReleaseAudits").withIndex("by_build", (q) => q.eq("buildId", buildId)).collect();
+      const audit = audits.sort((a, b) => b.createdAt - a.createdAt)[0];
+      await ctx.db.patch(audit._id, { routes: audit.routes?.map(({ fullPath, revisionId }) => ({ fullPath, revisionId })) });
+    });
+    expect(await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" })).toBeNull();
+    expect(await tenant.as.query(api.storefront.getPublishedPage, { projectId, path: "/" })).toMatchObject({ kind: "not_found" });
+
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const audits = await ctx.db.query("buildReleaseAudits").withIndex("by_build", (q) => q.eq("buildId", buildId)).collect();
+      const failedDeployment = await ctx.db.insert("buildDeployments", { projectId, buildId, siteId, state: "failed", createdAt: now, updatedAt: now });
+      await ctx.db.patch(audits.sort((a, b) => b.createdAt - a.createdAt)[0]._id, { phase: "failed", deploymentId: failedDeployment });
+    });
+    expect(await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" })).toBeNull();
+    expect(await tenant.as.query(api.storefront.getPublishedPage, { projectId, path: "/" })).toMatchObject({ kind: "not_found" });
+  });
+
+  it("requires verification for a verified pre-snapshot audit rather than resolving mutable routes", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    await t.run(async (ctx) => {
+      const audits = await ctx.db.query("buildReleaseAudits").withIndex("by_build", (q) => q.eq("buildId", buildId)).collect();
+      const audit = audits[0];
+      await ctx.db.patch(audit._id, { routes: undefined, redirects: undefined });
+      await ctx.db.patch(audit._id, { phase: "release_prepared" });
+      await ctx.db.patch(pageId, { fullPath: "/moved", title: "Mutable B title" });
+    });
+    expect(await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" })).toBeNull();
+    expect(await tenant.as.query(api.storefront.getPublishedPage, { projectId, path: "/" })).toMatchObject({ kind: "not_found" });
+    expect(await tenant.as.query(api.storefront.getPublishedPage, { projectId, path: "/moved" })).toMatchObject({ kind: "not_found" });
+    // Reasserting the old verified phase models the persisted historical
+    // row: no route snapshot means neither the former nor mutated route can
+    // be inferred safely.
+    await t.run(async (ctx) => {
+      const audits = await ctx.db.query("buildReleaseAudits").withIndex("by_build", (q) => q.eq("buildId", buildId)).collect();
+      const deploymentId = await ctx.db.insert("buildDeployments", { projectId, buildId, siteId, state: "succeeded", createdAt: Date.now(), updatedAt: Date.now() });
+      await ctx.db.patch(audits[0]._id, { phase: "verified", deploymentId });
+    });
+    expect(await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" })).toBeNull();
+    expect(await tenant.as.query(api.storefront.getPublishedPage, { projectId, path: "/moved" })).toMatchObject({ kind: "not_found" });
   });
 
   it("pages and redirects added by B stay hidden until B is verified", async () => {

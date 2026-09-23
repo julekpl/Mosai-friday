@@ -329,10 +329,12 @@ preparation time, and the readers resolve externally through that snapshot:
   `routesByPath` / `redirectsByPath` snapshots. When the confirmed audit
   has a route snapshot it is **authoritative**: `cms.getPublishedByPath`
   and `storefront.getPublishedPage` resolve paths through it and never
-  consult the live index (the pin-based index fallback applies only to
-  legacy audits written before snapshots existed — the fallback is skipped
-  whenever a snapshot is present, because a naive pin lookup by page id
-  would otherwise serve A's revision under B's new path).
+  consult the live index. At this stage, the intended behavior was to use a
+  pin-based fallback for legacy audits without snapshots; the fifth review
+  follow-up below supersedes that plan because current CMS rows cannot prove
+  historical routes or metadata safely. The fallback is also skipped when a
+  snapshot is present, because a naive pin lookup by page id would otherwise
+  serve A's revision under B's new path.
 - Result: A verified at `/` → slug moved to `/new` for B → before B
   verification (and after B's deployment fails), `/` still serves A's
   pinned revision on both readers; `/new` and B's redirect stay hidden;
@@ -345,9 +347,11 @@ preparation time, and the readers resolve externally through that snapshot:
   millisecond made "newest" ambiguous; the gate and the test helper now
   sort by `createdAt` then `_creationTime`.
 
-Schema note: the new `routes`/`redirects` fields are **additive and
-optional** — no migration needed; old audits remain readable and the
-legacy fallback keeps pre-snapshot confirmed releases serving.
+Schema note at this review stage: the new `routes`/`redirects` fields are
+**additive and optional** — no row migration is needed. The original plan was
+to keep pre-snapshot releases serving through a pin fallback. The fifth review
+follow-up below supersedes that behavior: audits without complete frozen route
+and title metadata now fail closed and require a fresh verified release.
 
 **Gates after the fix:** unit **331/331** (17/17 BP-03 suite), codegen,
 tsc, lint (0 errors), `audit:functions` ✓, `audit:capabilities` ✓; `bun run
@@ -440,3 +444,88 @@ isolated branch). No BP-13 adapter or real publish.
       follow-up, red-first; title/SEO frozen in the route snapshot).
 - Red-first record in the suite header; deletion-fixture regressions in
   `tests/unit/deletion-completeness.test.ts`.
+
+---
+
+## Fifth review follow-up — legacy snapshot compatibility (23 Sep 2026)
+
+Review identified two schema/delivery compatibility gaps in the prior
+follow-up. First, `buildReleaseAudits.routes[].title` had become required even
+though the preceding committed writer stored only `fullPath` and `revisionId`;
+this risks rejecting existing audit rows. Second, the public readers required
+a route snapshot despite comments describing a legacy pin fallback. That
+fallback cannot safely reconstruct historical routes or metadata because
+current CMS rows may already contain an unverified B slug/title/SEO edit.
+
+**Compatibility behavior:** `routes[].title` is optional in the schema, so
+older snapshot rows remain schema-compatible. The delivery gate permits
+serving only when the verified audit has a route snapshot and every route has
+a frozen title. An audit with no route snapshot or incomplete legacy metadata
+is retained as historical evidence but public delivery returns not-found until
+a new release is prepared and verified. No current CMS route/title/SEO is
+copied into that old audit. Snapshot-complete verified A continues serving
+across B preparation and failed deployment; the existing A→B regression pins
+that behavior.
+
+**Red-first regressions:** two focused tests were run against the old
+implementation. The missing-title test failed because CMS served the legacy
+row. The pre-snapshot test asserts neither the former path nor a mutated path
+can be inferred, including after restoring the historical verified receipt
+shape. Both CMS and storefront readers now fail closed. These are database
+fixtures only; no production rows were queried or changed.
+
+**Migration and rollback:** no row migration is required: the schema change
+widens validation by making `title` optional and does not rewrite stored data.
+Rollback is code-only: restoring the previous schema/readers re-enables the
+old behavior. Do not roll back while rows with missing title or absent routes
+exist unless a separately reviewed migration/backfill can reconstruct them
+from immutable evidence; a backfill from mutable CMS records is unsafe. No
+claim is made about whether such live rows exist. Any release rollback plan
+must inventory their presence before changing this behavior.
+
+**Verification in this checkout (Bun 1.3.14):** frozen-lockfile dependency
+install exit 0. Focused test before implementation: exit 1 with the expected
+legacy-title serving failure; focused suite after implementation: exit 0,
+21/21. Full unit suite: exit 0, 335/335. `bun run typecheck`: exit 0.
+`bun run lint`: exit 0, 0 errors and 28 existing warnings. `audit:functions`:
+exit 0 (221 scanned; 3 existing review notices). `audit:capabilities`: exit 0
+(152 scanned). `bun run check`: exit 1 at the unchanged `.env.keys` finding;
+typecheck, lint, and unit stages passed before the secret scanner stopped the
+chain. Secret scan exit 1 for the same tracked `.env.keys` private-key finding;
+value was not read or printed, scan was not weakened.
+
+`bun run codegen`: exit 1 because no `CONVEX_DEPLOYMENT` is configured.
+`bun convex dev --once`: exit 1: network name lookup failed (`ENOTFOUND`) while
+Convex attempted local-deployment setup; no deployment was configured or
+contacted. Without `VITE_CONVEX_URL`, a reviewer observed a blank app; their
+full E2E run had five browser failures and was interrupted (exit 130). This
+is environment configuration, not a BP-03 regression: `src/main.tsx` passes
+`import.meta.env.VITE_CONVEX_URL` directly to `ConvexReactClient`, and this
+checkout has no `.env` (only `.env.example`). The E2E fixture intercepts
+backend traffic, but Vite still needs a syntactically valid URL at startup.
+I independently ran `tests/e2e/smoke.spec.ts` with the inert
+`VITE_CONVEX_URL=https://e2e-test-only.convex.cloud` and Bun on PATH; landing
+and not-found passed 2/2 (exit 0). I did not complete a full-suite or a11y
+run. The controller independently verified the local inert URL
+`http://127.0.0.1:9999`: focused landing a11y passed 1/1 and the full suite
+passed 15, skipped 1 real-OTP test, exit 0 (33.6s). Those latter results are
+controller-reported, not run in this session. CI status for this checkout is
+unknown. Session audit was invoked, exit 1 before repository edits due to a
+permission error writing the central proposal under `~/.hermes/.../proposals`;
+no proposal was applied.
+
+**Independent BP-03 inspection:** verified-phase receipt rows have no current
+production writer. `builds.auditReadiness` writes `draft_approved`;
+`buildWorkspace.publishSite` writes `release_prepared`. BP-13's deployment
+verifier is absent. This makes old verified rows unreachable from current
+server writers but does not establish whether older persisted rows exist.
+No provider or production inspection was performed. The fail-closed legacy
+behavior may withdraw a historical release on upgrade; preserve that as an
+explicit upgrade limitation, not as proof the last-confirmed-release
+guarantee holds for route-less legacy rows.
+
+**Handoff:** controller review should decide how to inventory old persisted
+audits before rollout and sequence any customer-visible reverification with
+BP-13. Safe migration can only use immutable historical evidence; current CMS
+rows are not a valid source for restoring historical routes/title/SEO. BP-02
+remains isolated and owner-blocked for provider/domain and step-up choices.

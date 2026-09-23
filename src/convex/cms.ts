@@ -194,25 +194,24 @@ export const getPublishedByPath = query({
     // by_site_path index: a slug move performed for a later, unverified
     // release must not cut off or rewrite the confirmed routes, and B's new
     // path must stay hidden until B verifies. When the confirmed audit has
-    // a route snapshot it is AUTHORITATIVE — the pin fallback below would
+    // a route snapshot it is AUTHORITATIVE — a page-pin fallback would
     // otherwise serve A's pinned revision under B's new path (the page row
-    // moved, but the pin maps by page id). Audits written before snapshots
-    // existed use the pin fallback as a best-effort legacy path.
-    const pinnedId: Id<"pageRevisions"> | undefined =
-      gate.routesByPath.get(path)?.revisionId;
-    if (!pinnedId) return null;
+    // moved, but a pin maps by page id). Audits written before snapshots
+    // existed fail closed because their former route/metadata is unknowable.
+    const route = gate.routesByPath.get(path);
+    const pinnedId: Id<"pageRevisions"> | undefined = route?.revisionId;
+    if (!pinnedId || !route?.title) return null;
     const revision = await ctx.db.get(pinnedId);
     if (!revision || revision.state !== "published") return null;
     // Metadata comes from the snapshot frozen at preparation — a title/SEO
     // edit belonging to a later, unverified release must not appear before
     // that release verifies (follow-up 4). No mutable page.status check:
     // the snapshot is authoritative for what the confirmed release serves.
-    const meta = gate.routesByPath.get(path)!;
     return {
       page: {
         _id: revision.pageId,
-        title: meta.title,
-        seo: meta.seo ?? null,
+        title: route.title,
+        seo: route.seo ?? null,
         fullPath: path,
       },
       revision,

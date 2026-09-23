@@ -637,7 +637,9 @@ const schema = defineSchema(
             fullPath: v.string(),
             revisionId: v.id("pageRevisions"),
             // metadata snapshot at preparation time
-            title: v.string(),
+            // Optional for compatibility with route snapshots written before
+            // title/SEO were added. Public delivery fails closed when absent.
+            title: v.optional(v.string()),
             seo: v.optional(
               v.object({
                 title: v.optional(v.string()),

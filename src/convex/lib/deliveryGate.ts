@@ -22,6 +22,11 @@
  *  - the audit's `revisionIds` pin the exact content that release served;
  *    readers resolve a page through that pin, never the current pointer.
  *
+ * Compatibility rule: an audit without a route snapshot, or with any route
+ * lacking its frozen title, cannot safely reconstruct public routing or
+ * metadata from mutable CMS rows. It therefore fails closed and requires a
+ * newly verified release. No old route or metadata is inferred.
+ *
  * Paths (new pages) and redirects that exist only in a later, unverified
  * release stay hidden: a page not in the pinned revision set has nothing to
  * serve, and redirects must only be honored once the release that produced
@@ -40,7 +45,7 @@ export type DeliveryGate =
       /** the release's route snapshot: fullPath → pinned revision + frozen metadata */
       routesByPath: Map<
         string,
-        { revisionId: Id<"pageRevisions">; title: string; seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string } }
+        { revisionId: Id<"pageRevisions">; title?: string; seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string } }
       >;
       /** the release's redirect snapshot: fromPath → {to, statusCode} */
       redirectsByPath: Map<
@@ -52,9 +57,11 @@ export type DeliveryGate =
 
 /**
  * The last confirmed public release for a project's website build: the
- * newest audit with an intact verified-deployment receipt chain. Returns
- * `allowed: false` when none exists (nothing externally delivered yet, or
- * every verified release has been superseded by a failed/canceled one).
+ * newest audit with an intact verified-deployment receipt chain and a
+ * complete route snapshot. Returns `allowed: false` when none exists
+ * (nothing externally delivered yet, every verified release has been
+ * superseded by a failed/canceled one, or only incompatible legacy audits
+ * exist).
  */
 export async function selectConfirmedRelease(
   ctx: Pick<QueryCtx, "db">,
@@ -88,11 +95,11 @@ export async function selectConfirmedRelease(
         }
       }
       // Route/redirect snapshots (present on audits written after the
-      // third BP-03 review follow-up; older audits fall back to resolving
-      // through the page pins so a legacy confirmed release still serves).
+      // third BP-03 review follow-up; legacy audits without them fail closed
+      // below because current page rows cannot prove historical routing).
       const routesByPath = new Map<
         string,
-        { revisionId: Id<"pageRevisions">; title: string; seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string } }
+        { revisionId: Id<"pageRevisions">; title?: string; seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string } }
       >();
       for (const r of audit.routes ?? []) {
         routesByPath.set(r.fullPath, {
@@ -110,6 +117,12 @@ export async function selectConfirmedRelease(
           to: r.to,
           statusCode: r.statusCode,
         });
+      }
+      // A pre-snapshot audit cannot safely reconstruct its original routes
+      // or metadata from mutable CMS rows. It remains recorded and readable
+      // for provenance, but must not be treated as a current public release.
+      if (audit.routes === undefined || audit.routes.some((route) => !route.title)) {
+        return { allowed: false, reason: "no_verified_deployment" };
       }
       return {
         allowed: true,
