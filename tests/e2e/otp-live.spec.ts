@@ -53,7 +53,7 @@ test.describe("real OTP journey (test deployment)", () => {
     await page.getByLabel("Verification code").fill("000000");
     await page.getByRole("button", { name: /verify code/i }).click();
     await expect(page.getByRole("alert")).toContainText(
-      /verification code you entered is incorrect/i,
+      /that code didn't work or may have expired/i,
       { timeout: 20_000 },
     );
   });

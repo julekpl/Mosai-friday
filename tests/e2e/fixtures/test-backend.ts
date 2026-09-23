@@ -59,14 +59,18 @@ import { expect, test as base, type Page, type Route } from "@playwright/test";
 const ZERO_TS = "AAAAAAAAAAA=";
 
 export type TestBackendControl = {
+  /** Leave query responses unanswered to model an unavailable backend. */
+  queries: "respond" | "unavailable";
   /** WebSocket `auth:signIn` without a code (the send-a-code step). */
-  signInSend: "success" | "error";
+  signInSend: "success" | "error" | "pending";
   /**
    * WebSocket `auth:signIn` *carrying* `params.code` (the verify step):
    * `@convex-dev/auth` sends both steps over the WS sync channel via
    * `authenticatedCall`; only token refresh uses HTTP `/api/action`.
-   */
-  verifyCode: "success" | "error";
+  */
+  verifyCode: "success" | "error" | "pending";
+  /** Test hook for a successful verification response delivered after timeout. */
+  releasePendingVerifyResponse: () => void;
 };
 
 export const SEND_ERROR_MESSAGE =
@@ -99,6 +103,7 @@ function handleSyncMessage(
 
   switch (message.type) {
     case "ModifyQuerySet": {
+      if (control.queries === "unavailable") return;
       const adds = (message.modifications ?? []).filter(
         (op) => op.type === "Add" && typeof op.queryId === "number",
       );
@@ -134,6 +139,26 @@ function handleSyncMessage(
       const isVerify =
         message.udfPath === "auth:signIn" &&
         JSON.stringify(message.args ?? []).includes('"code"');
+      if (
+        message.udfPath === "auth:signIn" &&
+        (isVerify ? control.verifyCode : control.signInSend) === "pending"
+      ) {
+        if (isVerify) {
+          const requestId = message.requestId;
+          control.releasePendingVerifyResponse = () => {
+            ws.send(
+              JSON.stringify({
+                type: "ActionResponse",
+                requestId,
+                success: true,
+                logLines: [],
+                result: {},
+              }),
+            );
+          };
+        }
+        return;
+      }
       const failed =
         message.udfPath === "auth:signIn" &&
         (isVerify
@@ -223,7 +248,12 @@ export const test = base.extend<{ testBackend: TestBackendControl }>({
   // React hook — no React is involved here.
   testBackend: async ({ browser }, complete) => {
     void browser;
-    await complete({ signInSend: "success", verifyCode: "success" });
+    await complete({
+      queries: "respond",
+      signInSend: "success",
+      verifyCode: "success",
+      releasePendingVerifyResponse: () => {},
+    });
   },
   page: async ({ page, testBackend }, complete) => {
     await installTestBackend(page, testBackend);

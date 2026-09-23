@@ -15,6 +15,7 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { SkipLink } from "@/components/SkipLink";
+import { resolveAuthReturnTo } from "@/lib/auth-return-to";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -31,22 +32,16 @@ interface AuthProps {
 
 /** Seconds the resend control stays disabled after a code is sent. */
 const RESEND_SECONDS = 30;
+const AUTH_ACTION_TIMEOUT_MS = 15_000;
 
-function resolveRedirectAfterAuth(
-  returnTo: string | null,
-  fallback = "/dashboard",
-) {
-  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
-    return returnTo;
-  }
-  return fallback;
-}
+type AuthActionKind = "send" | "verify" | "resend";
+type PendingAuthAction = { id: number; kind: AuthActionKind };
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirect = resolveRedirectAfterAuth(
+  const redirect = resolveAuthReturnTo(
     searchParams.get("returnTo"),
     redirectAfterAuth,
   );
@@ -60,18 +55,67 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [status, setStatus] = useState("");
   const [resendIn, setResendIn] = useState(0);
   const [emailFocusToken, setEmailFocusToken] = useState(0);
+  const [connectionStalled, setConnectionStalled] = useState(false);
+  const [pendingAuthAction, setPendingAuthAction] =
+    useState<PendingAuthAction | null>(null);
+  const [timedOutAction, setTimedOutAction] =
+    useState<AuthActionKind | null>(null);
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const otpInputRef = useRef<HTMLInputElement>(null);
+  const nextAuthActionId = useRef(0);
+  const timedOutActionId = useRef<number | null>(null);
+  const focusAfterLoading = useRef<"email" | "otp" | null>(null);
 
   const onCodeStep = step !== "signIn";
   const email = typeof step === "string" ? "" : step.email;
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (
+      !authLoading &&
+      isAuthenticated &&
+      timedOutActionId.current === null
+    ) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      const resetTimer = window.setTimeout(
+        () => setConnectionStalled(false),
+        0,
+      );
+      return () => window.clearTimeout(resetTimer);
+    }
+    const timer = window.setTimeout(() => setConnectionStalled(true), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [authLoading]);
+
+  useEffect(() => {
+    if (!pendingAuthAction) return;
+    const { id, kind } = pendingAuthAction;
+    const timer = window.setTimeout(() => {
+      timedOutActionId.current = id;
+      setTimedOutAction(kind);
+      setStatus("The sign-in request is taking longer than expected.");
+    }, AUTH_ACTION_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [pendingAuthAction]);
+
+  const startAuthAction = (kind: AuthActionKind): number => {
+    const id = ++nextAuthActionId.current;
+    timedOutActionId.current = null;
+    setTimedOutAction(null);
+    setPendingAuthAction({ id, kind });
+    return id;
+  };
+
+  const finishAuthAction = (id: number): boolean => {
+    if (timedOutActionId.current === id) return false;
+    setPendingAuthAction(null);
+    return true;
+  };
 
   // When the code screen appears, move focus into the code field so a keyboard
   // user lands where the next action is. Returning to the email step asks for
@@ -84,6 +128,13 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     if (emailFocusToken === 0) return;
     emailInputRef.current?.focus();
   }, [emailFocusToken]);
+
+  useEffect(() => {
+    if (isLoading || !focusAfterLoading.current) return;
+    const target = focusAfterLoading.current;
+    focusAfterLoading.current = null;
+    (target === "email" ? emailInputRef : otpInputRef).current?.focus();
+  }, [isLoading]);
 
   // Resend countdown: one timeout per tick rather than a drifting interval.
   useEffect(() => {
@@ -109,22 +160,23 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     setStatus("Sending your sign-in code…");
+    const requestId = startAuthAction("send");
     try {
       await sendCode(emailValue);
+      if (!finishAuthAction(requestId)) return;
       setStep({ email: emailValue });
       setOtp("");
       setResendIn(RESEND_SECONDS);
       setStatus(`Code sent to ${emailValue}. Enter the 6-digit code.`);
       setIsLoading(false);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to send verification code. Please try again.",
-      );
+    } catch {
+      if (!finishAuthAction(requestId)) return;
+      // Provider/backend details can expose account existence or infrastructure
+      // information. Keep the user-facing response generic.
+      setError("We couldn't send a code right now. Please try again shortly.");
       setStatus("Could not send the code.");
+      focusAfterLoading.current = "email";
       setIsLoading(false);
-      emailInputRef.current?.focus();
     }
   };
 
@@ -136,18 +188,25 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     setStatus("Verifying your code…");
+    const requestId = startAuthAction("verify");
     try {
       const formData = new FormData();
       formData.set("email", email);
       formData.set("code", otp);
       await signIn("email-otp", formData);
+      if (!finishAuthAction(requestId)) return;
       navigate(redirect);
     } catch {
-      setError("The verification code you entered is incorrect.");
-      setStatus("That code was incorrect. Check your email and try again.");
+      if (!finishAuthAction(requestId)) return;
+      setError(
+        "That code didn't work or may have expired. Use a new code to sign in.",
+      );
+      setStatus(
+        "That code didn't work or may have expired. Request a new code to sign in.",
+      );
+      focusAfterLoading.current = "otp";
       setIsLoading(false);
       setOtp("");
-      otpInputRef.current?.focus();
     }
   };
 
@@ -156,20 +215,20 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     setStatus("Resending your code…");
+    const requestId = startAuthAction("resend");
     try {
       await sendCode(email);
+      if (!finishAuthAction(requestId)) return;
       setOtp("");
       setResendIn(RESEND_SECONDS);
       setStatus(`A new code was sent to ${email}.`);
+      focusAfterLoading.current = "otp";
       setIsLoading(false);
-      otpInputRef.current?.focus();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to resend the code. Please try again.",
-      );
+    } catch {
+      if (!finishAuthAction(requestId)) return;
+      setError("We couldn't send a code right now. Please try again shortly.");
       setStatus("Could not resend the code.");
+      focusAfterLoading.current = "otp";
       setIsLoading(false);
     }
   };
@@ -201,6 +260,40 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       >
         <div className="animate-mosaic-in flex h-full flex-col items-center justify-center">
         <Card className="min-w-[350px] border pb-0 shadow-pop">
+          {connectionStalled && (
+            <div
+              role="alert"
+              className="mx-6 mt-6 rounded-md border border-destructive/40 p-3 text-sm"
+            >
+              Sign-in is taking longer than expected. Check your connection and
+              retry.
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 w-full"
+                onClick={() => window.location.reload()}
+              >
+                Retry connection
+              </Button>
+            </div>
+          )}
+          {timedOutAction && (
+            <div
+              role="alert"
+              className="mx-6 mt-6 rounded-md border border-destructive/40 p-3 text-sm"
+            >
+              The sign-in request is taking longer than expected. It has not
+              been confirmed. Reload this page before trying again.
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 w-full"
+                onClick={() => window.location.reload()}
+              >
+                Reload sign-in
+              </Button>
+            </div>
+          )}
           {step === "signIn" ? (
             <>
               <CardHeader className="text-center">
@@ -240,7 +333,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         autoComplete="email"
                         inputMode="email"
                         className="pl-9"
-                        disabled={isLoading}
+                        disabled={
+                          isLoading ||
+                          connectionStalled ||
+                          Boolean(timedOutAction)
+                        }
                         aria-invalid={error ? true : undefined}
                         aria-describedby={error ? "auth-error" : undefined}
                         required
@@ -251,7 +348,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       variant="outline"
                       size="icon"
                       aria-label="Send sign-in code"
-                      disabled={isLoading}
+                      disabled={
+                        isLoading ||
+                        connectionStalled ||
+                        Boolean(timedOutAction)
+                      }
                     >
                       {isLoading ? (
                         <Loader2
@@ -295,14 +396,24 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       value={otp}
                       onChange={setOtp}
                       maxLength={6}
-                      disabled={isLoading}
+                      disabled={
+                        isLoading ||
+                        connectionStalled ||
+                        Boolean(timedOutAction)
+                      }
                       autoComplete="one-time-code"
                       inputMode="numeric"
                       aria-label="Verification code"
                       aria-invalid={error ? true : undefined}
                       aria-describedby={error ? "auth-error" : undefined}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && otp.length === 6 && !isLoading) {
+                        if (
+                          e.key === "Enter" &&
+                          otp.length === 6 &&
+                          !isLoading &&
+                          !connectionStalled &&
+                          !timedOutAction
+                        ) {
                           // Find the closest form and submit it
                           const form = (e.target as HTMLElement).closest("form");
                           if (form) {
@@ -334,7 +445,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       variant="link"
                       className="p-0 h-auto"
                       onClick={handleResend}
-                      disabled={isLoading || resendIn > 0}
+                      disabled={
+                        isLoading ||
+                        connectionStalled ||
+                        Boolean(timedOutAction) ||
+                        resendIn > 0
+                      }
                     >
                       {resendIn > 0
                         ? `Resend code in ${resendIn}s`
@@ -346,7 +462,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   <Button
                     type="submit"
                     className="w-full"
-                    disabled={isLoading || otp.length !== 6}
+                    disabled={
+                      isLoading ||
+                      connectionStalled ||
+                      Boolean(timedOutAction) ||
+                      otp.length !== 6
+                    }
                   >
                     {isLoading ? (
                       <>
@@ -367,7 +488,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     type="button"
                     variant="ghost"
                     onClick={handleUseDifferentEmail}
-                    disabled={isLoading}
+                    disabled={
+                      isLoading ||
+                      connectionStalled ||
+                      Boolean(timedOutAction)
+                    }
                     className="w-full"
                   >
                     Use different email

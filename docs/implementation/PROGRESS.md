@@ -63,7 +63,7 @@ its slice boundary — it never continues into the next package.
 | 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | implemented_unverified (chat 1, 23 Sep 2026 — report: `docs/implementation/reports/BP-01-repair-baseline.md`; all local gates re-run green, plant/observe demonstrations done (broken auth, wrong CTA, synthetic secret), STATUS/T2.5/missing-docs reconciled; **two CI runs, both completed/FAILURE:** implementation commit `d3f6a8e09e301944789dc2c4487a831dc7698137` → run `35828575954`, documentation commit `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` (current local `.git/refs/heads/main`) → run `35830549968` — install/typecheck/lint/unit/codegen/e2e/a11y passed on both, **BOTH security jobs failed their secret-scan steps on both → release gate BLOCKED, CI not green**; full-history findings + rotation/untracking remain owner-run (B2/B3) — remediation checklist in the report; any new commit needs a fresh run, never assumed |
 | 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | implemented_unverified (chat 2, 23 Sep 2026 — report: `docs/implementation/reports/BP-04-social-credential-refresh.md`; three defects fixed + **review follow-up on code `e6f91b9`/docs `f9510fc`**: Basic token exchange honored for LinkedIn/X (red-first: 2 tests failed `expected '' to be 'Basic …'` before the fix), provider `error` strings gated by an allowlist AT the message site in both credentialActions (adversarial marker tests pin posts/outcomes; green pre-fix via the old coupling — recorded honestly); tests 16/16 in the two files, unit **311/311**, lint(0 err)/audits/codegen/tsc/dev-check exit 0, e2e 15+1, a11y 5; `bun run check` exit 1 **kept red** at the pre-existing `scan:secrets` on tracked `.env.keys`; local ref `f9510fc`, **CI for `e6f91b9`/`f9510fc` unknown (B2), never assumed green**; real-provider proof pending (O7); release gate still BLOCKED (BP-01/B3); main-branch workflow exception recorded in the report) |
 | 3 | **BP-03** stop false publishing/readiness | A | T2.13 | BP-01; truthful labels allowed before BP-13 deployment exists (§5 BP-03) | not_started |
-| 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | not_started |
+| 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | implemented_unverified (chat 4, 23 Sep 2026 — report: `docs/implementation/reports/BP-02-auth.md`; allowlisted `returnTo`, generic OTP recovery/errors, 10s auth-load + 15s action timeout, late verification response ignored, keyboard/focus and hermetic regressions; lint/typecheck, 333 unit, both audits, full e2e 20 pass/1 live OTP skip, a11y 5 pass; red-first timeout regression demonstrated; `check:codegen` blocked on missing `CONVEX_DEPLOYMENT`; `check` remains exit 1 at existing tracked `.env.keys` secret finding; O2 provider/domain and T2.8 step-up policy remain blocked; session audit proposal write denied; diff check exit 0) |
 | 5 | **BP-05** export/deletion lifecycle | B | T2.5 | Order A; decisions already recorded (D2) | not_started |
 | 6 | **BP-06/S1** provider-backed price display & cancellation | B | T2.4 + owner rules | BP-05 not required; T2.4 done; cancellation policy owner decision O1 partially blocks verification | not_started |
 | 7 | **BP-06/S2** organization-level subscription/add-on mapping | B | T2.4 + T2.3 | BP-06/S1 | not_started |
@@ -501,3 +501,24 @@ unit **333/333** (19/19 BP-03), codegen/tsc/lint/audits exit 0; `check`
 exit 1 only at the pre-existing secret-scan finding (B3). e2e/a11y not
 re-run locally; CI after `61f0605` unknown (B2), not assumed. BP-02
 untouched; no BP-13 adapter or real publish.
+
+**Chat 4 = BP-02 — sign-in, recovery and privileged access** (blueprint §10
+Order A, fourth; prepare BP-05). Entry checks: specified clean isolated
+worktree `bp-02-codex`, branch `codex/bp-02-auth` at
+`be1ade5a6832418a455d7086037c18c34130c245`; preserve OTP-only D5; avoid all
+BP-03-owned paths. The session audit was attempted but could not write its
+central proposal under `~/.hermes` (sandbox `PermissionError`). Implementation
+report: `docs/implementation/reports/BP-02-auth.md`. Return-path allowlist,
+generic OTP send/resend errors, invalid/expired-code recovery copy, connection
+timeout/retry, and hermetic browser regressions are implemented. Existing
+admin API guard and direct non-admin denial tests are present and unchanged.
+Email provider/domain O2 and T2.8 privileged step-up policy remain blocked;
+no live OTP/account proof. Lint (0 errors/28 existing warnings), typecheck,
+333/333 unit tests, both audits, full e2e (20 passed, 1 opt-in live OTP
+skipped), and a11y (5/5) passed. Red-first timeout regression failed with the
+timeout extended to 150s, then passed at the restored 15s value. `check:codegen`
+is blocked by missing `CONVEX_DEPLOYMENT`; `bun run check` remains exit 1 at
+the existing `.env.keys` secret scan finding (value redacted; unchanged). The
+session audit could not write its central proposal under `~/.hermes`.
+`rtk git diff --check` passed. Status is `implemented_unverified`, not
+complete.
