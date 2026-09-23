@@ -25,7 +25,9 @@ export const create = moduleMutation("grow", {
     ),
     title: v.string(),
     body: v.optional(v.string()),
-    source: v.string(),
+    // Client-authored notes cannot claim provider or internal provenance.
+    // Verified observation ingestion will use a server-owned write path.
+    source: v.literal("manual"),
     dataAsOf: v.optional(v.number()),
   },
   handler: async (ctx, args, access) => {
@@ -35,7 +37,6 @@ export const create = moduleMutation("grow", {
       projectId,
       ...rest,
       dataAsOf,
-      freshness: "fresh",
       status: "new",
       createdAt: Date.now(),
     });
@@ -50,7 +51,6 @@ export const update = moduleMutation("grow", {
     status: v.optional(
       v.union(v.literal("new"), v.literal("seen"), v.literal("done")),
     ),
-    freshness: v.optional(v.union(v.literal("fresh"), v.literal("stale"))),
   },
   handler: async (ctx, { id, ...patch }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));

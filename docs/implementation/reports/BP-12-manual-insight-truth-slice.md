@@ -1,0 +1,9 @@
+# BP-12 manual-insight provenance slice — 23 September 2026
+
+Status: **partial implementation; BP-12 is not complete**. Base: GitHub main `93a0df20ce5bf9568bcf5a2ebbed6080894a32f4`. Branch: `codex/bp-12-manual-insight-truth` in the existing `bp-02-codex` checkout.
+
+A customer-entered Grow note is now always stored and displayed as `manual`, including when its text mentions GA4 or another provider. The client mutation rejects `internal` and provider source claims because no verified observation-ingestion path currently exists. New manual notes no longer receive a fabricated `fresh` status, and clients cannot set freshness through the update mutation. Existing non-manual rows display as `unverified` until their provenance can be reconciled. The form and empty state explain that verified provider imports and evidence-backed recommendations are unavailable.
+
+Verification: the new provider-spoofing regression failed before the fix and passed afterward. Focused insight and entitlement tests passed 28/28; the controller independently ran the full unit suite, 335/335 passed. Local whole-app typecheck, changed-file ESLint and `git diff --check` passed. No provider call, browser journey or secret-scan remediation was performed for this slice.
+
+Remaining BP-12 work: consent categories and revocation, event/destination deduplication, real GA4/GSC/Matomo/PostHog account selection and observations, GTM diagnostics without duplicate tracking, freshness and attribution semantics, reproducible recommendations, and real-provider proof. The owner chose EU/EEA multilingual-first launch in this priority order: English, German, French, Italian, Spanish, Polish, Dutch, Romanian, Greek, Hungarian, Czech, Swedish, Portuguese, Bulgarian, Danish. Consent copy and journeys in those languages are required before that rollout; this slice does not implement them.

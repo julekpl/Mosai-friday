@@ -55,7 +55,6 @@ function InsightForm({
   const [kind, setKind] = useState<(typeof KINDS)[number]>("recommendation");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [source, setSource] = useState("manual");
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -67,7 +66,7 @@ function InsightForm({
         kind,
         title: title.trim(),
         body: body.trim() || undefined,
-        source,
+        source: "manual",
       });
       toast.success("Insight recorded");
       onDone();
@@ -97,16 +96,15 @@ function InsightForm({
         </div>
         <div className="grid gap-2">
           <Label htmlFor="in-source">Data source</Label>
-          <select
+          <div
             id="in-source"
-            className="h-9 rounded-md border bg-card px-3 font-mono text-small"
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
+            className="flex h-9 items-center rounded-md border bg-muted px-3 font-mono text-small"
           >
-            {["manual", "internal", ...DATA_PROVIDERS.map((p) => p.id)].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+            manual
+          </div>
+          <p className="font-mono text-caption text-muted-foreground">
+            Notes about GA4 or other providers remain manual until verified imports are available.
+          </p>
         </div>
       </div>
       <div className="grid gap-2">
@@ -172,8 +170,8 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
                 New insight
               </DialogTitle>
               <DialogDescription className="font-mono text-caption">
-                Every insight carries its source and as-of date. Nothing is
-                averaged across sources.
+                Manually recorded notes stay labeled manual. Provider data and
+                evidence-backed recommendations are not available yet.
               </DialogDescription>
             </DialogHeader>
             <InsightForm projectId={projectId} onDone={() => setOpen(false)} />
@@ -238,7 +236,7 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
         <ModuleEmpty
           icon={TrendingUp}
           title="No insights yet"
-          hint="Connect GA4, Search Console or ad accounts above, then record insights against them. Each insight keeps its source and as-of date — honest gaps stay visible."
+          hint="Record a manual note here. Verified provider imports and evidence-backed recommendations are not available yet."
           action={
             <Button onClick={() => setOpen(true)}>
               <Plus className="size-4" /> Record the first insight
@@ -266,8 +264,13 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
               >
                 {i.kind.replace(/_/g, " ")}
               </Badge>
-              <SourceChip source={i.source} asOf={i.dataAsOf} />
-              <StatusBadge status={i.freshness ?? "fresh"} />
+              <SourceChip
+                source={i.source === "manual" ? "manual" : "unverified"}
+                asOf={i.dataAsOf}
+              />
+              <StatusBadge
+                status={i.freshness === "stale" ? "stale" : "unknown"}
+              />
               <div className="flex shrink-0 gap-1">
                 {i.status !== "done" && (
                   <Button
