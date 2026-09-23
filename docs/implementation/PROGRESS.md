@@ -61,7 +61,7 @@ its slice boundary — it never continues into the next package.
 |---|---|---|---|---|---|
 | 0 | save-and-organize (this chat) | — | — | — | complete |
 | 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | implemented_unverified (chat 1, 23 Sep 2026 — report: `docs/implementation/reports/BP-01-repair-baseline.md`; all local gates re-run green, plant/observe demonstrations done (broken auth, wrong CTA, synthetic secret), STATUS/T2.5/missing-docs reconciled; **two CI runs, both completed/FAILURE:** implementation commit `d3f6a8e09e301944789dc2c4487a831dc7698137` → run `35828575954`, documentation commit `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` (current local `.git/refs/heads/main`) → run `35830549968` — install/typecheck/lint/unit/codegen/e2e/a11y passed on both, **BOTH security jobs failed their secret-scan steps on both → release gate BLOCKED, CI not green**; full-history findings + rotation/untracking remain owner-run (B2/B3) — remediation checklist in the report; any new commit needs a fresh run, never assumed |
-| 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | not_started |
+| 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | implemented_unverified (chat 2, 23 Sep 2026 — report: `docs/implementation/reports/BP-04-social-credential-refresh.md`; all three defects fixed (doc-vs-ID handoff, fetch-in-mutation → internal actions with lease/version protocol, redacted failures + needs_reconnect + per-post batch isolation); regressions shown RED before the fix (10/10 failed), now 10/10 green; unit 305/305, lint/audits/codegen/e2e(15+1)/a11y(5) exit 0, `bun run check` exit 1 only at the pre-existing `scan:secrets` on tracked `.env.keys` — no new failure; **real-provider refresh proof pending (O7); release gate still BLOCKED (BP-01/B3); main-branch workflow exception recorded in the report** |
 | 3 | **BP-03** stop false publishing/readiness | A | T2.13 | BP-01; truthful labels allowed before BP-13 deployment exists (§5 BP-03) | not_started |
 | 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | not_started |
 | 5 | **BP-05** export/deletion lifecycle | B | T2.5 | Order A; decisions already recorded (D2) | not_started |
@@ -316,12 +316,41 @@ before it exists. Remaining for the owner:
 rotate/untrack the exposed credentials (never allow-list), authorize + run
 the history purge, provide B1 documents.
 
-**Chat 2 = BP-04 — social credentials and token refresh** (blueprint §10
-order: BP-01 → BP-04 → BP-03, prepare BP-05). Entry checks: re-read AGENTS.md,
-the saved blueprint, this file and the BP-01 report; verify the audited defects
-are still present (`social/credentials.ts` `fetch` inside `internalMutation`,
-`getCredId` document-vs-ID cast, same shape in `ads/credentials.ts`) — note
-`social/executor.ts` already has an `executor.getCred` "action-safe" query
-(§3), verify how much of the fix exists before rebuilding; keep the ads
-consumers' `cred._id` contract; run the documented gates before editing; never
-weaken a gate to go green.
+**Chat 2 = BP-04 — done (implemented_unverified), 23 September 2026.**
+Report: `docs/implementation/reports/BP-04-social-credential-refresh.md`.
+Re-ran the documented gates before editing (`check` red only at the
+pre-existing `scan:secrets`; audits/codegen/e2e/a11y exit 0; ref read from
+`.git/refs/heads/main` = `e25639d4eb39511b859dad8d0b583c44a061814c`, later
+than `dd9c163`, CI unknown — git blocked, B2); wrote the two regression files
+first and proved them RED against the unfixed code (10/10 failed: the
+`[object Object]` doc-to-ID cast at `executor.ts`, Convex's "fetch is not
+supported in queries or mutations", missing claim/registry entries); then
+fixed all three defects — typed `getCredential` query + `credential._id`
+handoff (ads `cred._id` contract preserved), refresh moved into the new
+`social/credentialActions.ts` / `ads/credentialActions.ts` internal actions
+with query→claim(lease+version)→fetch→conditional-save/release, rotated
+refresh tokens saved, OAuth reconnect resets `refreshStatus`/`tokenVersion`,
+provider errors redacted to `HTTP <status>` in all five social adapters, and
+refresh failure isolated to the individual post while the due batch
+continues. Registry entries added for both new files. After: 10/10 new tests
+and 305/305 unit green; typecheck/lint/audits/codegen/e2e/a11y exit 0;
+`bun run check` still exit 1 at the same pre-existing secret-scan finding (no
+new failure, never claimed green). **Main-branch workflow exception
+(owner-approved for BP-04 only):** Vly autosave on main — no manual
+commit/push/PR/deploy; the usual one-ticket/one-branch/one-PR process was NOT
+followed and is not claimed. Real-provider refresh proof pending (O7);
+BP-01 stays `implemented_unverified` and the release gate stays BLOCKED
+(B3).
+
+**Chat 3 = BP-03 — stop false publishing/readiness** (blueprint §10 order:
+BP-01 → BP-04 → BP-03, prepare BP-05; backlog T2.13). Entry checks: re-read
+AGENTS.md, the blueprint §5 BP-03 (+ §§6–11), this file, and both prior
+reports; re-verify the audited defect is still present (`src/convex/buildWorkspace.ts`
+`publishSite` — `moduleMutation("build")` — patches `status: "live"` after
+database edits, §7.1); current code outranks ticket prose; run the documented
+gates before editing; never weaken a gate to go green. Scope guardrails:
+truthful labels are allowed before BP-13's deployment exists (§5 BP-03),
+`StatusBadge`/ReceiptBadge are the status UI (rule 15), client-callable
+mutations must never write `live`/`published`/`paid`/`sent` (rule 5),
+planned test file `tests/unit/publish-truth.test.ts` (§6); keep BP-04's
+receipt/`needs_reconnect` semantics intact and stop at the BP-03 boundary.
