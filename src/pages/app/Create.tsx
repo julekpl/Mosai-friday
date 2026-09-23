@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { ResearchSource } from "@/convex/research";
 import { toast } from "sonner";
 import * as Y from "yjs";
 import {
@@ -80,6 +81,23 @@ type TopicRow = {
   researchedAt?: number;
   status?: string;
 };
+
+function summarizeSourceStatus(sources: ResearchSource[]): string {
+  const counts = sources.reduce<Record<ResearchSource["status"], number>>(
+    (result, source) => {
+      result[source.status] += 1;
+      return result;
+    },
+    { ok: 0, empty: 0, needs_setup: 0, rate_limited: 0, failed: 0 },
+  );
+  return [
+    counts.ok ? `${counts.ok} returned findings` : null,
+    counts.empty ? `${counts.empty} with no matches` : null,
+    counts.needs_setup ? `${counts.needs_setup} need setup` : null,
+    counts.rate_limited ? `${counts.rate_limited} rate limited` : null,
+    counts.failed ? `${counts.failed} unavailable` : null,
+  ].filter(Boolean).join(" · ");
+}
 
 /* ══ Flow: tabs — Gaps · Topics · Content ═══════════════════════════════ */
 
@@ -466,6 +484,7 @@ function TopicsTab({
   const [gapId, setGapId] = useState("none");
   const [busy, setBusy] = useState(false);
   const [researching, setResearching] = useState<string | null>(null);
+  const [sourceStatusByTopic, setSourceStatusByTopic] = useState<Record<string, ResearchSource[]>>({});
   const [researchOpen, setResearchOpen] = useState<string | null>(null);
   const [manualTopic, setManualTopic] = useState("");
   const [manualType, setManualType] = useState("blog");
@@ -490,8 +509,8 @@ function TopicsTab({
       // 1. quick live research on the gap title to ground topic suggestions
       let digest: string[] = [];
       try {
-        const hits = await research({ query: gap.title });
-        digest = hits.slice(0, 12).map((h) => `- [${h.source}] ${h.title}`);
+        const result = await research({ query: gap.title });
+        digest = result.hits.slice(0, 12).map((h) => `- [${h.source}] ${h.title}`);
       } catch {
         /* research optional here */
       }
@@ -531,17 +550,34 @@ function TopicsTab({
     if (researching) return;
     setResearching(t._id);
     try {
-      const hits = await research({
+      const result = await research({
         query: `${t.title}${t.angle ? ` ${t.angle}` : ""}`,
         personaContext: personaOf(t)?.name,
       });
+      const hits = result.hits;
+      setSourceStatusByTopic((current) => ({ ...current, [t._id]: result.sources }));
+      const incompleteSources = result.sources.filter((source) =>
+        source.status === "needs_setup" || source.status === "rate_limited" || source.status === "failed",
+      );
+      if (hits.length === 0 && incompleteSources.length > 0) {
+        toast.warning("Research could not complete", {
+          description: "No findings were saved because one or more sources need setup or could not be reached. Open source details, then try again.",
+        });
+        return;
+      }
       await updateTopic({
         id: t._id,
         research: hits,
         researchedAt,
         status: "researched",
       });
-      toast.success(`${hits.length} findings from ${new Set(hits.map((h) => h.source)).size} sources`);
+      if (hits.length === 0) {
+        toast.message("No findings", {
+          description: "Available sources completed successfully but returned no matches.",
+        });
+      } else {
+        toast.success(`${hits.length} findings from ${new Set(hits.map((h) => h.source)).size} sources`);
+      }
     } catch (e) {
       toast.error("Research failed", {
         description: e instanceof Error ? e.message : "Try again.",
@@ -688,6 +724,40 @@ function TopicsTab({
                           .map((s) => SOURCE_LABELS[s] ?? s)
                           .join(", ")}
                       </p>
+                    )}
+                    {sourceStatusByTopic[t._id] && (
+                      <details className="mt-2 rounded-sm border px-2.5 py-1.5" aria-live="polite">
+                        <summary className="cursor-pointer font-mono text-caption text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          Source status: {summarizeSourceStatus(sourceStatusByTopic[t._id])} · show details
+                        </summary>
+                        <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                          {sourceStatusByTopic[t._id].map((source) => (
+                            <li
+                              key={source.provider}
+                              className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-caption"
+                              title={`Checked ${new Date(source.retrievedAt).toLocaleString()}`}
+                            >
+                              <span>{SOURCE_LABELS[source.provider] ?? source.provider}:</span>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "font-mono text-caption",
+                                  source.status === "ok" && "text-terminal-green",
+                                  (source.status === "needs_setup" || source.status === "rate_limited" || source.status === "failed") && "text-terminal-amber",
+                                )}
+                              >
+                                {source.status.replace("_", " ")}
+                              </Badge>
+                              {source.errorCategory && (
+                                <span className="text-muted-foreground">({source.errorCategory.replace("_", " ")})</span>
+                              )}
+                              <time className="text-muted-foreground" dateTime={new Date(source.retrievedAt).toISOString()}>
+                                {new Date(source.retrievedAt).toLocaleTimeString()}
+                              </time>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     )}
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1">

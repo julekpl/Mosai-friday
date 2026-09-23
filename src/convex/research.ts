@@ -6,15 +6,17 @@ import { consumeAiQuotaForAction, requireActionUser } from "./guards";
 
 /* ── Universal content-research hub ───────────────────────────────────────
  *
- * One action fans a topic out across every connected source:
- *   reddit · wikipedia · wikibooks · GDELT · youtube (+ transcript)
+ * One action fans a topic out across available sources:
+ *   reddit · wikipedia · wikibooks · GDELT · YouTube (through SerpApi)
  *   newsapi · google trends · local news (google) · serpapi news · google books
  *
- * Keyless sources (reddit, wikipedia, wikibooks, gdlt, youtube scrape,
- * google books) always run. Keyed sources run only when their key exists:
- *   SERPAPI_KEY → youtube results, google trends, local news, serp news
+ * Keyless sources (reddit, wikipedia, wikibooks, gdlt, google books) always
+ * run. Keyed sources run only when their key exists:
+ *   SERPAPI_KEY → YouTube results, Google Trends, local news, Serp news
  *   NEWSAPI_KEY → newsapi
- * Failures are per-source and silent: a dead source never blocks the rest.
+ * Each source returns a status envelope; one failed source never hides the
+ * status or results of the other sources. YouTube HTML/transcript scraping is
+ * intentionally unavailable because it has no supported collector here.
  */
 
 const UA =
@@ -26,6 +28,26 @@ export type ResearchHit = {
   url?: string;
   snippet?: string;
 };
+
+export type SourceStatus = "ok" | "empty" | "needs_setup" | "rate_limited" | "failed";
+export type SourceErrorCategory = "timeout" | "rate_limit" | "network" | "provider_error" | "invalid_response";
+export type ResearchSource = {
+  provider: string;
+  status: SourceStatus;
+  hits: ResearchHit[];
+  retrievedAt: number;
+  errorCategory?: SourceErrorCategory;
+};
+export type ResearchResult = { hits: ResearchHit[]; sources: ResearchSource[] };
+
+class SourceRequestError extends Error {
+  readonly category: SourceErrorCategory;
+
+  constructor(category: SourceErrorCategory) {
+    super(category);
+    this.category = category;
+  }
+}
 
 async function fetchJson<T>(
   url: string,
@@ -39,8 +61,20 @@ async function fetchJson<T>(
       signal: controller.signal,
       redirect: "follow",
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return (await res.json()) as T;
+    if (!res.ok) {
+      throw new SourceRequestError(res.status === 429 ? "rate_limit" : "provider_error");
+    }
+    try {
+      return (await res.json()) as T;
+    } catch {
+      throw new SourceRequestError("invalid_response");
+    }
+  } catch (error) {
+    if (error instanceof SourceRequestError) throw error;
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+      throw new SourceRequestError("timeout");
+    }
+    throw new SourceRequestError("network");
   } finally {
     clearTimeout(timer);
   }
@@ -50,16 +84,40 @@ function clean(s: string, max = 280): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-/* ── Per-source collectors (each returns [] on any failure) ───────────── */
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new SourceRequestError("invalid_response");
+  }
+  return value as Record<string, unknown>;
+}
+
+function array<T = unknown>(value: unknown): T[] {
+  if (!Array.isArray(value)) throw new SourceRequestError("invalid_response");
+  return value as T[];
+}
+
+function entriesWithTitle<T extends { title?: string }>(value: unknown): T[] {
+  return array<unknown>(value).map((item) => {
+    const entry = record(item);
+    if (typeof entry.title !== "string") throw new SourceRequestError("invalid_response");
+    return entry as T;
+  });
+}
+
+/* ── Per-source collectors ────────────────────────────────────────────── */
 
 async function researchReddit(query: string): Promise<ResearchHit[]> {
   const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=relevance&limit=6&raw_json=1`;
   const data = await fetchJson<{ data?: { children?: Array<{ data?: Record<string, unknown> }> } }>(url, {
     headers: { accept: "text/html,application/json" },
   });
-  return (data.data?.children ?? [])
-    .map((c) => c.data ?? {})
-    .filter((p) => typeof p.title === "string")
+  const children = array<{ data?: Record<string, unknown> }>(record(data.data).children);
+  const posts = children.map((child) => {
+    const post = record(child.data);
+    if (typeof post.title !== "string") throw new SourceRequestError("invalid_response");
+    return post;
+  });
+  return posts
     .map((p) => ({
       source: "reddit",
       title: clean(p.title as string, 160),
@@ -77,8 +135,8 @@ async function researchWikimedia(
 ): Promise<ResearchHit[]> {
   const url = `https://${host}/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=4&format=json&origin=*`;
   const data = await fetchJson<{ query?: { search?: Array<{ title?: string; snippet?: string }> } }>(url);
-  return (data.query?.search ?? [])
-    .filter((s) => typeof s.title === "string")
+  const search = entriesWithTitle<{ title?: string; snippet?: string }>(record(data.query).search);
+  return search
     .map((s) => ({
       source,
       title: s.title as string,
@@ -90,8 +148,8 @@ async function researchWikimedia(
 async function researchGdlt(query: string): Promise<ResearchHit[]> {
   const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=5&format=json&sort=hybridrel`;
   const data = await fetchJson<{ articles?: Array<{ title?: string; url?: string; seendate?: string; domain?: string }> }>(url);
-  return (data.articles ?? [])
-    .filter((a) => typeof a.title === "string")
+  const articles = entriesWithTitle<{ title?: string; url?: string; seendate?: string; domain?: string }>(record(data).articles);
+  return articles
     .map((a) => ({
       source: "gdlt",
       title: clean(a.title as string, 160),
@@ -100,80 +158,25 @@ async function researchGdlt(query: string): Promise<ResearchHit[]> {
     }));
 }
 
-/** Best-effort YouTube transcript via the watch page's caption tracks. */
-async function youtubeTranscript(videoId: string): Promise<string | undefined> {
-  try {
-    const html = await fetch(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      { headers: { "user-agent": UA }, signal: AbortSignal.timeout(12_000) },
-    ).then((r) => r.text());
-    const m = html.match(/"captionTracks":(\[.*?\])/s);
-    if (!m) return undefined;
-    const tracks = JSON.parse(m[1]) as Array<{ baseUrl?: string; languageCode?: string }>;
-    const track = tracks.find((t) => t.languageCode?.startsWith("en")) ?? tracks[0];
-    if (!track?.baseUrl) return undefined;
-    const xml = await fetch(track.baseUrl, {
-      headers: { "user-agent": UA },
-      signal: AbortSignal.timeout(12_000),
-    }).then((r) => r.text());
-    const text = [...xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)]
-      .map((m2) => m2[1].replace(/&amp;#39;/g, "'").replace(/&amp;quot;/g, '"').replace(/&amp;amp;/g, "&").replace(/&[^;]+;/g, " "))
-      .join(" ");
-    return clean(text, 900) || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 async function researchYoutube(query: string, serpKey?: string): Promise<ResearchHit[]> {
-  if (serpKey) {
-    const params = new URLSearchParams({
+  if (!serpKey) throw new SourceRequestError("provider_error");
+  const params = new URLSearchParams({
       engine: "youtube",
       search_query: query,
       api_key: serpKey,
-    });
-    const data = await fetchJson<{
+  });
+  const data = await fetchJson<{
       video_results?: Array<{ title?: string; link?: string; snippet?: string; video_id?: string }>;
       error?: string;
-    }>(`https://serpapi.com/search.json?${params}`);
-    const videos = (data.video_results ?? []).slice(0, 4);
-    const hits: ResearchHit[] = [];
-    for (const v of videos) {
-      if (!v.title) continue;
-      const videoId =
-        v.video_id ??
-        (v.link ? (v.link.match(/[?&]v=([\w-]{6,})/)?.[1] ?? undefined) : undefined);
-      let snippet = clean(v.snippet ?? "");
-      if (videoId) {
-        const transcript = await youtubeTranscript(videoId);
-        if (transcript) snippet = `${snippet ? snippet + " · " : ""}[transcript] ${transcript}`;
-      }
-      hits.push({ source: "youtube", title: clean(v.title, 160), url: v.link, snippet });
-    }
-    return hits;
-  }
-  // keyless fallback: YouTube's public search JSON (best-effort)
-  const data = await fetchJson<{
-    contents?: Array<{ videoRenderer?: { videoId?: string; title?: { runs?: Array<{ text?: string }> }; descriptionSnippet?: { runs?: Array<{ text?: string }> } } }>;
-  }>(
-    `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`,
-    { headers: { "accept-language": "en" } },
-  );
-  const out: ResearchHit[] = [];
-  for (const item of (data.contents ?? []).slice(0, 4)) {
-    const v = item.videoRenderer;
-    if (!v?.videoId || !v.title?.runs?.[0]?.text) continue;
-    let snippet = clean(v.descriptionSnippet?.runs?.[0]?.text ?? "");
-    const transcript = await youtubeTranscript(v.videoId);
-    if (transcript) snippet = `${snippet ? snippet + " · " : ""}[transcript] ${transcript}`;
-    out.push({
+  }>(`https://serpapi.com/search.json?${params}`);
+  if (data.error) throw new SourceRequestError("provider_error");
+  return entriesWithTitle<{ title?: string; link?: string; snippet?: string }>(data.video_results).slice(0, 4)
+    .map((video) => ({
       source: "youtube",
-      title: clean(v.title.runs[0].text, 160),
-      url: `https://www.youtube.com/watch?v=${v.videoId}`,
-      snippet,
-    });
-  }
-  return out;
+      title: clean(video.title ?? "", 160),
+      url: video.link,
+      snippet: clean(video.snippet ?? ""),
+    }));
 }
 
 async function researchNewsApi(query: string, key: string): Promise<ResearchHit[]> {
@@ -183,8 +186,11 @@ async function researchNewsApi(query: string, key: string): Promise<ResearchHit[
   }>(`https://newsapi.org/v2/everything?${params}`, {
     headers: { "x-api-key": key },
   });
-  return (data.articles ?? [])
-    .filter((a) => typeof a.title === "string")
+  const response = record(data);
+  if (response.status === "error") throw new SourceRequestError("provider_error");
+  if (response.status !== "ok") throw new SourceRequestError("invalid_response");
+  const articles = entriesWithTitle<{ title?: string; url?: string; description?: string; source?: { name?: string } }>(response.articles);
+  return articles
     .map((a) => ({
       source: "newsapi",
       title: clean(a.title as string, 160),
@@ -204,8 +210,13 @@ async function serpSearch(
     related_queries?: Array<{ query?: string; value?: number }>;
     error?: string;
   }>(`https://serpapi.com/search.json?${sp}`);
-  if (data.error) throw new Error(data.error);
-  return [...(data.news_results ?? []), ...(data.organic_results ?? [])];
+  if (data.error) throw new SourceRequestError("provider_error");
+  const hasResultList = Array.isArray(data.news_results) || Array.isArray(data.organic_results);
+  if (!hasResultList) throw new SourceRequestError("invalid_response");
+  return entriesWithTitle<Record<string, unknown>>([
+    ...(Array.isArray(data.news_results) ? data.news_results : []),
+    ...(Array.isArray(data.organic_results) ? data.organic_results : []),
+  ]);
 }
 
 /** Google Trends via SerpApi: related rising queries = demand signal. */
@@ -220,9 +231,15 @@ async function researchTrends(query: string, key: string): Promise<ResearchHit[]
     related_queries?: { rising?: Array<{ query?: string; extracted_value?: number }> };
     error?: string;
   }>(`https://serpapi.com/search.json?${sp}`);
-  if (data.error) throw new Error(data.error);
-  return (data.related_queries?.rising ?? [])
-    .filter((r) => typeof r.query === "string")
+  if (data.error) throw new SourceRequestError("provider_error");
+  const relatedQueries = record(data.related_queries);
+  const rising = array<{ query?: string; extracted_value?: number }>(relatedQueries.rising).map((row) => {
+    if (!row || typeof row !== "object" || typeof row.query !== "string") {
+      throw new SourceRequestError("invalid_response");
+    }
+    return row;
+  });
+  return rising
     .slice(0, 5)
     .map((r) => ({
       source: "trends",
@@ -239,8 +256,16 @@ async function researchGoogleBooks(query: string): Promise<ResearchHit[]> {
   const data = await fetchJson<{
     items?: Array<{ volumeInfo?: { title?: string; description?: string; infoLink?: string; authors?: string[] } }>;
   }>(url);
-  return (data.items ?? [])
-    .filter((i) => i.volumeInfo?.title)
+  const response = record(data);
+  if (response.error) throw new SourceRequestError("provider_error");
+  const items = response.items === undefined && response.totalItems === 0
+    ? []
+    : array<{ volumeInfo?: { title?: string; description?: string; infoLink?: string; authors?: string[] } }>(response.items).map((item) => {
+      const volumeInfo = record(item.volumeInfo);
+      if (typeof volumeInfo.title !== "string") throw new SourceRequestError("invalid_response");
+      return item;
+    });
+  return items
     .map((i) => ({
       source: "google_books",
       title: clean(i.volumeInfo?.title ?? "", 160),
@@ -259,7 +284,7 @@ export const researchTopic = action({
     personaContext: v.optional(v.string()), // sharpens ambiguous queries
     location: v.optional(v.string()), // local-news geotarget, e.g. "Austin, TX"
   },
-  handler: async (ctx, { query, location }): Promise<ResearchHit[]> => {
+  handler: async (ctx, { query, location }): Promise<ResearchResult> => {
     const userId = await requireActionUser(ctx);
     await consumeAiQuotaForAction(ctx, userId);
     const q = query.trim();
@@ -269,19 +294,24 @@ export const researchTopic = action({
     // Local news aims at geo + topic; SerpApi google news otherwise.
     const localQ = location ? `${q} ${location}` : q;
 
-    const tasks: Array<Promise<ResearchHit[]>> = [
-      researchReddit(q).catch(() => []),
-      researchWikimedia("en.wikipedia.org", "wikipedia", q).catch(() => []),
-      researchWikimedia("en.wikibooks.org", "wikibooks", q).catch(() => []),
-      researchGdlt(q).catch(() => []),
-      researchYoutube(q, serpKey).catch(() => []),
-      researchGoogleBooks(q).catch(() => []),
-      newsKey ? researchNewsApi(q, newsKey).catch(() => []) : Promise.resolve([]),
-      serpKey
-        ? researchTrends(q, serpKey).catch(() => [])
-        : Promise.resolve([]),
-      serpKey
-        ? serpSearch(
+    const collectors: Array<{
+      provider: string;
+      configured: boolean;
+      collect: () => Promise<ResearchHit[]>;
+    }> = [
+      { provider: "reddit", configured: true, collect: () => researchReddit(q) },
+      { provider: "wikipedia", configured: true, collect: () => researchWikimedia("en.wikipedia.org", "wikipedia", q) },
+      { provider: "wikibooks", configured: true, collect: () => researchWikimedia("en.wikibooks.org", "wikibooks", q) },
+      { provider: "gdlt", configured: true, collect: () => researchGdlt(q) },
+      { provider: "youtube", configured: Boolean(serpKey), collect: () => researchYoutube(q, serpKey) },
+      { provider: "google_books", configured: true, collect: () => researchGoogleBooks(q) },
+      { provider: "newsapi", configured: Boolean(newsKey), collect: () => newsKey ? researchNewsApi(q, newsKey) : Promise.resolve([]) },
+      { provider: "trends", configured: Boolean(serpKey), collect: () => serpKey ? researchTrends(q, serpKey) : Promise.resolve([]) },
+      {
+        provider: "local_news",
+        configured: Boolean(serpKey),
+        collect: () => serpKey
+          ? serpSearch(
             {
               engine: "google",
               tbm: "nws",
@@ -298,10 +328,13 @@ export const researchTopic = action({
                 snippet: clean(String(r.snippet ?? "")),
               })),
             )
-            .catch(() => [])
-        : Promise.resolve([]),
-      serpKey
-        ? serpSearch({ engine: "google_news", q }, serpKey)
+            : Promise.resolve([]),
+      },
+      {
+        provider: "serp_news",
+        configured: Boolean(serpKey),
+        collect: () => serpKey
+          ? serpSearch({ engine: "google_news", q }, serpKey)
             .then((rs) =>
               rs.slice(0, 4).map((r) => ({
                 source: "serp_news",
@@ -312,21 +345,45 @@ export const researchTopic = action({
                 ),
               })),
             )
-            .catch(() => [])
-        : Promise.resolve([]),
+            : Promise.resolve([]),
+      },
     ];
 
-    const settled = await Promise.all(tasks);
+    const sources = await Promise.all(
+      collectors.map(async ({ provider, configured, collect }): Promise<ResearchSource> => {
+        if (!configured) {
+          return { provider, status: "needs_setup", hits: [], retrievedAt: Date.now() };
+        }
+        try {
+          const hits = await collect();
+          return {
+            provider,
+            status: hits.length ? "ok" : "empty",
+            hits,
+            retrievedAt: Date.now(),
+          };
+        } catch (error) {
+          const category = error instanceof SourceRequestError ? error.category : "provider_error";
+          return {
+            provider,
+            status: category === "rate_limit" ? "rate_limited" : "failed",
+            hits: [],
+            retrievedAt: Date.now(),
+            errorCategory: category,
+          };
+        }
+      }),
+    );
     const seen = new Set<string>();
     const merged: ResearchHit[] = [];
-    for (const hits of settled) {
-      for (const h of hits) {
+    for (const source of sources) {
+      for (const h of source.hits) {
         const key = (h.url ?? h.title).toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
         merged.push(h);
       }
     }
-    return merged.slice(0, 60);
+    return { hits: merged.slice(0, 60), sources };
   },
 });
