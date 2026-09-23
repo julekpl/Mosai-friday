@@ -303,6 +303,61 @@ pipeline" as an earlier version of this report's handoff prompt stated.
 BP-02 is already being worked by Codex in an isolated branch; **no new BP-02
 chat should be started and BP-03 must not overwrite that work.**
 
+---
+
+## Third review follow-up (same chat, 23 September 2026 — GitHub main
+`d3434a64`, CI run 35875669379: unit/typecheck/lint/codegen/e2e/a11y/install
+passed on that exact SHA; both security jobs failed on the known secret
+findings; release gate remains BLOCKED; CI not called green overall)
+
+The review found one more last-confirmed-release gap: `cms.updatePage` can
+move a published page's `fullPath` (and auto-creates the 301) immediately,
+while both public readers resolved paths through the **live**
+`by_site_path` index before applying the content pins — so a slug move for
+unverified release B cut off A's confirmed route (`/old` served nothing)
+and B's new path served A's pinned content (leak). A content-revision pin
+alone is insufficient, exactly as the review stated.
+
+**Fix (red-first — the new test failed against the `d3434a64` code before
+the fix):** the release audit now snapshots the release's **routing** at
+preparation time, and the readers resolve externally through that snapshot:
+
+- `buildReleaseAudits` gains optional `routes` (fullPath → pinned revision
+  id) and `redirects` (fromPath → {to, statusCode}) arrays;
+  `publishSite` writes both at preparation.
+- `lib/deliveryGate.selectConfirmedRelease` exposes the confirmed audit's
+  `routesByPath` / `redirectsByPath` snapshots. When the confirmed audit
+  has a route snapshot it is **authoritative**: `cms.getPublishedByPath`
+  and `storefront.getPublishedPage` resolve paths through it and never
+  consult the live index (the pin-based index fallback applies only to
+  legacy audits written before snapshots existed — the fallback is skipped
+  whenever a snapshot is present, because a naive pin lookup by page id
+  would otherwise serve A's revision under B's new path).
+- Result: A verified at `/` → slug moved to `/new` for B → before B
+  verification (and after B's deployment fails), `/` still serves A's
+  pinned revision on both readers; `/new` and B's redirect stay hidden;
+  after B verifies, `/new` serves B and the old route disappears (the
+  homepage is the one path `updatePage` deliberately does not auto-301 —
+  its `oldPath !== "/"` guard — so no phantom `/` redirect is asserted;
+  snapshot-gated auto-redirects for non-root moves are covered by the
+  second-follow-up test).
+- Tie-breaker fix found while verifying: two audits written in the same
+  millisecond made "newest" ambiguous; the gate and the test helper now
+  sort by `createdAt` then `_creationTime`.
+
+Schema note: the new `routes`/`redirects` fields are **additive and
+optional** — no migration needed; old audits remain readable and the
+legacy fallback keeps pre-snapshot confirmed releases serving.
+
+**Gates after the fix:** unit **331/331** (17/17 BP-03 suite), codegen,
+tsc, lint (0 errors), `audit:functions` ✓, `audit:capabilities` ✓; `bun run
+check` exits 1 **only** at the pre-existing `.env.keys` secret-scan finding
+(B3, untouched). e2e/a11y not re-run locally; CI run 35875669379 passed
+them at `d3434a64`, and commits autosaved after it have **unknown CI status
+that must not be assumed**. Release gate remains BLOCKED (B3). BP-02
+untouched (in progress by Codex in an isolated branch). No BP-13 adapter or
+real publish.
+
 ## Proof
 
 - `tests/unit/publish-truth.test.ts` — the five acceptance classes plus the
@@ -320,6 +375,12 @@ chat should be started and BP-03 must not overwrite that work.**
      (all-or-nothing, red-first);
   7. `cms.getPublishedByPath` and `storefront.getPublishedPage` serve
      nothing before a verified deployment receipt and content after one
-     (red-first; gate = `lib/deliveryGate.ts`).
+     (red-first; gate = `lib/deliveryGate.ts`);
+  8. last-confirmed-release across prepare/fail (second follow-up, red-
+     first) — A's pinned revision serves until B verifies;
+  9. B-only pages and redirects stay hidden until B verifies (second
+     follow-up, red-first);
+  10. A's route survives a slug move to `/new` until B verifies (third
+      follow-up, red-first; route/redirect snapshots in the release audit).
 - Red-first record in the suite header; deletion-fixture regressions in
   `tests/unit/deletion-completeness.test.ts`.

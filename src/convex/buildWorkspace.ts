@@ -386,12 +386,31 @@ export const publishSite = moduleMutation("build", {
     }
 
     // Pass 3 — the server-written audit row everything else derives from.
+    // The route/redirect maps are SNAPSHOT here: the confirmed release must
+    // keep serving its own routes even after a later slug change moves the
+    // live rows (BP-03 "continue serving the last confirmed public release").
     const auditId = await ctx.db.insert("buildReleaseAudits", {
       projectId: build.projectId,
       buildId,
       siteId: site._id,
       phase: "release_prepared",
       revisionIds: promotedRevisionIds,
+      routes: promotedRevisionIds.map((revisionId, i) => ({
+        fullPath: pages.find((p) => p._id === promotedPageIds[i])!.fullPath,
+        revisionId,
+      })),
+      redirects: (
+        await ctx.db
+          .query("cmsRedirects")
+          .withIndex("by_project", (q) => q.eq("projectId", build.projectId))
+          .collect()
+      )
+        .filter((r) => r.siteId === site._id)
+        .map((r) => ({
+          fromPath: r.fromPath,
+          to: r.to,
+          statusCode: r.statusCode,
+        })),
       skipped: [], // all-or-nothing: an accepted preparation has no skips
       revisionVersions: promotedVersions,
       ruleVersion: READINESS_RULE_VERSION,

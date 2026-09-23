@@ -624,6 +624,31 @@ const schema = defineSchema(
       ruleVersion: v.number(),
       // pages whose checks failed at preparation time (blocking)
       pagesWithBlocking: v.optional(v.array(v.id("cmsPages"))),
+      // BP-03 review follow-up 3: the ROUTE map this release serves —
+      // fullPath → pinned revision id — snapshotted at preparation time so
+      // the confirmed release keeps serving its own routes even after a
+      // later slug change moves the live rows. A content pin alone is
+      // insufficient: the public readers must resolve paths through this
+      // map, not the mutable by_site_path index.
+      routes: v.optional(
+        v.array(
+          v.object({
+            fullPath: v.string(),
+            revisionId: v.id("pageRevisions"),
+          }),
+        ),
+      ),
+      // redirects this release serves (snapshot at preparation time);
+      // honored externally only once this release is verified.
+      redirects: v.optional(
+        v.array(
+          v.object({
+            fromPath: v.string(),
+            to: v.string(),
+            statusCode: v.union(v.literal(301), v.literal(302)),
+          }),
+        ),
+      ),
       // BP-03 readiness pins: the exact draft content each page was checked
       // at. Readiness is verified by pin equality (revision id AND content),
       // so an in-place content edit invalidates it immediately.

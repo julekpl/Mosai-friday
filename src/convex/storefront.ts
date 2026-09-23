@@ -292,56 +292,55 @@ export const getPublishedPage = moduleQuery("sell", {
 
     // BP-03: the gate first — content is externally delivered only from the
     // last confirmed release (verified audit + succeeded deployment, both
-    // server-written). Redirects belong to the release that created them,
-    // so they are honored only once the gate confirms a confirmed release.
+    // server-written). Routing is resolved through the confirmed release's
+    // ROUTE/REDIRECT snapshots, not the live tables: a slug move or new
+    // redirect belonging to a later, unverified release must not cut off or
+    // rewrite the confirmed routes, and must stay hidden until it verifies.
     const gate = await selectConfirmedRelease(ctx, projectId);
     if (!gate.allowed) return { kind: "not_found" as const };
 
-    // explicit redirect table first (§33)
-    const redirects = await ctx.db
-      .query("cmsRedirects")
-      .withIndex("by_site_path", (q) =>
-        q.eq("siteId", site._id).eq("fromPath", clean),
-      )
-      .collect();
-    const redirect = redirects[0];
-    if (redirect) {
-      // A redirect belongs to the release that produced its target. Honor it
-      // only when the target page is pinned by the confirmed release — a
-      // redirect added by a later, unverified preparation (whose target is
-      // not yet externally delivered) stays hidden until that release is
-      // verified.
-      const target = await ctx.db
-        .query("cmsPages")
+    // Redirect snapshot first (§33). Audits predating snapshots fall back to
+    // the live table gated on the target page being pinned (legacy path).
+    const snapshotRedirect = gate.redirectsByPath.get(clean);
+    if (snapshotRedirect) {
+      return {
+        kind: "redirect" as const,
+        to: snapshotRedirect.to,
+      };
+    }
+    if (gate.redirectsByPath.size === 0) {
+      const redirects = await ctx.db
+        .query("cmsRedirects")
         .withIndex("by_site_path", (q) =>
-          q.eq("siteId", site._id).eq("fullPath", redirect.to),
+          q.eq("siteId", site._id).eq("fromPath", clean),
         )
-        .first();
-      if (target && gate.pinnedByPage.has(target._id)) {
-        return { kind: "redirect" as const, to: redirect.to };
+        .collect();
+      const redirect = redirects[0];
+      if (redirect) {
+        const target = await ctx.db
+          .query("cmsPages")
+          .withIndex("by_site_path", (q) =>
+            q.eq("siteId", site._id).eq("fullPath", redirect.to),
+          )
+          .first();
+        if (target && gate.pinnedByPage.has(target._id)) {
+          return { kind: "redirect" as const, to: redirect.to };
+        }
       }
     }
 
-    const page = await ctx.db
-      .query("cmsPages")
-      .withIndex("by_site_path", (q) =>
-        q.eq("siteId", site._id).eq("fullPath", clean),
-      )
-      .first();
-    if (!page || page.status !== "published") {
-      return { kind: "not_found" as const };
-    }
-    // Resolve content from the confirmed release's pinned revision — never
-    // the mutable `publishedRevisionId` pointer (§133.13 holds: drafts can
-    // never leak; a later unverified preparation cannot leak through here
-    // either, because the pin predates it).
-    const pinnedId = gate.pinnedByPage.get(page._id);
+    // Route snapshot: fullPath → pinned revision.
+    const pinnedId = gate.routesByPath.get(clean);
     if (!pinnedId) return { kind: "not_found" as const };
     const revision = await ctx.db.get(pinnedId);
     if (!revision) return { kind: "not_found" as const };
+    const page = await ctx.db.get(revision.pageId);
+    if (!page || page.status !== "published") {
+      return { kind: "not_found" as const };
+    }
     return {
       kind: "page" as const,
-      page: { title: page.title, fullPath: page.fullPath, seo: page.seo ?? null },
+      page: { title: page.title, fullPath: clean, seo: page.seo ?? null },
       document: revision.document,
     };
   },

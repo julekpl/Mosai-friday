@@ -37,6 +37,13 @@ export type DeliveryGate =
       audit: Doc<"buildReleaseAudits">;
       /** revision ids this release pinned, by page */
       pinnedByPage: Map<Id<"cmsPages">, Id<"pageRevisions">>;
+      /** the release's route snapshot: fullPath → pinned revision id */
+      routesByPath: Map<string, Id<"pageRevisions">>;
+      /** the release's redirect snapshot: fromPath → {to, statusCode} */
+      redirectsByPath: Map<
+        string,
+        { to: string; statusCode: 301 | 302 }
+      >;
     }
   | { allowed: false; reason: "no_verified_deployment" };
 
@@ -61,7 +68,7 @@ export async function selectConfirmedRelease(
     .query("buildReleaseAudits")
     .withIndex("by_build", (q) => q.eq("buildId", websiteBuild._id))
     .collect();
-  audits.sort((a, b) => b.createdAt - a.createdAt);
+  audits.sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime);
 
   // Newest audit whose receipt chain is intact. A newer prepared or failed
   // audit does NOT disqualify an older verified one — that is exactly the
@@ -77,7 +84,30 @@ export async function selectConfirmedRelease(
           pinnedByPage.set(revision.pageId, revision._id);
         }
       }
-      return { allowed: true, audit, pinnedByPage };
+      // Route/redirect snapshots (present on audits written after the
+      // third BP-03 review follow-up; older audits fall back to resolving
+      // through the page pins so a legacy confirmed release still serves).
+      const routesByPath = new Map<string, Id<"pageRevisions">>();
+      for (const r of audit.routes ?? []) {
+        routesByPath.set(r.fullPath, r.revisionId);
+      }
+      const redirectsByPath = new Map<
+        string,
+        { to: string; statusCode: 301 | 302 }
+      >();
+      for (const r of audit.redirects ?? []) {
+        redirectsByPath.set(r.fromPath, {
+          to: r.to,
+          statusCode: r.statusCode,
+        });
+      }
+      return {
+        allowed: true,
+        audit,
+        pinnedByPage,
+        routesByPath,
+        redirectsByPath,
+      };
     }
   }
   return { allowed: false, reason: "no_verified_deployment" };

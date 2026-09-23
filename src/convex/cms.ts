@@ -189,23 +189,33 @@ export const getPublishedByPath = query({
     if (!site || site.status === "suspended") return null;
     const gate = await selectConfirmedRelease(ctx, site.projectId);
     if (!gate.allowed) return null;
-    const page = await ctx.db
-      .query("cmsPages")
-      .withIndex("by_site_path", (q) =>
-        q.eq("siteId", siteId).eq("fullPath", fullPath === "" ? "/" : fullPath),
-      )
-      .first();
-    if (!page || page.status !== "published") return null;
-    // Resolve content from the confirmed release's pinned revision — never
-    // the page's current `publishedRevisionId`, which a later unverified
-    // preparation may already have moved (that would leak B under A).
-    // A page pinned by the confirmed release is by definition published;
-    // a page that exists only in a later, unverified release stays hidden.
-    const pinnedId = gate.pinnedByPage.get(page._id);
+    const path = fullPath === "" ? "/" : fullPath;
+    // Resolve through the confirmed release's ROUTE snapshot, not the live
+    // by_site_path index: a slug move performed for a later, unverified
+    // release must not cut off or rewrite the confirmed routes, and B's new
+    // path must stay hidden until B verifies. When the confirmed audit has
+    // a route snapshot it is AUTHORITATIVE — the pin fallback below would
+    // otherwise serve A's pinned revision under B's new path (the page row
+    // moved, but the pin maps by page id). Audits written before snapshots
+    // existed use the pin fallback as a best-effort legacy path.
+    let pinnedId: Id<"pageRevisions"> | undefined =
+      gate.routesByPath.get(path);
+    if (pinnedId === undefined && gate.audit.routes === undefined) {
+      const page = await ctx.db
+        .query("cmsPages")
+        .withIndex("by_site_path", (q) => q.eq("siteId", siteId).eq("fullPath", path))
+        .first();
+      if (page) pinnedId = gate.pinnedByPage.get(page._id);
+    }
     if (!pinnedId) return null;
     const revision = await ctx.db.get(pinnedId);
     if (!revision || revision.state !== "published") return null;
-    return { page, revision };
+    // Return the page row resolved by id (its current fullPath may already
+    // have moved for the unverified release — the snapshot route is what
+    // the outside world sees).
+    const page = await ctx.db.get(revision.pageId);
+    if (!page || page.status !== "published") return null;
+    return { page: { ...page, fullPath: path }, revision };
   },
 });
 

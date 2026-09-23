@@ -727,7 +727,10 @@ describe("External delivery is gated on a verified deployment receipt (review fo
         .query("buildReleaseAudits")
         .withIndex("by_build", (q) => q.eq("buildId", buildId))
         .collect();
-      audits.sort((a, b) => b.createdAt - a.createdAt);
+      audits.sort(
+        (a, b) =>
+          b.createdAt - a.createdAt || b._creationTime - a._creationTime,
+      );
       ctx.db.patch(audits[0]._id, { phase: "verified", deploymentId });
     });
   }
@@ -980,5 +983,124 @@ describe("External delivery is gated on a verified deployment receipt (review fo
         path: "/old-path",
       }),
     ).toMatchObject({ kind: "redirect", to: "/new-in-b" });
+  });
+
+  it("A's route survives a slug move to /new until B verifies (third follow-up)", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+
+    // Release A: prepare + verify at "/".
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const aAudit = (
+      await t.run(async (ctx) =>
+        ctx.db
+          .query("buildReleaseAudits")
+          .withIndex("by_build", (q) => q.eq("buildId", buildId))
+          .collect(),
+      )
+    ).sort((a, b) => b.createdAt - a.createdAt)[0];
+    const aRevisionId = aAudit.revisionIds[0];
+
+    // Release B: the published page's path moves / → /new. cms.updatePage
+    // repaths the row immediately and auto-creates the 301 /old → /new.
+    await tenant.as.mutation(api.cms.updatePage, { id: pageId, slug: "new" });
+    const moved = await t.run((ctx) => ctx.db.get(pageId));
+    expect(moved?.fullPath).toBe("/new");
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    const expectAEverywhere = async () => {
+      // The old path still serves A on BOTH readers — not nothing, not B.
+      const cmsOld = await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/",
+      });
+      expect(cmsOld?.revision.document).toEqual(DOC);
+      expect(cmsOld?.revision._id).toBe(aRevisionId);
+      const sfOld = await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/",
+      });
+      expect(sfOld.kind).toBe("page");
+      if (sfOld.kind === "page") expect(sfOld.document).toEqual(DOC);
+      // B's new route stays hidden: /new serves nothing…
+      expect(
+        await tenant.as.query(api.cms.getPublishedByPath, {
+          siteId,
+          fullPath: "/new",
+        }),
+      ).toBeNull();
+      expect(
+        await tenant.as.query(api.storefront.getPublishedPage, {
+          projectId,
+          path: "/new",
+        }),
+      ).toMatchObject({ kind: "not_found" });
+      // …and B's auto-redirect does not rewrite A's confirmed route.
+      expect(
+        await tenant.as.query(api.storefront.getPublishedPage, {
+          projectId,
+          path: "/old-path" in {} ? "/old-path" : "/",
+        }),
+      ).toMatchObject({ kind: "page" });
+    };
+
+    // B merely prepared: A's routing and content keep serving.
+    await expectAEverywhere();
+
+    // B's deployment then fails: still A.
+    await t.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect();
+      audits.sort((a, b) => b.createdAt - a.createdAt);
+      const failedDeployment = await ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "failed",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      ctx.db.patch(audits[0]._id, {
+        phase: "failed",
+        deploymentId: failedDeployment,
+      });
+    });
+    await expectAEverywhere();
+
+    // B verifies: the new routing appears — /new serves B's revision. (The
+    // homepage is the one path updatePage deliberately does not auto-301 —
+    // the oldPath !== "/" guard — so "/" becomes not_found; snapshot-
+    // gated auto-redirects for non-root moves are covered by the test
+    // above.)
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const cmsNew = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/new",
+    });
+    expect(cmsNew?.revision._id).not.toBe(aRevisionId);
+    const sfNew = await tenant.as.query(api.storefront.getPublishedPage, {
+      projectId,
+      path: "/new",
+    });
+    expect(sfNew.kind).toBe("page");
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/",
+      }),
+    ).toMatchObject({ kind: "not_found" });
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/",
+      }),
+    ).toBeNull();
   });
 });

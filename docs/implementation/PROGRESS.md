@@ -456,3 +456,27 @@ assumed. **Handoff correction:** BP-02 is sign-in/recovery/privileged
 access (NOT "fix the CI pipeline"); BP-02 is already in progress by Codex
 in an isolated branch — do not start or overwrite it. No BP-13 adapter or
 real publish added.
+
+**BP-03 third review follow-up (same chat, 23 Sep 2026, GitHub main
+`d3434a64`, CI run 35875669379: unit/typecheck/lint/codegen/e2e/a11y/install
+passed; both security jobs failed on the known secret findings; release
+gate stays BLOCKED; CI not called green).** One more last-confirmed-release
+gap fixed red-first: `cms.updatePage` moves a published page's fullPath and
+auto-creates the 301 immediately, while both public readers resolved paths
+via the live `by_site_path` index — a slug move for unverified B cut off
+A's confirmed route and B's new path served A's content (leak). Fix: the
+release audit now snapshots `routes` (fullPath → pinned revision) and
+`redirects` (fromPath → target) at preparation; `selectConfirmedRelease`
+exposes them and both readers resolve externally through the snapshot,
+which is AUTHORITATIVE when present (pin-based index fallback only for
+legacy audits without a snapshot — skipped otherwise, because a pin lookup
+by page id would serve A's revision under B's new path). Regression: A
+verified at / → slug moved to /new for B → before B verification and after
+B's failure, / still serves A on both readers, /new and B's redirect stay
+hidden; after B verifies, /new serves B (homepage moves carry no auto-301
+by updatePage's oldPath!=="/" guard). Also fixed a same-millisecond
+tie-breaker in newest-audit selection (createdAt then _creationTime).
+Schema change additive/optional — no migration. Gates: unit **331/331**
+(17/17 BP-03), codegen/tsc/lint/audits exit 0; `check` exit 1 only at the
+pre-existing secret-scan finding (B3). e2e/a11y not re-run locally; CI for
+commits autosaved after `d3434a64` unknown (B2), not assumed.
