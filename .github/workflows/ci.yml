@@ -1,6 +1,7 @@
 # MOSAI CI (pack T1.5). One job per concern so a red build names its cause.
 #
-# Jobs: install · codegen · typecheck · lint · unit · security · e2e · a11y.
+# Jobs: install · codegen · typecheck · lint · unit · security-history ·
+#        security · e2e · a11y.
 # `bun` is authoritative (T1.1). Do not reintroduce `npm ci`.
 #
 # One gate is staged honestly rather than faked:
@@ -8,6 +9,24 @@
 #     until the owner adds it the job warns and skips (dated TODO below).
 # The dependency audit (T1.6) is now a hard failure: `bun audit` reports no
 # vulnerabilities at any level.
+#
+# BP-01 (23 Sep 2026):
+#   - The full-history secret scan now runs in its OWN job
+#     (`security-history`). Previously it was the first step of `security`,
+#     so when it found a historical credential it *skipped* the working-tree
+#     scan, the local scan, both authorization audits and the dependency
+#     audit — real checks hidden behind one red step. Both jobs always
+#     execute; a history finding no longer hides the others.
+#   - Browser jobs no longer treat `https://placeholder.convex.cloud` as a
+#     working service: the URL below is inert, every Convex call is
+#     intercepted by the documented test-only backend double
+#     (tests/e2e/fixtures/test-backend.ts), and the real OTP journey is a
+#     separate opt-in spec (tests/e2e/otp-live.spec.ts).
+#   - On failure the browser jobs upload their traces/screenshots
+#     (test-results/) as artifacts named with the exact commit SHA, kept for
+#     7 days. They contain only synthetic test data (test-only double, no
+#     credentials, example.com addresses), so they are sanitized by
+#     construction.
 name: CI
 
 on:
@@ -97,13 +116,37 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test:unit
 
-  security:
-    name: security (secrets · functions · audit)
+  # BP-01: split out of `security` so a history finding can no longer skip
+  # the working-tree scan and the audits. `--redact` keeps matched secrets out
+  # of the log; the finding is the signal, never the value. A red here is the
+  # honest state of the repository's history until the owner authorizes the
+  # credential rotation + history purge (docs/runbooks/secret-rotation.md) —
+  # never silence it with an allow-list entry.
+  security-history:
+    name: security (full-history secret scan)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Install gitleaks
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Secret scan — full history
+        run: gitleaks detect --no-banner --config .gitleaks.toml --redact --exit-code 1
+
+  security:
+    name: security (working tree · functions · capabilities · audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -115,9 +158,6 @@ jobs:
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz -C "$RUNNER_TEMP/bin" gitleaks
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
-      - name: Secret scan — full history
-        run: gitleaks detect --no-banner --config .gitleaks.toml --redact --exit-code 1
 
       - name: Secret scan — working tree
         run: gitleaks detect --no-git --no-banner --config .gitleaks.toml --redact --exit-code 1
@@ -157,10 +197,22 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Run journeys
         env:
-          # The static routes render without a live backend; use the project
-          # variable when set, otherwise a format-valid placeholder.
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://placeholder.convex.cloud' }}
+          # BP-01: inert URL — no service exists here and none is expected to
+          # answer. Every Convex HTTP/WebSocket call is intercepted by the
+          # test-only backend double before the network, so the tests are
+          # hermetic instead of treating a placeholder as a working service.
+          # The real OTP journey is tests/e2e/otp-live.spec.ts (opt-in,
+          # needs E2E_LIVE_CONVEX_URL + E2E_LIVE_TEST_EMAIL).
+          VITE_CONVEX_URL: https://e2e-test-only.convex.cloud
         run: bun run test:e2e
+      - name: Upload browser traces/screenshots (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-${{ github.sha }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   a11y:
     name: a11y (axe)
@@ -179,5 +231,14 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Run axe gate
         env:
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://placeholder.convex.cloud' }}
+          # BP-01: same inert test-only URL as the e2e job (see above).
+          VITE_CONVEX_URL: https://e2e-test-only.convex.cloud
         run: bun run test:a11y
+      - name: Upload browser traces/screenshots (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-results-${{ github.sha }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore

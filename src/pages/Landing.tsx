@@ -423,8 +423,14 @@ export default function Landing() {
                   body: "Every AI result arrives as an editable draft. You decide what's good — and nothing is shared until you say so.",
                 },
               ].map((s, i) => (
-                <Reveal key={s.n} delay={i * 70}>
-                  <li className="h-full rounded-md border bg-card p-5 shadow-card">
+                // axe rule `list`/`listitem`: <li> must be a direct child of
+                // <ol> — Reveal renders a div, so it belongs *inside* the li
+                // (BP-01: this markup bug failed the a11y gate).
+                <li
+                  key={s.n}
+                  className="h-full rounded-md border bg-card p-5 shadow-card"
+                >
+                  <Reveal delay={i * 70}>
                     <span className="grid size-7 place-items-center rounded-[3px] bg-terminal-green font-mono text-caption text-background">
                       {s.n}
                     </span>
@@ -434,8 +440,8 @@ export default function Landing() {
                     <p className="mt-1.5 font-mono text-caption text-muted-foreground">
                       {s.body}
                     </p>
-                  </li>
-                </Reveal>
+                  </Reveal>
+                </li>
               ))}
             </ol>
           </div>

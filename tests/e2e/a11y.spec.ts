@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures/test-backend";
 
 /**
  * Accessibility gate (MOSAI pack T1.5/T1.8, rule 16).
@@ -12,6 +13,10 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * The gate is proven live by planting a violation (an `<img>` with no `alt`)
  * and observing it fail — recorded in `docs/tickets/T1.8-…`.
+ *
+ * BP-01: tests import the test-only backend fixture, so the signed-out
+ * redirect and the keyboard sign-in response resolve deterministically
+ * instead of hanging on a backend that does not exist in CI.
  */
 
 /**
@@ -30,11 +35,24 @@ import { expect, test, type Page } from "@playwright/test";
  * `mosaic-float` loops are deliberately excluded or this would never end.
  */
 async function settleForAxe(page: Page): Promise<void> {
+  // 1. The lazy route must have actually rendered. Without this the two
+  // checks below run against the loading fallback, pass vacuously, and axe
+  // samples the page mid-fade — the bogus serious `color-contrast` observed
+  // on `/` and `/auth` (hero CTA at 1.99:1 mid-animation).
+  await page.waitForSelector("#main-content > *", { timeout: 15_000 });
+
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
-  await page.waitForFunction(
-    () =>
+
+  // 2. Every finite entrance animation must be finished — verified on two
+  // samples ≥150ms apart, because `getAnimations() === []` is
+  // indistinguishable between "not started yet" and "finished": a
+  // not-yet-started animation would otherwise pass while still fading.
+  const deadline = Date.now() + 15_000;
+  let firstPassAt: number | null = null;
+  while (Date.now() < deadline) {
+    const allDone = await page.evaluate(() =>
       Array.from(document.querySelectorAll("*")).every((element) =>
         (element.getAnimations?.() ?? []).every((animation) => {
           const name = (animation as { animationName?: string }).animationName;
@@ -44,8 +62,20 @@ async function settleForAxe(page: Page): Promise<void> {
           return true;
         }),
       ),
-    { timeout: 15_000 },
-  );
+    );
+    const now = Date.now();
+    if (!allDone) {
+      firstPassAt = null;
+    } else if (firstPassAt !== null && now - firstPassAt >= 150) {
+      return; // stable: held for 150ms, nothing started in between
+    } else {
+      firstPassAt = now;
+    }
+    await page.waitForTimeout(75);
+  }
+  // Deadline exceeded: fall through and let axe report whatever is on the
+  // page — a real violation must fail the gate, not hide behind a settle
+  // timeout.
 }
 
 type A11yEntry = {
@@ -61,11 +91,15 @@ const PAGES: A11yEntry[] = [
   {
     name: "app",
     path: "/app",
-    // `/app` is behind `RequireAuth`. A signed-out visitor is redirected to the
-    // sign-in screen (with the intended path preserved), which is the
-    // accessible surface that renders; axe then checks whatever it renders.
+    // `/app` is behind `RequireAuth`. A signed-out visitor must be redirected
+    // to the sign-in screen with the intended path preserved (`returnTo`),
+    // which is the accessible surface that renders; axe then checks whatever
+    // it renders. The test-only backend answers `users.currentUser` with
+    // "no user", so this resolves deterministically — no live service.
     settle: async (page) => {
-      await expect(page).toHaveURL(/\/auth/, { timeout: 15_000 });
+      await expect(page).toHaveURL(/\/auth\?returnTo=%2Fapp/, {
+        timeout: 15_000,
+      });
     },
   },
 ];

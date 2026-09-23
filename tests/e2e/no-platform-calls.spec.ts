@@ -1,8 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures/test-backend";
 
 /**
  * R12 (network half) — no request to a platform domain with the platform vars
  * unset (MOSAI pack T1.7 / T0.8).
+ *
+ * BP-01: the test-only backend fixture intercepts every Convex call before
+ * the network, so the only requests this observes are real page assets — the
+ * platform-domain assertion below therefore holds hermetically in CI too.
  *
  * Asserted at the network layer, not by searching the source: every request the
  * browser makes while loading the app's public entry points is inspected, and
