@@ -60,7 +60,7 @@ its slice boundary — it never continues into the next package.
 | Chat | Package/Slice | Order | Backlog mapping | Depends on (must be complete first) | Status |
 |---|---|---|---|---|---|
 | 0 | save-and-organize (this chat) | — | — | — | complete |
-| 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | not_started |
+| 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | implemented_unverified (chat 1, 23 Sep 2026 — report: `docs/implementation/reports/BP-01-repair-baseline.md`; all local gates re-run green, plant/observe demonstrations done (broken auth, wrong CTA, synthetic secret), STATUS/T2.5/missing-docs reconciled; CI-run-on-commit, full-history scan and credential rotation remain owner-run evidence (B2/B3)) |
 | 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | not_started |
 | 3 | **BP-03** stop false publishing/readiness | A | T2.13 | BP-01; truthful labels allowed before BP-13 deployment exists (§5 BP-03) | not_started |
 | 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | not_started |
@@ -147,8 +147,11 @@ E exit = complete combined journeys pass with users and real test accounts.
   `scripts/scan-secrets.mjs`, secret-scan unit tests that never echo values.
 - **Test/CI gates:** `bun run check` (typecheck+lint+unit+secrets+audit:functions
   +audit:capabilities), `test:e2e` (13), `test:a11y` (5, zero serious/critical,
-  no allow-list), `check:codegen`; R1–R12 suite with R4 deliberately red
-  (`it.fails`, blocked on T0.4). Never weaken a gate to go green.
+  no allow-list), `check:codegen`; R1–R12 suite — R4 was deliberately red
+  (`it.fails`, blocked on T0.4) **until 22 Sep 2026**; BP-01 re-verified on
+  23 Sep that R4 is **green**, the `it.fails` count on this tree is **0** and
+  all **295** unit tests pass (this line was stale). Never weaken a gate to go
+  green.
 - **Auth UX (BP-02 base):** OTP-only flow in `Auth.tsx` with T1.8 accessibility
   (labels, `autocomplete="one-time-code"`, focus management, resend countdown),
   `RequireAuth` preserving `returnTo`, skip links on all layouts.
@@ -276,11 +279,32 @@ Verified directly in this tree — the audited defects are **still present**:
    could not be proven** without git (B2) — each implementation chat must
    re-inspect before editing and preserve unrelated changes.
 
-## 8. Next chat
+## 8. Chat-1 outcome and next chat
 
-**Chat 1 = BP-01 — Repair the baseline and make status documentation
-trustworthy.** Dependencies: none (first package of Order A, named first by
-blueprint §10). Entry checks for that chat: re-read AGENTS.md, the saved
-blueprint, this file, and the chat-0 findings in §7; re-verify branch/commit via
-`.git` files; run the documented gates to *reproduce* current failures before
-editing; ask the B1/B2 questions if still unanswered for the parts they gate.
+**Chat 1 = BP-01 — done (implemented_unverified), 23 September 2026.**
+Report: `docs/implementation/reports/BP-01-repair-baseline.md`. Reproduced
+every documented gate first (`bun run check` red only at `scan:secrets` on the
+tracked `.env.keys`; e2e 15+1 skipped; a11y 5; both audits exit 0; git and
+gitleaks unavailable — B2/B3 re-confirmed); replaced the placeholder backend
+with the test-only double (`tests/e2e/fixtures/test-backend.ts`), added
+`auth-contract.spec.ts` and the opt-in `otp-live.spec.ts`, updated the smoke
+assertions to the current copy, split the CI history scan into its own job,
+added SHA-named 7-day failure artifacts, fixed a real `list`/`listitem` axe
+defect in `Landing.tsx`, corrected the stale claims in `STATUS.md`, reconciled
+T2.5 as **not implemented** (BP-05 owns it), and recorded the missing B1
+documents in `STATUS.md` §7 without inventing their content. Acceptance
+demonstrations: broken auth, wrong CTA navigation and a planted synthetic
+secret each failed the relevant gate and were reverted to green (outputs in
+the report). Remaining for the owner: push + attach the CI run, run the
+full-history scan, rotate/untrack the exposed credentials (never allow-list),
+provide B1 documents.
+
+**Chat 2 = BP-04 — social credentials and token refresh** (blueprint §10
+order: BP-01 → BP-04 → BP-03, prepare BP-05). Entry checks: re-read AGENTS.md,
+the saved blueprint, this file and the BP-01 report; verify the audited defects
+are still present (`social/credentials.ts` `fetch` inside `internalMutation`,
+`getCredId` document-vs-ID cast, same shape in `ads/credentials.ts`) — note
+`social/executor.ts` already has an `executor.getCred` "action-safe" query
+(§3), verify how much of the fix exists before rebuilding; keep the ads
+consumers' `cred._id` contract; run the documented gates before editing; never
+weaken a gate to go green.
