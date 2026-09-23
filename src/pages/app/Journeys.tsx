@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { journeySourceForNewMap } from "@/lib/journey-origin";
 
 type Stage = { stage: string; cells: string[]; score?: number };
 type JourneyDoc = {
@@ -141,6 +142,7 @@ function JourneyEditor({
   const [stages, setStages] = useState<Stage[]>(initial?.stages ?? []);
   const [aiScenario, setAiScenario] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aiDraftGenerated, setAiDraftGenerated] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const laneCount = lanes.length;
@@ -194,6 +196,7 @@ function JourneyEditor({
       if (!goal && result.goal) setGoal(result.goal);
       setLanes(FALLBACK_LANES);
       setStages(result.stages);
+      setAiDraftGenerated(true);
       toast.success("Journey drafted with AI", {
         description: "Everything is editable — tweak and save.",
       });
@@ -240,7 +243,7 @@ function JourneyEditor({
           personaId: (personaId || undefined) as Id<"personas"> | undefined,
           lanes,
           stages: cleanStages,
-          source: stages.length && busy ? "ai" : "manual",
+          source: journeySourceForNewMap(aiDraftGenerated),
         });
       }
       toast.success("Journey saved");
@@ -714,7 +717,11 @@ export default function Journeys({
                       variant="outline"
                       className="font-mono text-caption text-muted-foreground"
                     >
-                      {j.source}
+                      {j.source === "ai"
+                        ? "AI draft"
+                        : j.source === "csv"
+                          ? "CSV import"
+                          : "Manual"}
                     </Badge>
                     <Button
                       size="icon-sm"
