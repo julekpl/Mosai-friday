@@ -299,8 +299,13 @@ export const getPublishedPage = moduleQuery("sell", {
     const gate = await selectConfirmedRelease(ctx, projectId);
     if (!gate.allowed) return { kind: "not_found" as const };
 
-    // Redirect snapshot first (§33). Audits predating snapshots fall back to
-    // the live table gated on the target page being pinned (legacy path).
+    // Redirect snapshot first (§33). The snapshot's PRESENCE (even when
+    // empty) is authoritative for audits written after snapshots existed:
+    // a redirect created for a later, unverified release (e.g. the 301 that
+    // cms.updatePage auto-creates on a slug move) must not leak before that
+    // release verifies. Audits predating snapshots (field absent) fall back
+    // to the live table, gated on the target page being pinned (legacy
+    // path).
     const snapshotRedirect = gate.redirectsByPath.get(clean);
     if (snapshotRedirect) {
       return {
@@ -308,7 +313,7 @@ export const getPublishedPage = moduleQuery("sell", {
         to: snapshotRedirect.to,
       };
     }
-    if (gate.redirectsByPath.size === 0) {
+    if (gate.audit.redirects === undefined) {
       const redirects = await ctx.db
         .query("cmsRedirects")
         .withIndex("by_site_path", (q) =>
@@ -329,18 +334,17 @@ export const getPublishedPage = moduleQuery("sell", {
       }
     }
 
-    // Route snapshot: fullPath → pinned revision.
-    const pinnedId = gate.routesByPath.get(clean);
-    if (!pinnedId) return { kind: "not_found" as const };
-    const revision = await ctx.db.get(pinnedId);
+    // Route snapshot: fullPath → pinned revision + frozen metadata. Title
+    // and SEO come from the snapshot (a later unverified edit must not
+    // appear before its release verifies); no mutable page.status check —
+    // the snapshot is authoritative for the confirmed release.
+    const route = gate.routesByPath.get(clean);
+    if (!route) return { kind: "not_found" as const };
+    const revision = await ctx.db.get(route.revisionId);
     if (!revision) return { kind: "not_found" as const };
-    const page = await ctx.db.get(revision.pageId);
-    if (!page || page.status !== "published") {
-      return { kind: "not_found" as const };
-    }
     return {
       kind: "page" as const,
-      page: { title: page.title, fullPath: clean, seo: page.seo ?? null },
+      page: { title: route.title, fullPath: clean, seo: route.seo ?? null },
       document: revision.document,
     };
   },

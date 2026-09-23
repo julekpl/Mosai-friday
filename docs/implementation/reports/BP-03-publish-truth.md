@@ -358,6 +358,57 @@ that must not be assumed**. Release gate remains BLOCKED (B3). BP-02
 untouched (in progress by Codex in an isolated branch). No BP-13 adapter or
 real publish.
 
+---
+
+## Fourth review follow-up (same chat, 23 September 2026 — GitHub main
+`61f0605`, CI run 35878361142: application, e2e and a11y jobs passed on that
+exact SHA; **both security jobs still failed** — never called green;
+release gate remains BLOCKED)
+
+Two correctness gaps in the route-snapshot work, both fixed **red-first**
+(the new tests failed against the `61f0605` code before the fixes):
+
+1. **Live-redirect fallback leaked B's auto-301 before verification.**
+   `storefront.getPublishedPage` fell back to the live `cmsRedirects` table
+   whenever `redirectsByPath.size === 0` — but a *new* audit with an
+   intentionally empty snapshot also has size 0. For a non-homepage A page
+   at `/old`, `cms.updatePage` slug `/new` auto-creates the 301
+   `/old→/new`; before B verified, storefront exposed that redirect instead
+   of serving A at `/old`. (The third follow-up's test missed this because
+   it moved the homepage, which does not auto-redirect, and its route
+   expression always selected `/`.) Fix: the fallback now keys on snapshot
+   **absence** (`audit.redirects === undefined`, i.e. pre-snapshot legacy
+   audits only) — a present-but-empty snapshot is authoritative, so B's
+   redirect cannot appear before B verifies. Regression: non-homepage A
+   page moved to `/new` for B → before verification and after B's failure,
+   `/old` serves A (not the redirect) and `/new` is not found; after B
+   verifies the redirect resolves.
+2. **Public readers served mutable page metadata.** Both readers returned
+   the live row's `title`/`seo` and checked the mutable `page.status`, so a
+   title or SEO edit for B appeared publicly before B verified. Fix: the
+   route snapshot now carries the metadata frozen at preparation
+   (`routes[].title`, `routes[].seo`), and both readers serve title/SEO
+   from the confirmed snapshot with no mutable `page.status` check — the
+   snapshot is authoritative for the confirmed release. Regression: A
+   verified → title+SEO edit for B → B prepared/failed: A's metadata still
+   serves on both readers; after B verifies, B's metadata appears.
+
+One existing test was reordered (not weakened): the "pages and redirects
+added by B" test had inserted its redirect *after* B's preparation, which
+the snapshot semantics correctly ignore — it now inserts the redirect
+before preparation, which is the real workflow it meant to pin.
+
+Schema note: `routes[].title`/`routes[].seo` are additive/optional; no
+migration.
+
+**Gates after the fixes:** unit **333/333** (19/19 BP-03 suite), codegen,
+tsc, lint (0 errors), `audit:functions` ✓, `audit:capabilities` ✓; `bun run
+check` exits 1 **only** at the pre-existing `.env.keys` secret-scan finding
+(B3, untouched). e2e/a11y not re-run locally; CI run 35878361142 passed
+them at `61f0605`; CI for commits autosaved after it is **unknown and not
+assumed**. Release gate remains BLOCKED (B3). BP-02 untouched (Codex,
+isolated branch). No BP-13 adapter or real publish.
+
 ## Proof
 
 - `tests/unit/publish-truth.test.ts` — the five acceptance classes plus the
@@ -381,6 +432,11 @@ real publish.
   9. B-only pages and redirects stay hidden until B verifies (second
      follow-up, red-first);
   10. A's route survives a slug move to `/new` until B verifies (third
-      follow-up, red-first; route/redirect snapshots in the release audit).
+      follow-up, red-first; route/redirect snapshots in the release audit);
+  11. a non-homepage A route survives B's auto-created redirect until B
+      verifies (fourth follow-up, red-first; snapshot presence beats the
+      live redirect table);
+  12. metadata edits for B never appear publicly before B verifies (fourth
+      follow-up, red-first; title/SEO frozen in the route snapshot).
 - Red-first record in the suite header; deletion-fixture regressions in
   `tests/unit/deletion-completeness.test.ts`.

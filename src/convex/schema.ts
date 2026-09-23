@@ -625,9 +625,10 @@ const schema = defineSchema(
       // pages whose checks failed at preparation time (blocking)
       pagesWithBlocking: v.optional(v.array(v.id("cmsPages"))),
       // BP-03 review follow-up 3: the ROUTE map this release serves —
-      // fullPath → pinned revision id — snapshotted at preparation time so
-      // the confirmed release keeps serving its own routes even after a
-      // later slug change moves the live rows. A content pin alone is
+      // fullPath → pinned revision id, plus the page metadata frozen at
+      // preparation (follow-up 4: title/SEO are mutable page fields; the
+      // confirmed release must serve its own metadata, not whatever a
+      // later unverified edit left on the live row). A content pin alone is
       // insufficient: the public readers must resolve paths through this
       // map, not the mutable by_site_path index.
       routes: v.optional(
@@ -635,6 +636,16 @@ const schema = defineSchema(
           v.object({
             fullPath: v.string(),
             revisionId: v.id("pageRevisions"),
+            // metadata snapshot at preparation time
+            title: v.string(),
+            seo: v.optional(
+              v.object({
+                title: v.optional(v.string()),
+                metaDescription: v.optional(v.string()),
+                noindex: v.optional(v.boolean()),
+                ogImageUrl: v.optional(v.string()),
+              }),
+            ),
           }),
         ),
       ),

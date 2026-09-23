@@ -931,6 +931,19 @@ describe("External delivery is gated on a verified deployment receipt (review fo
         },
       }),
     );
+    // B's new redirect exists BEFORE preparation so it lands in B's
+    // snapshot (the snapshot is taken at preparation time).
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("cmsRedirects", {
+        siteId: site!._id,
+        projectId,
+        fromPath: "/old-path",
+        to: "/new-in-b",
+        statusCode: 301,
+        createdAt: now,
+      }),
+    );
     await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
 
     // Before verification the new page is not served...
@@ -947,18 +960,7 @@ describe("External delivery is gated on a verified deployment receipt (review fo
       }),
     ).toMatchObject({ kind: "not_found" });
 
-    // ...and B's new redirect is not honored.
-    const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("cmsRedirects", {
-        siteId: site!._id,
-        projectId,
-        fromPath: "/old-path",
-        to: "/new-in-b",
-        statusCode: 301,
-        createdAt: now,
-      }),
-    );
+    // ...and B's new redirect is not honored either.
     expect(
       await tenant.as.query(api.storefront.getPublishedPage, {
         projectId,
@@ -1102,5 +1104,216 @@ describe("External delivery is gated on a verified deployment receipt (review fo
         fullPath: "/",
       }),
     ).toBeNull();
+  });
+
+  it("A's non-homepage route survives B's auto-redirect until B verifies (fourth follow-up 1)", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId } = await seedSite(t, tenant, projectId);
+
+    // A second (non-homepage) page at /old with valid content.
+    const site = await t.run(async (ctx) =>
+      ctx.db
+        .query("sites")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .first(),
+    );
+    await tenant.as.mutation(api.cms.createPage, {
+      siteId: site!._id,
+      title: "Old page",
+      slug: "old",
+      parentId: (
+        await t.run(async (ctx) =>
+          ctx.db
+            .query("cmsPages")
+            .withIndex("by_site_path", (q) =>
+              q.eq("siteId", site!._id).eq("fullPath", "/"),
+            )
+            .first(),
+        )
+      )!._id,
+    });
+    const oldPage = await t.run(async (ctx) =>
+      ctx.db
+        .query("cmsPages")
+        .withIndex("by_site_path", (q) =>
+          q.eq("siteId", site!._id).eq("fullPath", "/old"),
+        )
+        .first(),
+    );
+    await t.run((ctx) =>
+      ctx.db.patch(oldPage!.latestDraftRevisionId!, {
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "blk_old_hero",
+              type: "hero",
+              version: 1,
+              props: { heading: "Old page" },
+            },
+          ],
+        },
+      }),
+    );
+
+    // Release A: prepare + verify. /old serves.
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+
+    // Release B: move /old → /new. updatePage auto-creates the 301 because
+    // this is NOT the homepage.
+    await tenant.as.mutation(api.cms.updatePage, { id: oldPage!._id, slug: "new" });
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    // Before B verifies: /old still serves A on storefront (the live
+    // auto-created redirect /old→/new must NOT win), /new stays hidden.
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/old",
+      }),
+    ).toMatchObject({ kind: "page" });
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/new",
+      }),
+    ).toMatchObject({ kind: "not_found" });
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/old",
+      }),
+    ).not.toBeNull();
+
+    // B's deployment fails: still A at /old.
+    await t.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect();
+      audits.sort(
+        (a, b) =>
+          b.createdAt - a.createdAt || b._creationTime - a._creationTime,
+      );
+      const failedDeployment = await ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "failed",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      ctx.db.patch(audits[0]._id, {
+        phase: "failed",
+        deploymentId: failedDeployment,
+      });
+    });
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/old",
+      }),
+    ).toMatchObject({ kind: "page" });
+
+    // B verifies: the redirect opens up.
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/old",
+      }),
+    ).toMatchObject({ kind: "redirect", to: "/new" });
+  });
+
+  it("metadata edits for B do not appear publicly until B verifies (fourth follow-up 2)", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+
+    // A: prepare + verify.
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const before = await t.run((ctx) => ctx.db.get(pageId));
+    expect(before?.title).toBe("Home");
+
+    // Metadata edit for B: new title + SEO.
+    await tenant.as.mutation(api.cms.updatePage, {
+      id: pageId,
+      title: "B title",
+      seo: {
+        title: "B SEO title",
+        metaDescription: "B description",
+      },
+    });
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    const expectAMetadata = async () => {
+      const cms = await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/",
+      });
+      expect(cms?.page.title).toBe("Home");
+      const sf = await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/",
+      });
+      expect(sf.kind).toBe("page");
+      if (sf.kind === "page") {
+        expect(sf.page.title).toBe("Home");
+        expect(sf.page.seo).toEqual(before!.seo ?? null);
+      }
+    };
+
+    // B merely prepared: A's title/SEO still serve publicly.
+    await expectAMetadata();
+
+    // B's deployment fails: still A's metadata.
+    await t.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect();
+      audits.sort(
+        (a, b) =>
+          b.createdAt - a.createdAt || b._creationTime - a._creationTime,
+      );
+      const failedDeployment = await ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "failed",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      ctx.db.patch(audits[0]._id, {
+        phase: "failed",
+        deploymentId: failedDeployment,
+      });
+    });
+    await expectAMetadata();
+
+    // B verifies: the new metadata appears.
+    await verifyNewestAudit(t, projectId, buildId, siteId);
+    const cms = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(cms?.page.title).toBe("B title");
+    const sf = await tenant.as.query(api.storefront.getPublishedPage, {
+      projectId,
+      path: "/",
+    });
+    expect(sf.kind).toBe("page");
+    if (sf.kind === "page") {
+      expect(sf.page.seo?.title).toBe("B SEO title");
+    }
   });
 });

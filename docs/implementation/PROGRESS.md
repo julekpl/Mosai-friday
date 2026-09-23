@@ -480,3 +480,24 @@ Schema change additive/optional — no migration. Gates: unit **331/331**
 (17/17 BP-03), codegen/tsc/lint/audits exit 0; `check` exit 1 only at the
 pre-existing secret-scan finding (B3). e2e/a11y not re-run locally; CI for
 commits autosaved after `d3434a64` unknown (B2), not assumed.
+
+**BP-03 fourth review follow-up (same chat, 23 Sep 2026, GitHub main
+`61f0605`, CI run 35878361142: application/e2e/a11y passed; BOTH SECURITY
+JOBS STILL FAILED — never called green; release gate stays BLOCKED).** Two
+snapshot gaps fixed red-first: (1) storefront's live-redirect fallback
+keyed on `redirectsByPath.size === 0`, which an intentionally empty new
+snapshot also matches — a non-homepage slug move's auto-301 leaked before
+B verified; fallback now keys on snapshot ABSENCE (`audit.redirects ===
+undefined`, pre-snapshot legacy audits only); regression: /old serves A
+(not the redirect) before verification and after B's failure, redirect
+resolves after B verifies. (2) both public readers served mutable
+page title/SEO and checked mutable page.status; the route snapshot now
+carries metadata frozen at preparation (`routes[].title/seo`) and both
+readers serve it with no live-status check; regression: A metadata serves
+across B prepare/fail, B metadata appears only after verification. One
+existing test reordered (redirect inserted before B's preparation, as the
+snapshot semantics require) — not weakened. Schema additive/optional. Gates:
+unit **333/333** (19/19 BP-03), codegen/tsc/lint/audits exit 0; `check`
+exit 1 only at the pre-existing secret-scan finding (B3). e2e/a11y not
+re-run locally; CI after `61f0605` unknown (B2), not assumed. BP-02
+untouched; no BP-13 adapter or real publish.

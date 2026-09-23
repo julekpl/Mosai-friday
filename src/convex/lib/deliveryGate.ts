@@ -37,8 +37,11 @@ export type DeliveryGate =
       audit: Doc<"buildReleaseAudits">;
       /** revision ids this release pinned, by page */
       pinnedByPage: Map<Id<"cmsPages">, Id<"pageRevisions">>;
-      /** the release's route snapshot: fullPath → pinned revision id */
-      routesByPath: Map<string, Id<"pageRevisions">>;
+      /** the release's route snapshot: fullPath → pinned revision + frozen metadata */
+      routesByPath: Map<
+        string,
+        { revisionId: Id<"pageRevisions">; title: string; seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string } }
+      >;
       /** the release's redirect snapshot: fromPath → {to, statusCode} */
       redirectsByPath: Map<
         string,
@@ -87,9 +90,16 @@ export async function selectConfirmedRelease(
       // Route/redirect snapshots (present on audits written after the
       // third BP-03 review follow-up; older audits fall back to resolving
       // through the page pins so a legacy confirmed release still serves).
-      const routesByPath = new Map<string, Id<"pageRevisions">>();
+      const routesByPath = new Map<
+        string,
+        { revisionId: Id<"pageRevisions">; title: string; seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string } }
+      >();
       for (const r of audit.routes ?? []) {
-        routesByPath.set(r.fullPath, r.revisionId);
+        routesByPath.set(r.fullPath, {
+          revisionId: r.revisionId,
+          title: r.title,
+          seo: r.seo,
+        });
       }
       const redirectsByPath = new Map<
         string,

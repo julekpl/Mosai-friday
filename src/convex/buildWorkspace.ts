@@ -395,10 +395,17 @@ export const publishSite = moduleMutation("build", {
       siteId: site._id,
       phase: "release_prepared",
       revisionIds: promotedRevisionIds,
-      routes: promotedRevisionIds.map((revisionId, i) => ({
-        fullPath: pages.find((p) => p._id === promotedPageIds[i])!.fullPath,
-        revisionId,
-      })),
+      routes: promotedRevisionIds.map((revisionId, i) => {
+        const page = pages.find((p) => p._id === promotedPageIds[i])!;
+        return {
+          fullPath: page.fullPath,
+          revisionId,
+          // metadata frozen at preparation — the confirmed release serves
+          // its own title/SEO, not a later unverified edit (follow-up 4)
+          title: page.title,
+          seo: page.seo,
+        };
+      }),
       redirects: (
         await ctx.db
           .query("cmsRedirects")
