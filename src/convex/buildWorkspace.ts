@@ -1,5 +1,4 @@
 import { moduleMutation, moduleQuery } from "./guards";
-import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { validateDocument, type PageDocument } from "../lib/cms/blocks";
@@ -65,6 +64,101 @@ export const getPreviewData = moduleQuery("build", {
         seoReady: build.seoReady ?? null,
         wcagReady: build.wcagReady ?? null,
       },
+    };
+  },
+});
+
+/**
+ * Site delivery view (BP-03): what the workspace UI shows as the *external*
+ * state of the site. No client input can influence this — it is derived
+ * entirely from server-written rows.
+ *
+ * - `deployment` is null until BP-13's deployment adapter writes a
+ *   `buildDeployments` row; a site has no public URL before that, whatever
+ *   the build says.
+ * - `delivery.label` follows src/shared/contracts/status.ts: `release_prepared`
+ *   after an accepted preparation, `deployment_missing` before one, and
+ *   `requires_verification` for a legacy pre-BP-03 `published` build — never
+ *   a green `verified` claim without a stored receipt.
+ */
+export const getSiteDelivery = moduleQuery("build", {
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }, access) => {
+    // Throws for a caller outside the project — the delivery view is never
+    // readable across tenants.
+    await access.requireProject(projectId);
+
+    const site = await ctx.db
+      .query("sites")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .first();
+
+    const build = site
+      ? (
+          await ctx.db
+            .query("builds")
+            .withIndex("by_project", (q) => q.eq("projectId", projectId))
+            .collect()
+        ).find((b) => b.kind === "website") ?? null
+      : null;
+
+    // Latest server-written audit for the build, if any.
+    const audit = build
+      ?
+        (
+          await ctx.db
+            .query("buildReleaseAudits")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .collect()
+        ).sort((a, b) => b.createdAt - a.createdAt)[0] ?? null
+      : null;
+
+    // No `buildDeployments` writer exists before BP-13: deployment is always
+    // null here. Keep the query shape ready so the adapter slots in.
+    const deployment = null;
+
+    const legacy = build?.status === "published";
+    let delivery: {
+      label: string;
+      verified: boolean;
+      receiptId?: string;
+      reason?: string;
+      legacy?: boolean;
+    };
+    if (!build || !site) {
+      delivery = {
+        label: "deployment_missing",
+        verified: false,
+        reason: "No site has been generated for this project yet.",
+      };
+    } else if (legacy) {
+      delivery = {
+        label: "requires_verification",
+        verified: false,
+        legacy: true,
+        reason:
+          "This site was marked published before external verification existed. No receipt is on record — the release must be re-verified.",
+      };
+    } else if (audit?.phase === "release_prepared" && deployment === null) {
+      delivery = {
+        label: "release_prepared",
+        verified: false,
+        reason:
+          "A release was prepared from the current drafts. It is not live: the deployment pipeline does not exist yet (BP-13).",
+      };
+    } else {
+      delivery = {
+        label: "deployment_missing",
+        verified: false,
+        reason: "No release has been prepared for this site yet.",
+      };
+    }
+
+    return {
+      site: site ? { _id: site._id, name: site.name } : null,
+      deployment,
+      delivery,
+      lastReleaseAt: build?.lastReleaseAt ?? null,
     };
   },
 });

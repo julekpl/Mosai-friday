@@ -133,6 +133,8 @@ export function receiptTone(label: string): ReceiptTone {
     case "requires_verification":
     case "deployment_missing":
     // legacy values are readable but never verified by classification alone
+    // (intentional grouping — every case below returns the same value)
+    // eslint-disable-next-line no-fallthrough
     case "published":
     case "live":
     case "sent":

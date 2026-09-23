@@ -287,6 +287,34 @@ const fixtures: Fixture[] = [
     }),
   },
   {
+    // BP-03: server-written release-preparation audit trail. No client
+    // writer exists — the fixture only proves project deletion clears it.
+    table: "buildReleaseAudits",
+    doc: (s) => ({
+      projectId: s.projectId,
+      buildId: s.ids.builds,
+      siteId: s.ids.sites,
+      phase: "release_prepared",
+      revisionIds: [],
+      skipped: [],
+      ruleVersion: 1,
+      createdAt: at,
+    }),
+  },
+  {
+    // BP-13 placeholder table (receipt chain home). No code writes it yet;
+    // the fixture only proves project deletion clears it.
+    table: "buildDeployments",
+    doc: (s) => ({
+      projectId: s.projectId,
+      buildId: s.ids.builds,
+      siteId: s.ids.sites,
+      state: "queued",
+      createdAt: at,
+      updatedAt: at,
+    }),
+  },
+  {
     table: "projectFiles",
     doc: (s) => ({
       projectId: s.projectId,

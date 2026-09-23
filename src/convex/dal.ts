@@ -86,6 +86,10 @@ const PROJECT_TABLES = [
   "cmsAssets",
   "sites",
   "journeyMaps",
+  // BP-03: server-written release-preparation audit trail (both tables have
+  // a by_project index). No client writer exists for either.
+  "buildReleaseAudits",
+  "buildDeployments",
 ] as const;
 
 /**

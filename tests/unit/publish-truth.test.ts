@@ -118,6 +118,9 @@ describe("A client cannot manufacture external success", () => {
     });
 
     // The client must not be able to claim publication or certification…
+    // (BP-03 removes these inputs from the public API entirely, so the
+    // validator rejects them; the property under test is that the call is
+    // refused AND nothing is written, not the validator's wording.)
     await expect(
       tenant.as.mutation(api.builds.update, {
         id: buildId,
@@ -132,7 +135,7 @@ describe("A client cannot manufacture external success", () => {
         // @ts-expect-error — SEO/WCAG booleans are no longer client-writable
         seoReady: true,
       }),
-    ).rejects.toThrow(/compliance|readiness|external state/i);
+    ).rejects.toThrow();
 
     await expect(
       tenant.as.mutation(api.builds.update, {
@@ -140,7 +143,7 @@ describe("A client cannot manufacture external success", () => {
         // @ts-expect-error — WCAG booleans are no longer client-writable
         wcagReady: true,
       }),
-    ).rejects.toThrow(/compliance|readiness|external state/i);
+    ).rejects.toThrow();
 
     // …and nothing was written.
     const row = await t.run((ctx) => ctx.db.get(buildId));

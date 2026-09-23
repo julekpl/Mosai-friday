@@ -1,7 +1,7 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { READINESS_RULE_VERSION } from "../shared/contracts/status";
+import { READINESS_RULE_VERSION, contentFingerprint } from "../shared/contracts/status";
 
 const blueprintStep = v.object({
   step: v.string(),
@@ -219,14 +219,23 @@ export const getReadiness = moduleQuery("build", {
         ? await ctx.db.get(page.latestDraftRevisionId)
         : null;
       let verified = false;
-      if (
-        latest &&
-        draft &&
-        latest.ruleVersion === READINESS_RULE_VERSION &&
-        latest.revisionIds.includes(draft._id) &&
-        latest.revisionVersions?.includes(draft.version)
-      ) {
-        verified = true;
+      // BP-03: the audit pins the *content* of the promoted revisions. A
+      // page counts as verified while its current draft content equals an
+      // audited revision's content; an in-place edit of the draft changes
+      // the fingerprint and invalidates the claim (key-order-insensitive
+      // comparison via contentFingerprint, shared with the audit writer).
+      if (latest && draft && latest.ruleVersion === READINESS_RULE_VERSION) {
+        for (const rid of latest.revisionIds) {
+          const audited = await ctx.db.get(rid);
+          if (
+            audited &&
+            contentFingerprint(audited.document) ===
+              contentFingerprint(draft.document)
+          ) {
+            verified = true;
+            break;
+          }
+        }
       }
       pageViews.push({
         pageId: page._id,

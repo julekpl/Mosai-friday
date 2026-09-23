@@ -545,7 +545,10 @@ export function BuildWorkspace({
             {build.name}
           </p>
           {preview.release.releaseState === "verified" ? (
-            <ReceiptBadge state="verified" href="#" /> // href lands with BP-13
+            /* BP-03: no deployment receipt can exist until BP-13, so a
+             * legacy "verified" value is shown honestly as unverified —
+             * never as a green badge without a real receipt. */
+            <ReceiptBadge label="requires_verification" detail="no receipt on record" />
           ) : preview.release.releaseState === "prepared" ? (
             <Badge
               variant="outline"
@@ -553,6 +556,11 @@ export function BuildWorkspace({
             >
               <Globe className="mr-1 size-3" /> release prepared — not yet live
             </Badge>
+          ) : preview.release.releaseState === "failed" ? (
+            <ReceiptBadge
+              label="deployment_missing"
+              detail="last confirmed release intact"
+            />
           ) : (
             <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
               draft

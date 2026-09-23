@@ -372,3 +372,39 @@ truthful labels are allowed before BP-13's deployment exists (§5 BP-03),
 mutations must never write `live`/`published`/`paid`/`sent` (rule 5),
 planned test file `tests/unit/publish-truth.test.ts` (§6); keep BP-04's
 receipt/`needs_reconnect` semantics intact and stop at the BP-03 boundary.
+
+**BP-03 — done (implemented_unverified), 23 September 2026.**
+Report: `docs/implementation/reports/BP-03-publish-truth.md`. Wrote the
+10-test regression suite first against the unfixed tree (red-first record in
+the suite header); then fixed: `builds.update` no longer accepts external
+`status`/`seoReady`/`wcagReady` (validator-removed, nothing written);
+`publishSite` validates-before-mutates, promotes drafts canonically, writes
+the server-only `buildReleaseAudits` audit pinned to revision ids +
+`READINESS_RULE_VERSION`, records `releaseState: "prepared"` — and never
+writes `sites.status="live"`/`builds.status="published"` (no deployment
+exists before BP-13); new `builds.getReadiness` derives readiness via
+`contentFingerprint` pin equality (content edit ⇒ `content_changed`); new
+`buildWorkspace.getSiteDelivery` (deployment `null`, honest labels,
+`requireProject` guard); campaigns stamp `trackingSource: "local"`, refuse
+client lifecycle writes on provider rows, expose `getDelivery`; new
+`src/shared/contracts/status.ts` (phase vocabulary, tone classifier,
+`contentFingerprint`) and `src/components/app/ReceiptBadge.tsx` (verified
+without a receipt demoted at render; verified anchor opens the real stored
+receipt); removed the fake `state="verified" href="#"` badge in
+`BuildWorkspace.tsx` (legacy verified now shows `requires_verification`,
+failed shows "last confirmed release intact"). Legacy pre-BP-03 rows stay
+readable as `requires_verification` with no invented receipt.
+`buildReleaseAudits` + `buildDeployments` registered in
+`cascadeDeleteProject`'s `PROJECT_TABLES` with deletion fixtures (fixture
+regression failed first). BP-04's receipts/reconnect/lease-version/redaction
+preserved untouched; no BP-13 work (no adapter, no `buildDeployments`
+writer, no public URL). Gates: unit **324/324**, tsc/lint/codegen/
+audit:functions/audit:capabilities exit 0; `bun run check` exit 1 **kept
+red** at the same pre-existing secret-scan finding (B3, never weakened);
+e2e/a11y not re-run here (badge-swap-only UI change) — recorded, not
+assumed. **Main-branch workflow exception (owner-approved for BP-03 only):**
+Vly autosave on main — no manual commit/push/PR/deploy; the one-ticket/
+one-branch/one-PR process was NOT followed and is not claimed; the exception
+does not carry to BP-02 and waives no gate. CI for the autosaved tree
+unknown (B2). BP-01/BP-04 stay `implemented_unverified`; release gate stays
+BLOCKED (B3).
