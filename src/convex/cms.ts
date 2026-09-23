@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
 import { sanitizeDocument, validateDocument } from "../lib/cms/blocks";
+import { hasVerifiedDeployment } from "./lib/deliveryGate";
 
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
  *
@@ -173,15 +174,21 @@ export const getPage = moduleQuery("build", {
 
 /**
  * The one public read path (§158): approved revision only, never draft.
- * BP-03: serving is gated on the page's approved revision and the site not
- * being suspended — never on an externally published site status, which only
- * a verified BP-13 deployment receipt may write.
+ * BP-03: approved content alone is NOT externally delivered — serving is
+ * gated on a server-verified deployment receipt (audit phase `verified` +
+ * deployment `succeeded`, both written exclusively by server code with the
+ * provider receipt). Until BP-13's verifier exists nothing is served after
+ * a mere preparation; owner preview is unaffected (the workspace reads
+ * drafts directly). A failed later deployment supersedes the gate, so the
+ * last *confirmed* release is what keeps serving.
  */
 export const getPublishedByPath = query({
   args: { siteId: v.id("sites"), fullPath: v.string() },
   handler: async (ctx, { siteId, fullPath }) => {
     const site = await ctx.db.get(siteId);
     if (!site || site.status === "suspended") return null;
+    const gate = await hasVerifiedDeployment(ctx, site.projectId);
+    if (!gate.allowed) return null;
     const page = await ctx.db
       .query("cmsPages")
       .withIndex("by_site_path", (q) =>

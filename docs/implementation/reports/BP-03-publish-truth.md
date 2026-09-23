@@ -191,9 +191,67 @@ started.
 7. `bun run scan:secrets` — still failing at the pre-existing `.env.keys`
    finding only (unchanged, tracked, owner action).
 
+---
+
+## Review follow-up (same chat, 23 September 2026 — GitHub main `be1ade5a`, CI run 35866805693)
+
+The GitHub review of BP-03 at `be1ade5a` found two correctness gaps. Both
+fixes below ship with **red-first regressions** (each new test was run and
+failed against the unfixed tree before the fix; the record is in the suite
+header of `tests/unit/publish-truth.test.ts`).
+
+1. **`publishSite` was skip-and-promote, not all-or-nothing.** It claimed to
+   validate every page before mutation, but an invalid or empty page was
+   skipped while the valid pages were still promoted — a partial release.
+   The blueprint has **no partial-release clause**; its BP-03 Changes
+   section says "Continue serving the last confirmed public release when a
+   new publish fails", which implies a failed preparation must not ship a
+   half-revised site. Preparation is now all-or-nothing: any invalid or
+   empty page throws with a per-page problem list and the transaction
+   aborts before promotion (nothing changes). Regression: a valid+invalid
+   mix fails the whole preparation with the prior audit intact and the
+   broken page never promoted; an empty page in the mix also fails with
+   zero audits written.
+2. **Public read paths served prepared content before any deployment.**
+   `cms.getPublishedByPath` (unauthenticated public query) and
+   `storefront.getPublishedPage` returned approved pages as soon as a
+   preparation promoted them — before BP-13. Both are now gated by
+   `src/convex/lib/deliveryGate.ts` (`hasVerifiedDeployment`): external
+   serving requires the receipt chain — newest `buildReleaseAudits` row in
+   phase `verified` whose `deploymentId` points at a `buildDeployments` row
+   in state `succeeded`. Both rows are server-written only (no client-
+   callable writer exists), so a preparation alone can never open external
+   delivery, and a later failed/canceled deployment supersedes an older
+   verified one — the last *confirmed* release is what keeps serving.
+   Owner preview is preserved: the workspace renders drafts directly via
+   `buildWorkspace.getPreviewData` and `builds.getReadiness`, neither of
+   which uses the gate. Regressions: both public paths serve nothing after
+   preparation alone, then serve the prepared document after a simulated
+   server-written verified deployment (the exact shape BP-13's verifier
+   will produce — no BP-13 implementation was added).
+3. **Honest `publishSite` return and wording.** The return value no longer
+   says `published`; it is `{ prepared: number }`, and the workspace toast
+   says "Release prepared … Saved as a prepared release — not live yet.
+   Deployment to a public URL arrives with hosting setup." (the old copy
+   counted "pages approved" and implied saved-published equivalence).
+
+**Follow-up verification:** unit **328/328** (14/14 BP-03 suite), tsc, lint
+(0 errors), codegen, `audit:functions` and `audit:capabilities` all exit 0
+(`lib/deliveryGate` registered as an internal file in the capability
+registry; the audit-gate test failed first on the unregistered file). `bun
+run check` still exits 1 **only** at the pre-existing `.env.keys`
+secret-scan finding (B3, untouched). e2e/a11y were not re-run locally; CI
+run 35866805693 at `be1ade5a` had passed them, and the follow-up commits
+are autosaved after that run — **their CI status is unknown and must not be
+assumed**. Release gate remains BLOCKED (B3). BP-13 is still not
+implemented: no adapter, no deployment writer, no public URL; the verified
+deployments in the tests are hand-written test fixtures proving the gate
+opens only on the receipt chain.
+
 ## Proof
 
-- `tests/unit/publish-truth.test.ts` — the five acceptance classes:
+- `tests/unit/publish-truth.test.ts` — the five acceptance classes plus the
+  review-follow-up suite:
   1. direct client call cannot manufacture `published`/compliance (and
      writes nothing);
   2. failed preparation preserves the previously served release (and a
@@ -202,6 +260,11 @@ started.
   4. unverified legacy records stay readable, labelled
      `requires_verification`, with no invented receipt;
   5. `ReceiptBadge` never fakes green and a verified badge requires a real
-     stored receipt.
+     stored receipt;
+  6. valid+invalid and empty-page mixes fail the whole preparation
+     (all-or-nothing, red-first);
+  7. `cms.getPublishedByPath` and `storefront.getPublishedPage` serve
+     nothing before a verified deployment receipt and content after one
+     (red-first; gate = `lib/deliveryGate.ts`).
 - Red-first record in the suite header; deletion-fixture regressions in
   `tests/unit/deletion-completeness.test.ts`.

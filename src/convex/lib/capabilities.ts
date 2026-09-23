@@ -510,6 +510,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "sell/feed": "internal",
   "sell/readiness": "internal",
   "lib/dataRegistry": "internal",
+  "lib/deliveryGate": "internal",
   "lib/roles": "internal",
   "lib/safeFetch": "internal",
   "lib/capabilities": "internal",

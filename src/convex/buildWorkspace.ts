@@ -266,8 +266,9 @@ export const restoreVersion = moduleMutation("build", {
  * Before BP-03 this mutation wrote `sites.status = "live"` and
  * `builds.status = "published"` after database edits — a false external
  * claim, since no deployment exists in this package. It now:
- *   1. validates every draft (invalid content fails the whole preparation,
- *      leaving the previously prepared release intact),
+ *   1. validates every draft ALL-OR-NOTHING (one invalid or empty page
+ *      fails the whole preparation, leaving the previously prepared
+ *      release intact — the blueprint has no partial-release clause),
  *   2. promotes drafts to the approved revision state (prior pointer
  *      superseded) so the page-level contract is unchanged,
  *   3. writes the `buildReleaseAudits` row pinned to the promoted revision
@@ -304,27 +305,33 @@ export const publishSite = moduleMutation("build", {
 
     const now = Date.now();
     // Pass 1 — validate everything BEFORE mutating anything (§4.2 protocol
-    // step 1/2: validate first; a failure here leaves the previously
-    // prepared release fully intact).
+    // step 1/2). BP-03 review follow-up: preparation is ALL-OR-NOTHING. The
+    // blueprint has no partial-release clause — on the contrary, "continue
+    // serving the last confirmed public release when a new publish fails"
+    // (BP-03 Changes) — so an invalid or empty page fails the whole
+    // preparation with a per-page reason list, and nothing is promoted.
     const promotable: {
       pageId: Id<"cmsPages">;
       projectId: Id<"projects">;
       doc: PageDocument;
       title: string;
     }[] = [];
-    const skipped: { title: string; reason: string }[] = [];
+    const problems: { title: string; reason: string }[] = [];
     for (const page of pages) {
       const draft = page.latestDraftRevisionId
         ? await ctx.db.get(page.latestDraftRevisionId)
         : null;
       const doc = draft?.document;
       if (!doc || doc.blocks.length === 0) {
-        skipped.push({ title: page.title, reason: "empty" });
+        problems.push({ title: page.title, reason: "empty draft" });
         continue;
       }
       const errors = validateDocument(doc);
       if (errors.length) {
-        skipped.push({ title: page.title, reason: "invalid content" });
+        problems.push({
+          title: page.title,
+          reason: `invalid content: ${errors.join("; ")}`,
+        });
         continue;
       }
       promotable.push({
@@ -334,13 +341,11 @@ export const publishSite = moduleMutation("build", {
         title: page.title,
       });
     }
-    if (promotable.length === 0) {
+    if (problems.length > 0 || promotable.length === 0) {
       throw new Error(
-        skipped.length
-          ? `Nothing to release — all pages failed checks: ${skipped
-              .map((s) => `${s.title} (${s.reason})`)
-              .join(", ")}.`
-          : "Nothing to release.",
+        `Release preparation failed — every page must be valid. Problems: ${problems
+          .map((s) => `${s.title} (${s.reason})`)
+          .join(", ") || "no pages to prepare"}. Nothing was changed.`,
       );
     }
 
@@ -387,7 +392,7 @@ export const publishSite = moduleMutation("build", {
       siteId: site._id,
       phase: "release_prepared",
       revisionIds: promotedRevisionIds,
-      skipped,
+      skipped: [], // all-or-nothing: an accepted preparation has no skips
       revisionVersions: promotedVersions,
       ruleVersion: READINESS_RULE_VERSION,
       pagesWithBlocking: [],
@@ -416,6 +421,8 @@ export const publishSite = moduleMutation("build", {
     const newest = versions.sort((a, b) => b.version - a.version)[0];
     if (newest) await ctx.db.patch(newest._id, { isPublished: true });
 
-    return { published: promotedRevisionIds.length, skipped };
+    // Honest return shape (BP-03): nothing here is "published" — the only
+    // external publication is BP-13's receipt-backed deployment.
+    return { prepared: promotedRevisionIds.length };
   },
 });

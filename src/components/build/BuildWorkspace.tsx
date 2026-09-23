@@ -472,23 +472,16 @@ export function BuildWorkspace({
     setPublishing(true);
     try {
       const res = await publish({ buildId: build._id });
-      if (res.published === 0) {
-        toast.warning("Nothing prepared", {
+      // Honest wording (BP-03): this prepared a release — it did not
+      // publish anything. A public URL arrives only with a verified
+      // deployment (BP-13).
+      toast.success(
+        `Release prepared — ${res.prepared} page${res.prepared === 1 ? "" : "s"} approved`,
+        {
           description:
-            res.skipped.length > 0
-              ? `Skipped: ${res.skipped.join(", ")}`
-              : "No pages had content.",
-        });
-      } else {
-        toast.success(
-          `Release prepared — ${res.published} page${res.published === 1 ? "" : "s"} approved`,
-          {
-            description: res.skipped.length
-              ? `Skipped: ${res.skipped.join(", ")}`
-              : "Your approved content is saved. Deployment to a public URL arrives with hosting setup.",
-          },
-        );
-      }
+            "Saved as a prepared release — not live yet. Deployment to a public URL arrives with hosting setup.",
+        },
+      );
     } catch (e) {
       toast.error("Release preparation failed", {
         description: e instanceof Error ? e.message : "Try again.",

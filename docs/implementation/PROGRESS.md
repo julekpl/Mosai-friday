@@ -408,3 +408,27 @@ one-branch/one-PR process was NOT followed and is not claimed; the exception
 does not carry to BP-02 and waives no gate. CI for the autosaved tree
 unknown (B2). BP-01/BP-04 stay `implemented_unverified`; release gate stays
 BLOCKED (B3).
+
+**BP-03 review follow-up (same chat, 23 Sep 2026, GitHub main `be1ade5a`,
+CI run 35866805693: exact-SHA CI passed unit/typecheck/lint/codegen/e2e/a11y;
+both security jobs failed on the known secret findings — release stays
+BLOCKED, and CI is not called green).** Two correctness gaps found by review,
+both fixed red-first: (1) `publishSite` was skip-and-promote — an
+invalid/empty page was skipped while valid pages were promoted, a partial
+release with no blueprint clause permitting it; preparation is now
+all-or-nothing with a per-page problem list (nothing mutates when any page
+fails), proven by valid+invalid-mix and empty-page regressions. (2)
+`cms.getPublishedByPath` and `storefront.getPublishedPage` served approved
+content before any deployment; both are gated by the new
+`src/convex/lib/deliveryGate.ts` — external serving requires the receipt
+chain (audit phase `verified` + deployment `succeeded`, server-written
+only), a later failed deployment supersedes an older verified one, owner
+preview preserved via `getPreviewData`/`getReadiness`; regressions prove
+both paths serve nothing after preparation alone and content after a
+simulated server-written verified deployment. `publishSite` return is now
+`{ prepared }` (no "published" wording) and the workspace toast says
+"prepared — not live yet". Gates after: unit **328/328** (14/14 BP-03),
+tsc/lint/codegen/audits exit 0; `check` still exit 1 only at the pre-
+existing secret-scan finding (B3). e2e/a11y not re-run locally; CI for the
+post-`be1ade5a` autosaved commits is unknown (B2) and not assumed. BP-13
+still not implemented. BP-03 main-branch exception does NOT carry to BP-02.

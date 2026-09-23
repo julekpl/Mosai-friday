@@ -211,35 +211,24 @@ describe("Failed preparation preserves the previous confirmed release", () => {
     });
     const { buildId, pageId } = await seedSite(t, tenant, projectId);
 
-    // First preparation succeeds and the prepared release is served.
+    // First preparation succeeds (this is the release that must survive).
     const first = await tenant.as.mutation(api.buildWorkspace.publishSite, {
       buildId,
     });
-    expect(first.published).toBe(1);
-
-    // The page draft is edited (content change)…
+    expect(first.prepared).toBe(1);
     const before = await t.run((ctx) => ctx.db.get(pageId));
-    const servedBefore = await tenant.as.query(api.cms.getPublishedByPath, {
-      siteId: before!.siteId,
-      fullPath: "/",
-    });
-    expect(servedBefore?.revision.document).toEqual(DOC);
 
     // …then the content becomes invalid under it.
-    await t.run((ctx) => {
-      const draft = ctx.db.get(before!.latestDraftRevisionId!);
-      return draft.then((d) =>
-        ctx.db.patch(before!.latestDraftRevisionId!, {
-          document: {
-            schemaVersion: 1,
-            blocks: [
-              // hero without its required heading — invalid content
-              { id: "blk_bad", type: "hero", version: 1, props: {} },
-            ],
-          },
-          ...(d ? {} : {}),
-        }),
-      );
+    await t.run(async (ctx) => {
+      return ctx.db.patch(before!.latestDraftRevisionId!, {
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            // hero without its required heading — invalid content
+            { id: "blk_bad", type: "hero", version: 1, props: {} },
+          ],
+        },
+      });
     });
 
     // The next preparation must fail loudly…
@@ -247,12 +236,19 @@ describe("Failed preparation preserves the previous confirmed release", () => {
       tenant.as.mutation(api.buildWorkspace.publishSite, { buildId }),
     ).rejects.toThrow();
 
-    // …and the previous confirmed release must still be the one served.
-    const servedAfter = await tenant.as.query(api.cms.getPublishedByPath, {
-      siteId: before!.siteId,
-      fullPath: "/",
-    });
-    expect(servedAfter?.revision.document).toEqual(DOC);
+    // …and the previous confirmed release is untouched: the promoted
+    // revision row from the first preparation still exists, still
+    // referenced by the page's published pointer (the public-serving gate
+    // itself is covered by the "External delivery" suite below).
+    const pageAfter = await t.run((ctx) => ctx.db.get(pageId));
+    expect(pageAfter?.publishedRevisionId).toBe(
+      before!.publishedRevisionId,
+    );
+    const servedRevision = await t.run((ctx) =>
+      ctx.db.get(before!.publishedRevisionId!),
+    );
+    expect(servedRevision?.state).toBe("published");
+    expect(servedRevision?.document).toEqual(DOC);
 
     // No second release was recorded.
     const releases = await t.run((ctx) =>
@@ -467,5 +463,244 @@ describe("Site delivery view", () => {
     await expect(
       intruder.as.query(api.buildWorkspace.getSiteDelivery, { projectId }),
     ).rejects.toThrow();
+  });
+});
+
+/* ── Review follow-up (chat 3, same day) — red-first regressions ───────────
+ *
+ * The GitHub review of BP-03 on main found two correctness gaps. Both tests
+ * below were written and shown failing BEFORE the fixes:
+ *
+ *  1. `publishSite` skipped invalid/empty pages while still promoting the
+ *     valid ones — a partial release, which the blueprint forbids:
+ *     "Continue serving the last confirmed public release when a new publish
+ *     fails" (BP-03 Changes) implies a failed preparation must not ship a
+ *     half-revised site. There is NO partial-release clause in the
+ *     blueprint; preparation is therefore all-or-nothing.
+ *  2. `cms.getPublishedByPath` (unauthenticated public query) and
+ *     `storefront.getPublishedPage` served approved content as soon as a
+ *     preparation promoted it — before any BP-13 deployment exists. External
+ *     delivery must be gated on a server-verified deployment receipt;
+ *     prepared content is preview-only until then.
+ */
+
+describe("Preparation is all-or-nothing (review follow-up 1)", () => {
+  /** Create a second page and return the page row via a direct read. */
+  async function addPage(
+    t: TestBackend,
+    tenant: Tenant,
+    projectId: string,
+    slug: string,
+  ) {
+    const site = await t.run(async (ctx) =>
+      ctx.db
+        .query("sites")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .first(),
+    );
+    await tenant.as.mutation(api.cms.createPage, {
+      siteId: site!._id,
+      title: slug,
+      slug,
+      // `seedSite` already created the homepage at "/" — this helper adds
+      // a distinct child page under it.
+      parentId: (
+        await t.run(async (ctx) =>
+          ctx.db
+            .query("cmsPages")
+            .withIndex("by_site_path", (q) =>
+              q.eq("siteId", site!._id).eq("fullPath", "/"),
+            )
+            .first(),
+        )
+      )!._id,
+    });
+    return await t.run(async (ctx) =>
+      ctx.db
+        .query("cmsPages")
+        .withIndex("by_site_path", (q) =>
+          q.eq("siteId", site!._id).eq("fullPath", `/${slug}`),
+        )
+        .first(),
+    );
+  }
+
+  it("a valid+invalid page mix fails the whole preparation and preserves the prior release", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId } = await seedSite(t, tenant, projectId);
+
+    // First preparation succeeds while every page is valid — this is the
+    // prior release that must survive the later failed attempt.
+    const first = await tenant.as.mutation(api.buildWorkspace.publishSite, {
+      buildId,
+    });
+    expect(first.prepared).toBe(1);
+
+    // A second page whose draft is invalid (hero without its required
+    // heading) — the mix that exposed the partial-release defect.
+    const brokenPage = await addPage(t, tenant, projectId, "broken");
+    await t.run((ctx) =>
+      ctx.db.patch(brokenPage!.latestDraftRevisionId!, {
+        document: {
+          schemaVersion: 1,
+          blocks: [{ id: "blk_bad", type: "hero", version: 1, props: {} }],
+        },
+      }),
+    );
+
+    // The mixed preparation must fail LOUDLY — not skip-and-promote.
+    await expect(
+      tenant.as.mutation(api.buildWorkspace.publishSite, { buildId }),
+    ).rejects.toThrow(/invalid|failed checks/i);
+
+    // Nothing from the failed attempt was promoted: no second audit exists.
+    const releases = await t.run((ctx) =>
+      ctx.db.query("buildReleaseAudits").collect(),
+    );
+    expect(releases).toHaveLength(1);
+    const brokenAfter = await t.run((ctx) => ctx.db.get(brokenPage!._id));
+    // The broken page never gained a published pointer or status.
+    expect(brokenAfter?.publishedRevisionId).toBeUndefined();
+    expect(brokenAfter?.status).toBe("draft");
+  });
+
+  it("an empty-draft page in the mix also fails the whole preparation", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId } = await seedSite(t, tenant, projectId);
+
+    // A page created but never drafted — its draft document is empty.
+    await addPage(t, tenant, projectId, "empty");
+
+    await expect(
+      tenant.as.mutation(api.buildWorkspace.publishSite, { buildId }),
+    ).rejects.toThrow(/empty|failed checks/i);
+
+    // The valid page was NOT promoted either — all-or-nothing.
+    const audits = await t.run((ctx) =>
+      ctx.db.query("buildReleaseAudits").collect(),
+    );
+    expect(audits).toHaveLength(0);
+  });
+});
+
+describe("External delivery is gated on a verified deployment receipt (review follow-up 2)", () => {
+  it("cms.getPublishedByPath serves nothing after preparation alone and the prior release after a failed one", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+
+    // Before any preparation: nothing is served.
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/",
+      }),
+    ).toBeNull();
+
+    // After a successful preparation there IS an approved revision — but no
+    // verified deployment. The public path must still serve nothing.
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, {
+        siteId,
+        fullPath: "/",
+      }),
+    ).toBeNull();
+
+    // Owner preview is preserved: the readiness view still describes the
+    // prepared content (the workspace renders drafts directly, so preview
+    // does not depend on the public path).
+    const ready = await tenant.as.query(api.builds.getReadiness, {
+      id: buildId,
+    });
+    expect(ready?.delivery.label).toBe("release_prepared");
+    expect(ready?.pages[0]?.fullPath).toBe("/");
+
+    // Simulate BP-13's verified deployment receipt (server-written row, the
+    // exact shape BP-13's verifier will produce). Only now is it served.
+    const now = Date.now();
+    const deploymentId = await t.run((ctx) =>
+      ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "succeeded",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const audit = (await t.run((ctx) =>
+      ctx.db.query("buildReleaseAudits").collect(),
+    ))[0];
+    await t.run((ctx) =>
+      ctx.db.patch(audit._id, { phase: "verified", deploymentId }),
+    );
+    const served = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(served?.revision.document).toEqual(DOC);
+
+    // The prepared page row is the one served.
+    const page = await t.run((ctx) => ctx.db.get(pageId));
+    expect(served?.page._id).toBe(page?._id);
+  });
+
+  it("storefront.getPublishedPage serves nothing before a verified deployment and content after", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, {
+      name: "p",
+    });
+    const { buildId, siteId } = await seedSite(t, tenant, projectId);
+
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    // Prepared but not deployed: not found externally.
+    expect(
+      await tenant.as.query(api.storefront.getPublishedPage, {
+        projectId,
+        path: "/",
+      }),
+    ).toMatchObject({ kind: "not_found" });
+
+    // Verify the deployment (server-written receipt, as BP-13 will).
+    const now = Date.now();
+    const deploymentId = await t.run((ctx) =>
+      ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "succeeded",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const audit = (await t.run((ctx) =>
+      ctx.db.query("buildReleaseAudits").collect(),
+    ))[0];
+    await t.run((ctx) =>
+      ctx.db.patch(audit._id, { phase: "verified", deploymentId }),
+    );
+
+    const result = await tenant.as.query(api.storefront.getPublishedPage, {
+      projectId,
+      path: "/",
+    });
+    expect(result.kind).toBe("page");
+    if (result.kind === "page") {
+      expect(result.document).toEqual(DOC);
+    }
   });
 });

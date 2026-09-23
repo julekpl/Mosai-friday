@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { moduleQuery, type OrgAccess } from "./guards";
 import type { CapabilityKey } from "./lib/capabilities";
+import { hasVerifiedDeployment } from "./lib/deliveryGate";
 
 /* ── Storefront read model (svelte-commerce pattern) ──────────────────────
  *
@@ -305,6 +306,11 @@ export const getPublishedPage = moduleQuery("sell", {
         q.eq("siteId", site._id).eq("fullPath", clean),
       )
       .first();
+    // BP-03: approved content is not externally delivered until a verified
+    // deployment receipt exists (server-written; BP-13's verifier is the
+    // only writer). Prepared content stays preview-only.
+    const gate = await hasVerifiedDeployment(ctx, projectId);
+    if (!gate.allowed) return { kind: "not_found" as const };
     if (!page || page.status !== "published" || !page.publishedRevisionId) {
       return { kind: "not_found" as const };
     }

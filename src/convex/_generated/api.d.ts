@@ -49,6 +49,7 @@ import type * as lib_billingCatalog from "../lib/billingCatalog.js";
 import type * as lib_billingReconcile from "../lib/billingReconcile.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_dataRegistry from "../lib/dataRegistry.js";
+import type * as lib_deliveryGate from "../lib/deliveryGate.js";
 import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_safeFetch from "../lib/safeFetch.js";
@@ -127,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   "lib/billingReconcile": typeof lib_billingReconcile;
   "lib/capabilities": typeof lib_capabilities;
   "lib/dataRegistry": typeof lib_dataRegistry;
+  "lib/deliveryGate": typeof lib_deliveryGate;
   "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/roles": typeof lib_roles;
   "lib/safeFetch": typeof lib_safeFetch;
