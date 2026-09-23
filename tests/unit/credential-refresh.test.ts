@@ -428,3 +428,77 @@ describe("BP-04 — ads caller uses the refresh action", () => {
     expect(cred.refreshStatus).toBe("needs_reconnect");
   });
 });
+
+// ── Review follow-up (code commit e6f91b9, gap 2): a provider-supplied
+//    JSON `error` string must never reach a message, post or error. ───────
+describe("BP-04 review — adversarial provider error strings (gap 2, ads)", () => {
+  it("an adversarial provider error string never reaches the outcome message", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, {
+      plan: "starter",
+      email: "adversarial@example.com",
+    });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "R" });
+    const credId = await seedAdsCred(t, projectId, owner.userId, {
+      accessToken: "test-ads-access-expired",
+      refreshToken: "test-ads-refresh-old",
+      expiresAt: Date.now() - 60_000,
+    });
+
+    stubFetch((call) => {
+      if (call.url === GOOGLE_TOKEN_URL) {
+        return json(401, {
+          error: "EVIL-ADS-MARKER-c0ffee",
+          error_description: "EVIL-ADS-DESCRIPTION-c0ffee",
+        });
+      }
+      return null;
+    });
+
+    const out = (await t.action(internal.ads.credentialActions.refreshIfNeeded, {
+      credId: credId as never,
+    })) as { ok: boolean; reason?: string; message?: string };
+
+    expect(out.ok).toBe(false);
+    expect(out.message ?? "").toMatch(/HTTP 401/);
+    expect(out.message ?? "").not.toContain("EVIL-ADS-MARKER-c0ffee");
+    expect(out.message ?? "").not.toContain("EVIL-ADS-DESCRIPTION-c0ffee");
+
+    // The failed claim was released safely.
+    const cred = await readAdsCred(t, credId);
+    expect(cred.refreshLeaseId).toBeUndefined();
+    expect(cred.refreshLeaseUntil).toBeUndefined();
+  });
+
+  it("an allowlisted OAuth machine code is still reported verbatim", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, {
+      plan: "starter",
+      email: "allowlisted-code@example.com",
+    });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "R" });
+    const credId = await seedAdsCred(t, projectId, owner.userId, {
+      accessToken: "test-ads-access-expired",
+      refreshToken: "test-ads-refresh-old",
+      expiresAt: Date.now() - 60_000,
+    });
+
+    stubFetch((call) => {
+      if (call.url === GOOGLE_TOKEN_URL) {
+        return json(400, { error: "invalid_grant" });
+      }
+      return null;
+    });
+
+    const out = (await t.action(internal.ads.credentialActions.refreshIfNeeded, {
+      credId: credId as never,
+    })) as { ok: boolean; reason?: string; message?: string };
+
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe("reconnect");
+    expect(out.message ?? "").toContain("invalid_grant");
+    expect(out.message ?? "").toMatch(/HTTP 400/);
+    const cred = await readAdsCred(t, credId);
+    expect(cred.refreshStatus).toBe("needs_reconnect");
+  });
+});

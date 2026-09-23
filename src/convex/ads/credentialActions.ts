@@ -8,6 +8,16 @@ import {
 } from "./credentials";
 import { platformEnv, type Platform } from "./platforms";
 
+/** OAuth machine codes that may ever appear verbatim in a server message.
+ *  Any other provider-supplied JSON `error` string is discarded at the
+ *  message site (review gap 2) — only the HTTP status is reported. */
+const OAUTH_ERROR_ALLOWLIST: readonly string[] = [
+  "invalid_grant",
+  "invalid_token",
+  "expired_token",
+  "revoked_token",
+];
+
 /**
  * BP-04 — the only place an ads token refresh may talk to a provider.
  *
@@ -128,19 +138,23 @@ export const refreshIfNeeded = internalAction({
       } catch {
         // Not JSON — the body is never echoed.
       }
+      // Review gap 2: the allowlist check lives AT the message site, so a
+      // provider-supplied `error` string that is not one of these OAuth
+      // machine codes is discarded here and can never reach a message, post
+      // or error — only the HTTP status is reported instead.
+      const safeCode =
+        oauthError !== null && OAUTH_ERROR_ALLOWLIST.includes(oauthError)
+          ? oauthError
+          : null;
       const grantRejected =
-        oauthError !== null
-          ? ["invalid_grant", "invalid_token", "expired_token", "revoked_token"].includes(
-              oauthError,
-            )
-          : status === 400 || status === 401;
+        safeCode !== null || (oauthError === null && (status === 400 || status === 401));
       if (grantRejected) {
         await ctx.runMutation(internal.ads.credentials.markNeedsReconnect, { credId });
         return {
           ok: false,
           reason: "reconnect",
           message: `The ${cred.platform} credential was rejected (HTTP ${status}${
-            oauthError ? `, ${oauthError}` : ""
+            safeCode ? `, ${safeCode}` : ""
           }) — reconnect this platform.`,
         };
       }

@@ -61,7 +61,7 @@ its slice boundary — it never continues into the next package.
 |---|---|---|---|---|---|
 | 0 | save-and-organize (this chat) | — | — | — | complete |
 | 1 | **BP-01** repair baseline & status docs | A | T0.1/T0.8, T1.5/T1.8 | — | implemented_unverified (chat 1, 23 Sep 2026 — report: `docs/implementation/reports/BP-01-repair-baseline.md`; all local gates re-run green, plant/observe demonstrations done (broken auth, wrong CTA, synthetic secret), STATUS/T2.5/missing-docs reconciled; **two CI runs, both completed/FAILURE:** implementation commit `d3f6a8e09e301944789dc2c4487a831dc7698137` → run `35828575954`, documentation commit `dd9c1630ed084df2496ec3f1b7d9ac25ec30aaa6` (current local `.git/refs/heads/main`) → run `35830549968` — install/typecheck/lint/unit/codegen/e2e/a11y passed on both, **BOTH security jobs failed their secret-scan steps on both → release gate BLOCKED, CI not green**; full-history findings + rotation/untracking remain owner-run (B2/B3) — remediation checklist in the report; any new commit needs a fresh run, never assumed |
-| 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | implemented_unverified (chat 2, 23 Sep 2026 — report: `docs/implementation/reports/BP-04-social-credential-refresh.md`; all three defects fixed (doc-vs-ID handoff, fetch-in-mutation → internal actions with lease/version protocol, redacted failures + needs_reconnect + per-post batch isolation); regressions shown RED before the fix (10/10 failed), now 10/10 green; unit 305/305, lint/audits/codegen/e2e(15+1)/a11y(5) exit 0, `bun run check` exit 1 only at the pre-existing `scan:secrets` on tracked `.env.keys` — no new failure; **real-provider refresh proof pending (O7); release gate still BLOCKED (BP-01/B3); main-branch workflow exception recorded in the report** |
+| 2 | **BP-04** social credentials & token refresh | A | E3.5 defect fix | BP-01 (per §10 order; no hard code dep) | implemented_unverified (chat 2, 23 Sep 2026 — report: `docs/implementation/reports/BP-04-social-credential-refresh.md`; three defects fixed + **review follow-up on code `e6f91b9`/docs `f9510fc`**: Basic token exchange honored for LinkedIn/X (red-first: 2 tests failed `expected '' to be 'Basic …'` before the fix), provider `error` strings gated by an allowlist AT the message site in both credentialActions (adversarial marker tests pin posts/outcomes; green pre-fix via the old coupling — recorded honestly); tests 16/16 in the two files, unit **311/311**, lint(0 err)/audits/codegen/tsc/dev-check exit 0, e2e 15+1, a11y 5; `bun run check` exit 1 **kept red** at the pre-existing `scan:secrets` on tracked `.env.keys`; local ref `f9510fc`, **CI for `e6f91b9`/`f9510fc` unknown (B2), never assumed green**; real-provider proof pending (O7); release gate still BLOCKED (BP-01/B3); main-branch workflow exception recorded in the report) |
 | 3 | **BP-03** stop false publishing/readiness | A | T2.13 | BP-01; truthful labels allowed before BP-13 deployment exists (§5 BP-03) | not_started |
 | 4 | **BP-02** sign-in, recovery, privileged access | A | T0.8, T2.8 | BP-01; email-gateway sub-part owner-blocked until decision O2 | not_started |
 | 5 | **BP-05** export/deletion lifecycle | B | T2.5 | Order A; decisions already recorded (D2) | not_started |
@@ -341,6 +341,24 @@ commit/push/PR/deploy; the usual one-ticket/one-branch/one-PR process was NOT
 followed and is not claimed. Real-provider refresh proof pending (O7);
 BP-01 stays `implemented_unverified` and the release gate stays BLOCKED
 (B3).
+
+**Chat 2 review follow-up (same chat, 23 Sep 2026):** GitHub review of code
+commit `e6f91b9` / docs `f9510fc` found two gaps; both fixed with tests —
+(1) refresh now honors `tokenExchange: "basic"` for LinkedIn/X (Authorization
+header, credentials out of the form; form exchange preserved for the rest;
+red-first: LinkedIn/X request-shape tests failed with `expected '' to be
+'Basic …'` before the fix), (2) provider-supplied JSON `error` strings are
+gated by an explicit allowlist **at the message site** in both
+credentialActions (adversarial marker tests prove raw strings never reach
+posts/outcome messages; recorded honestly: those marker tests were green
+against pre-fix code because the old `grantRejected` coupling incidentally
+blocked the site). Round-2 gates: BP-04 suites 16/16, unit **311/311**,
+tsc/lint/audits/codegen/dev-check exit 0, e2e 15+1, a11y 5, `bun run check`
+exit 1 **kept red** at the pre-existing secret-scan finding. Status
+`in_progress` during the fixes → **`implemented_unverified`** after they
+passed; real-provider proof (O7) still pending; CI for `e6f91b9`/`f9510fc`
+unknown (B2) and never assumed. Details in the report's *Review follow-up*
+section.
 
 **Chat 3 = BP-03 — stop false publishing/readiness** (blueprint §10 order:
 BP-01 → BP-04 → BP-03, prepare BP-05; backlog T2.13). Entry checks: re-read

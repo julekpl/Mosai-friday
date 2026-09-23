@@ -8,6 +8,16 @@ import {
 } from "./credentials";
 import { socialPlatformEnv, type SocialPlatform } from "./platforms";
 
+/** OAuth machine codes that may ever appear verbatim in a server message.
+ *  Any other provider-supplied JSON `error` string is discarded at the
+ *  message site (review gap 2) — only the HTTP status is reported. */
+const OAUTH_ERROR_ALLOWLIST: readonly string[] = [
+  "invalid_grant",
+  "invalid_token",
+  "expired_token",
+  "revoked_token",
+];
+
 /**
  * BP-04 — the only place a social token refresh may talk to a provider.
  *
@@ -92,21 +102,27 @@ export const refreshIfNeeded = internalAction({
     }
 
     const observedVersion = claim.tokenVersion;
+    // Honor the platform's configured token exchange (platforms.ts): LinkedIn
+    // and X use HTTP Basic auth on the token endpoint — client credentials
+    // never ride in the form (same shape as oauth.exchangeSocialCode). The
+    // remaining platforms keep the form exchange.
+    const form = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: cred.refreshToken,
+    });
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    };
+    if (env.tokenExchange === "basic") {
+      headers.Authorization = `Basic ${btoa(`${env.clientId}:${env.clientSecret}`)}`;
+    } else {
+      form.set("client_id", env.clientId);
+      form.set("client_secret", env.clientSecret);
+    }
     let res: Response;
     try {
-      res = await fetch(env.tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: cred.refreshToken,
-          client_id: env.clientId,
-          client_secret: env.clientSecret,
-        }),
-      });
+      res = await fetch(env.tokenUrl, { method: "POST", headers, body: form });
     } catch {
       await ctx.runMutation(internal.social.credentials.releaseRefresh, {
         credId,
@@ -128,19 +144,23 @@ export const refreshIfNeeded = internalAction({
       } catch {
         // Not JSON — the body is never echoed.
       }
+      // Review gap 2: the allowlist check lives AT the message site, so a
+      // provider-supplied `error` string that is not one of these OAuth
+      // machine codes is discarded here and can never reach a message, post
+      // or error — only the HTTP status is reported instead.
+      const safeCode =
+        oauthError !== null && OAUTH_ERROR_ALLOWLIST.includes(oauthError)
+          ? oauthError
+          : null;
       const grantRejected =
-        oauthError !== null
-          ? ["invalid_grant", "invalid_token", "expired_token", "revoked_token"].includes(
-              oauthError,
-            )
-          : status === 400 || status === 401;
+        safeCode !== null || (oauthError === null && (status === 400 || status === 401));
       if (grantRejected) {
         await ctx.runMutation(internal.social.credentials.markNeedsReconnect, { credId });
         return {
           ok: false,
           reason: "reconnect",
           message: `The ${cred.platform} credential was rejected (HTTP ${status}${
-            oauthError ? `, ${oauthError}` : ""
+            safeCode ? `, ${safeCode}` : ""
           }) — reconnect this platform.`,
         };
       }

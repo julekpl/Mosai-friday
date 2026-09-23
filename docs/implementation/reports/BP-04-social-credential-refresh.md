@@ -257,3 +257,97 @@ AFTER:
   bun run test:a11y        → 5 passed, exit 0
   vitest {social-execution, credential-refresh} → 10/10 passed
 ```
+
+---
+
+## Review follow-up — code `e6f91b9` / docs `f9510fc` (23 Sep 2026, same chat)
+
+A GitHub review of the committed package found two gaps. Both were fixed in
+this chat with red-first tests where feasible; status went `implemented_unverified`
+→ **`in_progress`** while the fixes were in flight → **`implemented_unverified`**
+again once they passed. No production, provider-account, push or deploy
+action was taken; local ref observed at
+`f9510fcaa3296c4584f20a9369f8b6efdd909d01` (docs `f9510fc` atop code
+`e6f91b9`) read from `.git/refs/heads/main` — **CI result for these commits is
+UNKNOWN and unverifiable from this environment (B2); it must be checked
+externally and never assumed green.**
+
+### Gap 1 — honor the configured Basic token exchange (red-first)
+
+**Before:** `social/credentialActions.ts` always POSTed
+`client_id`/`client_secret` in the form body with no `Authorization` header —
+wrong for **LinkedIn and X**, whose `social/platforms.ts` config sets
+`tokenExchange: "basic"` (the authorization-code path in
+`oauth.exchangeSocialCode` already honored it; the refresh path did not).
+**After:** the refresh mirrors `oauth.ts` — `"basic"` platforms send
+`Authorization: Basic base64(client_id:client_secret)` with **no client
+credentials in the form**; all other platforms keep the form exchange.
+
+**Red-first evidence (run against unfixed code):**
+```
+× LinkedIn refresh authenticates with HTTP Basic and keeps client credentials out of the form
+  AssertionError: expected '' to be 'Basic dGVzdC1saW5rZWRpbl9jbGllbnRfaWQ…'
+× X refresh authenticates with HTTP Basic
+  AssertionError: expected '' to be 'Basic dGVzdC14X2NsaWVudF9pZDp0ZXN0LXh…'
+Tests 2 failed | 14 passed (16)
+```
+The Facebook form-exchange companion test (form still carries
+`client_id`/`client_secret`, no Authorization header) was green before *and*
+after — it pins "preserve form exchange for the others".
+
+### Gap 2 — provider-supplied `error` strings (adversarial marker tests)
+
+**Before:** both `social/` and `ads/credentialActions.ts` interpolated
+`${oauthError}` into the reconnect message, with the allowlist check living
+only in the separate `grantRejected` computation — the message site itself
+did no checking, so any future edit to `grantRejected` could open a leak.
+**After:** an explicit `OAUTH_ERROR_ALLOWLIST` (`invalid_grant`,
+`invalid_token`, `expired_token`, `revoked_token`) is evaluated **at the
+message site** (`safeCode`); anything else the provider puts in its JSON
+`error` field is discarded there and only `HTTP <status>` is reported.
+Rejection semantics are unchanged (`safeCode !== null ||
+(oauthError === null && status 400/401)` is equivalent to the old logic).
+
+**Honest red/green record:** the adversarial marker tests
+(`error: "EVIL-…-MARKER-c0ffee"` with HTTP 401, asserted absent from the
+post's `errorDetail` and the action's `message`) were **green against the
+pre-fix code** — the old `grantRejected` coupling incidentally gated the
+interpolation — so red-first was not achievable for this path; the tests now
+pin the invariant structurally rather than incidentally. New tests:
+
+| Test | Asserts |
+|---|---|
+| social — *an adversarial provider error string never reaches the post* | post `failed`, `errorDetail` matches `/HTTP 401/`, marker + `error_description` marker absent, no `providerRef` |
+| ads — *an adversarial provider error string never reaches the outcome message* | `message` matches `/HTTP 401/`, both markers absent, lease released |
+| ads — *an allowlisted OAuth machine code is still reported verbatim* | `invalid_grant` renders, `reason: "reconnect"`, `refreshStatus: "needs_reconnect"` |
+
+### Files changed (follow-up)
+
+| File | Change |
+|---|---|
+| `src/convex/social/credentialActions.ts` | Basic/form token-exchange branch (mirrors `oauth.exchangeSocialCode`); `OAUTH_ERROR_ALLOWLIST` + `safeCode` at the message site |
+| `src/convex/ads/credentialActions.ts` | `OAUTH_ERROR_ALLOWLIST` + `safeCode` at the message site (ads platforms have no `tokenExchange` — form exchange preserved) |
+| `tests/unit/social-execution.test.ts` | +4 tests: LinkedIn Basic, X Basic, Facebook form non-regression, adversarial marker (now 7) |
+| `tests/unit/credential-refresh.test.ts` | +2 tests: adversarial marker (ads), allowlisted-code verbatim (now 9) |
+
+### Check results — round 2 (actual exits, after the review fixes)
+
+| Check | Result |
+|---|---|
+| BP-04 suites (`vitest {social-execution, credential-refresh}`) | ✅ **16/16 passed** (red-first shown above: 2 failed pre-fix) |
+| `bun run test` (full unit) | ✅ **311/311 passed**, 15 files, exit **0** (305 + 6 new) |
+| `bun convex dev --once` | ✅ exit **0** — dev deployment `adjoining-gnat-502` (confirmed dev; no production) |
+| `bun tsc -b --noEmit` | ✅ exit **0** |
+| `bun run lint` | ✅ exit **0** — 0 errors / 25 warnings (unchanged baseline) |
+| `bun run audit:functions` | ✅ exit **0** — allow-list unchanged (3) |
+| `bun run audit:capabilities` | ✅ exit **0** — 149 scanned, registry-owned |
+| `bun run check:codegen` | ✅ exit **0** — bindings in sync |
+| `bun run test:e2e` | ✅ **15 passed + 1 skipped** (`otp-live`, opt-in), exit **0** |
+| `bun run test:a11y` | ✅ **5 passed**, exit **0** |
+| `bun run check` (aggregate) | ❌ exit **1** — **kept red** at the same pre-existing `scan:secrets` finding (`.env.keys:8 [dotenvx-private-key]`, value redacted, never read). No new failure from this package; the release blocker stands until owner remediation (B3) |
+| `git` / CI lookup | ❌ blocked (B2) — CI for `e6f91b9`/`f9510fc` **unknown**, never assumed |
+
+**Status after this follow-up: `implemented_unverified`** — code and all
+mocked acceptance tests (311/311, incl. the 6 review tests) pass; **real
+provider proof (O7) is still pending**, so the package is not `complete`;
+**BP-01 and the overall release gate remain BLOCKED (B3) regardless.**

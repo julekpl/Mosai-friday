@@ -72,7 +72,14 @@ function bodyText(init: RequestInit | undefined): string {
 
 // Test-only OAuth app values so `socialPlatformEnv("linkedin")` resolves.
 // Synthetic placeholders — never real credentials.
-const ENV_KEYS = ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"] as const;
+const ENV_KEYS = [
+  "LINKEDIN_CLIENT_ID",
+  "LINKEDIN_CLIENT_SECRET",
+  "X_CLIENT_ID",
+  "X_CLIENT_SECRET",
+  "META_APP_ID",
+  "META_APP_SECRET",
+] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
@@ -310,5 +317,154 @@ describe("BP-04 — social credential handoff", () => {
     // The failure carries the HTTP status (safe) but not the provider body.
     expect(post?.errorDetail ?? "").toMatch(/HTTP 500/);
     expect(post?.errorDetail ?? "").not.toContain("LEAKY-BODY-MARKER");
+  });
+});
+
+// ── Review follow-up (code commit e6f91b9): token-exchange request shape
+//    (gap 1) and adversarial provider `error` strings (gap 2). ───────────
+
+const FACEBOOK_TOKEN_URL =
+  "https://graph.facebook.com/v21.0/oauth/access_token";
+const X_TOKEN_URL = "https://api.twitter.com/2/oauth2/token";
+
+describe("BP-04 review — token exchange request shape (gap 1)", () => {
+  it("LinkedIn refresh authenticates with HTTP Basic and keeps client credentials out of the form", async () => {
+    const t = newBackend();
+    const { tenant, projectId } = await tenantOn(t, "basic-linkedin@example.com");
+    const credId = await seedSocialCred(t, projectId, tenant.userId, {
+      platform: "linkedin",
+      accessToken: "test-access-token-expired",
+      refreshToken: "test-refresh-token-old",
+      expiresAt: Date.now() - 60_000,
+    });
+
+    const calls = stubFetch((call) =>
+      call.url === TOKEN_URL
+        ? json(200, {
+            access_token: "test-access-token-refreshed",
+            expires_in: 3_600,
+          })
+        : null,
+    );
+
+    const out = (await t.action(internal.social.credentialActions.refreshIfNeeded, {
+      credId: credId as never,
+    })) as { ok: boolean };
+    expect(out.ok).toBe(true);
+
+    const call = calls.find((c) => c.url === TOKEN_URL);
+    expect(call).toBeDefined();
+    // platforms.ts sets tokenExchange: "basic" for LinkedIn — the same shape
+    // oauth.exchangeSocialCode uses for the authorization-code exchange.
+    expect(header(call!.init, "Authorization")).toBe(
+      `Basic ${btoa("test-linkedin_client_id:test-linkedin_client_secret")}`,
+    );
+    const body = bodyText(call!.init);
+    expect(body).toContain("grant_type=refresh_token");
+    expect(body).toContain(encodeURIComponent("test-refresh-token-old"));
+    // The secret material must not ride in the form for a Basic platform.
+    expect(body).not.toContain("client_id=");
+    expect(body).not.toContain("client_secret=");
+    expect(body).not.toContain("test-linkedin_client_id");
+    expect(body).not.toContain("test-linkedin_client_secret");
+  });
+
+  it("X refresh authenticates with HTTP Basic", async () => {
+    const t = newBackend();
+    const { tenant, projectId } = await tenantOn(t, "basic-x@example.com");
+    const credId = await seedSocialCred(t, projectId, tenant.userId, {
+      platform: "x",
+      accessToken: "test-access-token-expired",
+      refreshToken: "test-refresh-token-old",
+      expiresAt: Date.now() - 60_000,
+    });
+
+    const calls = stubFetch((call) =>
+      call.url === X_TOKEN_URL
+        ? json(200, {
+            access_token: "test-access-token-refreshed",
+            expires_in: 3_600,
+          })
+        : null,
+    );
+
+    const out = (await t.action(internal.social.credentialActions.refreshIfNeeded, {
+      credId: credId as never,
+    })) as { ok: boolean };
+    expect(out.ok).toBe(true);
+
+    const call = calls.find((c) => c.url === X_TOKEN_URL);
+    expect(call).toBeDefined();
+    expect(header(call!.init, "Authorization")).toBe(
+      `Basic ${btoa("test-x_client_id:test-x_client_secret")}`,
+    );
+    expect(bodyText(call!.init)).not.toContain("client_id=");
+    expect(bodyText(call!.init)).not.toContain("client_secret=");
+  });
+
+  it("a form-exchange platform (Facebook) still posts client_id/client_secret in the form", async () => {
+    const t = newBackend();
+    const { tenant, projectId } = await tenantOn(t, "form-facebook@example.com");
+    const credId = await seedSocialCred(t, projectId, tenant.userId, {
+      platform: "facebook",
+      accessToken: "test-access-token-expired",
+      refreshToken: "test-refresh-token-old",
+      expiresAt: Date.now() - 60_000,
+    });
+
+    const calls = stubFetch((call) =>
+      call.url === FACEBOOK_TOKEN_URL
+        ? json(200, {
+            access_token: "test-access-token-refreshed",
+            expires_in: 3_600,
+          })
+        : null,
+    );
+
+    const out = (await t.action(internal.social.credentialActions.refreshIfNeeded, {
+      credId: credId as never,
+    })) as { ok: boolean };
+    expect(out.ok).toBe(true);
+
+    const call = calls.find((c) => c.url === FACEBOOK_TOKEN_URL);
+    expect(call).toBeDefined();
+    expect(header(call!.init, "Authorization")).toBe("");
+    const body = bodyText(call!.init);
+    expect(body).toContain("client_id=test-meta_app_id");
+    expect(body).toContain("client_secret=test-meta_app_secret");
+  });
+
+  it("an adversarial provider error string never reaches the post (gap 2)", async () => {
+    const t = newBackend();
+    const { tenant, projectId } = await tenantOn(t, "adversarial-refresh@example.com");
+    await seedSocialCred(t, projectId, tenant.userId, {
+      platform: "linkedin",
+      accessToken: "test-access-token-expired",
+      refreshToken: "test-refresh-token-old",
+      expiresAt: Date.now() - 60_000,
+    });
+    const postId = await seedDuePost(t, projectId, "adversarial refresh");
+
+    stubFetch((call) => {
+      if (call.url === TOKEN_URL) {
+        return json(401, {
+          error: "EVIL-PROVIDER-MARKER-c0ffee",
+          error_description: "EVIL-PROVIDER-DESCRIPTION-c0ffee",
+        });
+      }
+      return null;
+    });
+
+    const result = await t.action(internal.social.executor.runDue, {});
+    expect(result.processed).toBe(1);
+
+    const post = await t.run((ctx) => ctx.db.get(postId as never));
+    expect(post?.status).toBe("failed");
+    expect(post?.errorDetail ?? "").toMatch(/HTTP 401/);
+    expect(post?.errorDetail ?? "").not.toContain("EVIL-PROVIDER-MARKER-c0ffee");
+    expect(post?.errorDetail ?? "").not.toContain(
+      "EVIL-PROVIDER-DESCRIPTION-c0ffee",
+    );
+    expect(post?.providerRef).toBeUndefined();
   });
 });
