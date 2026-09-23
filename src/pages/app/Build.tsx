@@ -824,7 +824,12 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
                 variant="outline"
                 className="font-mono text-caption text-muted-foreground"
               >
-                seo: {b.seoReady ? "ok" : "—"} · wcag: {b.wcagReady ? "ok" : "—"}
+                {/* BP-03: server no longer records seoReady/wcagReady client
+                    claims; show a neutral legacy label instead of a fake ok. */}
+                {b.seoReady === true
+                  ? "seo: legacy ok — verify"
+                  : "seo: —"} · {" "}
+                {b.wcagReady === true ? "wcag: legacy ok — verify" : "wcag: —"}
               </Badge>
               <StatusBadge status={b.status} />
               <Button

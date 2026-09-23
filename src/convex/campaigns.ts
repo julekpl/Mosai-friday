@@ -1,6 +1,16 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 
+/* ── Campaigns: user-tracked lifecycle + delivery truth (BP-03) ───────────
+ *
+ * A campaign row is user-tracked unless server code (ads sync, BP-04 social
+ * receipts) flips it to provider-tracked. "running" on a local row means
+ * "the user says they are working this campaign locally" — it is a local
+ * label, not a provider fact. Provider-tracked rows move only through
+ * server code holding a provider receipt; a client-callable mutation can
+ * never write their lifecycle.
+ */
+
 export const list = moduleQuery("promote", {
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }, access) => {
@@ -29,6 +39,9 @@ export const create = moduleMutation("promote", {
       projectId,
       ...rest,
       status: "draft" as const,
+      // Client-created rows are local by definition; provider tracking is
+      // granted only by server code that talked to the provider.
+      trackingSource: "local" as const,
       createdAt: Date.now(),
     });
   },
@@ -54,6 +67,15 @@ export const update = moduleMutation("promote", {
   handler: async (ctx, { id, ...patch }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
+    // BP-03: the client may not author provider-tracked lifecycle. Only
+    // internal/server mutations holding a provider receipt may move those.
+    if (
+      row.trackingSource === "provider" &&
+      (patch.status !== undefined || patch.budgetCents !== undefined)
+    )
+      throw new Error(
+        "This campaign is tracked by the ads provider. MOSAI reflects the provider's state after sync — it cannot be changed here.",
+      );
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
@@ -67,5 +89,33 @@ export const remove = moduleMutation("promote", {
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
     await ctx.db.delete(id);
+  },
+});
+
+/* ── Delivery view: local tracking vs externally verified delivery ──────── */
+
+export const getDelivery = moduleQuery("promote", {
+  args: { id: v.id("campaigns") },
+  handler: async (ctx, { id }, access) => {
+    const row = await access.ownedRow(await ctx.db.get(id));
+    if (!row) return null;
+    // A local row has no provider receipt by definition — never invent one.
+    // A provider-tracked row is verified only when server code recorded a
+    // receipt reference (BP-04 social/ads receipts); otherwise it shows the
+    // honest requires_verification state.
+    const verified = row.trackingSource === "provider" && Boolean(row.providerRef);
+    return {
+      trackingSource: row.trackingSource ?? ("local" as const),
+      status: row.status,
+      delivery: {
+        verified,
+        receiptId: verified ? row.providerRef : undefined,
+        label: verified
+          ? "verified"
+          : row.trackingSource === "provider"
+            ? "requires_verification"
+            : "local",
+      },
+    };
   },
 });

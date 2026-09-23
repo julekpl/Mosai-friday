@@ -320,6 +320,12 @@ const schema = defineSchema(
       ),
       budgetCents: v.optional(v.number()),
       personaId: v.optional(v.id("personas")),
+      // Who owns this row's lifecycle (BP-03): "local" means MOSAI tracks it
+      // and the client may move it; "provider" means the provider campaign is
+      // authoritative and only server code (ads control/receipts) may move it.
+      trackingSource: v.optional(v.union(v.literal("local"), v.literal("provider"))),
+      // Provider-side reference when provider-tracked (safe id, never a token).
+      providerRef: v.optional(v.string()),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
@@ -572,9 +578,87 @@ const schema = defineSchema(
       ),
       seoReady: v.optional(v.boolean()),
       wcagReady: v.optional(v.boolean()),
+      // BP-03 local release lifecycle — never an external claim. `prepared`
+      // means a release audit exists and pinned revisions are approved;
+      // `verified` is reserved for BP-13's deployment receipt.
+      releaseState: v.optional(
+        v.union(
+          v.literal("none"),
+          v.literal("prepared"),
+          v.literal("failed"),
+          v.literal("verified"),
+        ),
+      ),
+      lastReleaseAuditId: v.optional(v.id("buildReleaseAudits")),
+      lastReleaseAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     }).index("by_project", ["projectId"]),
+
+    // Server-written release-preparation audit trail (BP-03). One row per
+    // accepted `publishSite` preparation: which draft revisions were
+    // promoted, under which readiness rules, and (later, via BP-13) which
+    // deployment confirmed them externally. Client code has no writer for
+    // this table — only internal mutations do.
+    buildReleaseAudits: defineTable({
+      projectId: v.id("projects"),
+      buildId: v.id("builds"),
+      siteId: v.id("sites"),
+      // draft_approved | release_prepared | deploying | verified | failed
+      phase: v.union(
+        v.literal("draft_approved"),
+        v.literal("release_prepared"),
+        v.literal("deploying"),
+        v.literal("verified"),
+        v.literal("failed"),
+      ),
+      // revision ids this release pins (per page, at preparation time)
+      revisionIds: v.array(v.id("pageRevisions")),
+      // pages whose draft could not be promoted, with a safe reason
+      skipped: v.array(
+        v.object({ title: v.string(), reason: v.string() }),
+      ),
+      // the page revision versions audited, for readability in the UI
+      revisionVersions: v.optional(v.array(v.number())),
+      // readiness rules applied (src/shared/contracts/status.ts)
+      ruleVersion: v.number(),
+      // pages whose checks failed at preparation time (blocking)
+      pagesWithBlocking: v.optional(v.array(v.id("cmsPages"))),
+      // reserved for BP-13: the deployment that verified this release
+      deploymentId: v.optional(v.id("buildDeployments")),
+      // stable operation key so retries of one logical preparation are safe
+      operationKey: v.optional(v.string()),
+      // user who triggered the preparation; absent for system audits
+      createdBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+    })
+      .index("by_build", ["buildId"])
+      .index("by_project", ["projectId"])
+      .index("by_site", ["siteId"]),
+
+    // BP-13 placeholder: referenced by buildReleaseAudits.deploymentId so
+    // the receipt chain has a home before the deployment adapter lands. No
+    // code writes it yet; the verifier (§4.2 protocol) will.
+    buildDeployments: defineTable({
+      projectId: v.id("projects"),
+      buildId: v.id("builds"),
+      siteId: v.id("sites"),
+      releaseAuditId: v.optional(v.id("buildReleaseAudits")),
+      // queued | running | succeeded | failed | canceled
+      state: v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("succeeded"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+      provider: v.optional(v.string()),
+      providerResourceId: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_build", ["buildId"])
+      .index("by_project", ["projectId"]),
 
     // One page/screen of a build. Strategy-first: every page declares which
     // persona it speaks to and which journey stage it answers, so the

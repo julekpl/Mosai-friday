@@ -171,12 +171,17 @@ export const getPage = moduleQuery("build", {
   },
 });
 
-/** The one public read path (§158): published revision only, never draft. */
+/**
+ * The one public read path (§158): approved revision only, never draft.
+ * BP-03: serving is gated on the page's approved revision and the site not
+ * being suspended — never on an externally published site status, which only
+ * a verified BP-13 deployment receipt may write.
+ */
 export const getPublishedByPath = query({
   args: { siteId: v.id("sites"), fullPath: v.string() },
   handler: async (ctx, { siteId, fullPath }) => {
     const site = await ctx.db.get(siteId);
-    if (!site || site.status !== "live") return null;
+    if (!site || site.status === "suspended") return null;
     const page = await ctx.db
       .query("cmsPages")
       .withIndex("by_site_path", (q) =>
@@ -562,10 +567,10 @@ export const getPublishChecks = moduleQuery("build", {
   },
 });
 
-/** Publish: promote draft → published atomically; prior revision superseded. */
+/** Publish: promote draft → approved atomically; prior revision superseded. */
 export const publishPage = moduleMutation("build", {
-  // `publish`: making a page live is the state change the product promises is
-  // real, so it is gated separately from editing it.
+  // `publish`: promoting a page's approved revision is the state change the
+  // product promises is real, so it is gated separately from editing it.
   capability: "build.publish",
   args: { pageId: v.id("cmsPages") },
   handler: async (ctx, { pageId }) => {
@@ -619,10 +624,9 @@ export const publishPage = moduleMutation("build", {
       status: "published",
       updatedAt: now,
     });
-    const site = await ctx.db.get(page.siteId);
-    if (site && site.status === "draft") {
-      await ctx.db.patch(site._id, { status: "live", updatedAt: now });
-    }
+    // BP-03: a database edit is not a deployment. The page's approved
+    // revision is stored, but the site keeps no externally published status
+    // until the BP-13 deployment adapter holds a verified receipt.
     return publishedId;
   },
 });

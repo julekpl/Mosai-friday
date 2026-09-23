@@ -51,9 +51,12 @@ const TONE_CLASS: Record<Tone, string> = {
 
 export function StatusBadge({
   status,
+  detail,
   className,
 }: {
   status: string;
+  /** Short honest qualifier, e.g. "MOSAI-local · awaiting provider verification". */
+  detail?: string;
   className?: string;
 }) {
   const tone: Tone = (STATUS_TONE as Record<string, Tone | undefined>)[status] ?? "neutral";
@@ -63,6 +66,9 @@ export function StatusBadge({
       className={cn("font-mono text-caption", TONE_CLASS[tone], className)}
     >
       {status.replace(/_/g, " ")}
+      {detail ? (
+        <span className="font-sans font-normal text-muted-foreground">· {detail}</span>
+      ) : null}
     </Badge>
   );
 }

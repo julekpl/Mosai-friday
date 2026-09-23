@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { PageRenderer } from "@/components/cms/PageRenderer";
+import { ReceiptBadge } from "@/components/app/ReceiptBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,6 +54,12 @@ type PreviewData = {
     status: string;
     doc: { schemaVersion: number; blocks: never[] };
   }[];
+  release: {
+    releaseState: "none" | "prepared" | "failed" | "verified";
+    lastReleaseAt: number | null;
+    seoReady: boolean | null;
+    wcagReady: boolean | null;
+  };
 } | null;
 
 function timeAgo(ts: number) {
@@ -432,7 +439,14 @@ export function BuildWorkspace({
   onBack,
   onManage,
 }: {
-  build: { _id: Id<"builds">; name: string; status: string; idea?: string };
+  build: {
+    _id: Id<"builds">;
+    name: string;
+    status: string;
+    idea?: string;
+    seoReady?: boolean | null;
+    wcagReady?: boolean | null;
+  };
   onBack: () => void;
   onManage?: () => void;
 }) {
@@ -459,21 +473,24 @@ export function BuildWorkspace({
     try {
       const res = await publish({ buildId: build._id });
       if (res.published === 0) {
-        toast.warning("Nothing published", {
+        toast.warning("Nothing prepared", {
           description:
             res.skipped.length > 0
               ? `Skipped: ${res.skipped.join(", ")}`
               : "No pages had content.",
         });
       } else {
-        toast.success(`Published ${res.published} page${res.published === 1 ? "" : "s"}`, {
-          description: res.skipped.length
-            ? `Skipped: ${res.skipped.join(", ")}`
-            : "The storefront now serves this content.",
-        });
+        toast.success(
+          `Release prepared — ${res.published} page${res.published === 1 ? "" : "s"} approved`,
+          {
+            description: res.skipped.length
+              ? `Skipped: ${res.skipped.join(", ")}`
+              : "Your approved content is saved. Deployment to a public URL arrives with hosting setup.",
+          },
+        );
       }
     } catch (e) {
-      toast.error("Publish failed", {
+      toast.error("Release preparation failed", {
         description: e instanceof Error ? e.message : "Try again.",
       });
     } finally {
@@ -527,9 +544,14 @@ export function BuildWorkspace({
           <p className="truncate font-mono text-caption font-medium">
             {build.name}
           </p>
-          {preview?.site?.status === "live" ? (
-            <Badge className="bg-terminal-green-soft font-mono text-[10px] text-terminal-green">
-              <Globe className="mr-1 size-3" /> live
+          {preview.release.releaseState === "verified" ? (
+            <ReceiptBadge state="verified" href="#" /> // href lands with BP-13
+          ) : preview.release.releaseState === "prepared" ? (
+            <Badge
+              variant="outline"
+              className="font-mono text-[10px] text-amber-600 dark:text-amber-400"
+            >
+              <Globe className="mr-1 size-3" /> release prepared — not yet live
             </Badge>
           ) : (
             <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
@@ -627,7 +649,7 @@ export function BuildWorkspace({
           <span>·</span>
           <span>{publishable} with content</span>
           <span className="ml-auto flex items-center gap-1">
-            publish promotes drafts to the live site
+            publish approves content for release — live when hosting is set up
             <ExternalLink className="size-3" />
           </span>
         </div>

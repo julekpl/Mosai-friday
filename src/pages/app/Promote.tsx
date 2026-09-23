@@ -685,7 +685,17 @@ export default function Promote({ projectId }: { projectId: Id<"projects"> }) {
                       <CheckCircle2 className="size-3.5" /> Mark done
                     </Button>
                   )}
-                  <StatusBadge status={c.status} />
+                  <StatusBadge
+                    status={c.status}
+                    /* BP-03: a local "running" is the user's own tracking,
+                       not a provider fact — say so next to the badge. */
+                    detail={
+                      (c as { trackingSource?: "local" | "provider" })
+                        .trackingSource === "provider"
+                        ? "provider-synced"
+                        : "MOSAI-local"
+                    }
+                  />
                   <ConfirmDelete
                     what={`"${c.name}"`}
                     onConfirm={async () => {
