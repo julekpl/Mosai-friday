@@ -624,6 +624,18 @@ const schema = defineSchema(
       ruleVersion: v.number(),
       // pages whose checks failed at preparation time (blocking)
       pagesWithBlocking: v.optional(v.array(v.id("cmsPages"))),
+      // BP-03 readiness pins: the exact draft content each page was checked
+      // at. Readiness is verified by pin equality (revision id AND content),
+      // so an in-place content edit invalidates it immediately.
+      pins: v.optional(
+        v.array(
+          v.object({
+            pageId: v.id("cmsPages"),
+            revisionId: v.id("pageRevisions"),
+            documentJson: v.string(),
+          }),
+        ),
+      ),
       // reserved for BP-13: the deployment that verified this release
       deploymentId: v.optional(v.id("buildDeployments")),
       // stable operation key so retries of one logical preparation are safe

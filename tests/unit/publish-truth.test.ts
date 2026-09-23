@@ -167,11 +167,14 @@ describe("A client cannot manufacture external success", () => {
         .first();
       return site;
     });
-    expect(siteRow?.status).toBeUndefined();
     const build = await t.run((ctx) => ctx.db.get(buildId));
     expect(build?.status).toBe("generated");
     expect(build?.releaseState).toBe("prepared");
     expect(build?.lastReleaseAt).toBeTypeOf("number");
+    // BP-03 correction: "draft" is a local lifecycle state written at site
+    // creation — publish must leave the row untouched, never upgrade it to
+    // an external status like "live" (which pre-BP-03 code did).
+    expect(siteRow?.status).toBe("draft");
   });
 
   it("cms.publishPage approves a page draft without marking the site live", async () => {
@@ -191,7 +194,8 @@ describe("A client cannot manufacture external success", () => {
         .first();
       return site;
     });
-    expect(siteRow?.status).toBeUndefined();
+    // Local "draft" stays exactly as created — no external claim appears.
+    expect(siteRow?.status).toBe("draft");
   });
 });
 
@@ -252,9 +256,10 @@ describe("Failed preparation preserves the previous confirmed release", () => {
       ctx.db.query("buildReleaseAudits").collect(),
     );
     expect(releases).toHaveLength(1);
-    // The site never left "no external deployment" state.
+    // The failed preparation left the site row untouched (still local
+    // "draft" from creation — never an external status).
     const siteRow = await t.run((ctx) => ctx.db.get(before!.siteId));
-    expect(siteRow?.status).toBeUndefined();
+    expect(siteRow?.status).toBe("draft");
   });
 
   it("a foreign-organization caller cannot prepare a release", async () => {
@@ -287,7 +292,12 @@ describe("Readiness is derived from a revision-pinned audit", () => {
     expect(ready?.delivery.label).toBe("release_prepared");
     expect(ready?.delivery.verified).toBe(false);
     expect(ready?.delivery.receiptId).toBeUndefined();
-    expect(ready?.delivery.verifiedRevisionIds).toContain(pageId);
+    // BP-03 correction: the field is documented as *revision* ids — assert
+    // the audited draft revision, not the page id.
+    const freshPage = await t.run((ctx) => ctx.db.get(pageId));
+    expect(ready?.delivery.verifiedRevisionIds).toContain(
+      freshPage!.latestDraftRevisionId,
+    );
     expect(ready?.delivery.ruleVersion).toBeGreaterThan(0);
 
     // The readiness view carries the page-level checks…
@@ -313,7 +323,9 @@ describe("Readiness is derived from a revision-pinned audit", () => {
     );
 
     const stale = await tenant.as.query(api.builds.getReadiness, { id: buildId });
-    expect(stale?.delivery.verifiedRevisionIds).not.toContain(pageId);
+    expect(stale?.delivery.verifiedRevisionIds).not.toContain(
+      before!.latestDraftRevisionId,
+    );
     expect(stale?.delivery.label).toBe("content_changed");
   });
 });

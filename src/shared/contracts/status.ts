@@ -83,6 +83,36 @@ export type DeliveryView = {
  *  versions stop counting as verified. */
 export const READINESS_RULE_VERSION = 1;
 
+/**
+ * Deterministic, key-order-insensitive serialization used to pin content in a
+ * readiness/release audit. The audit writer (`publishSite`) and the reader
+ * (`builds.getReadiness`) must both go through this function so a pin can
+ * never disagree with itself over object key order. An in-place edit of a
+ * draft document changes its fingerprint and invalidates the audit.
+ */
+export function contentFingerprint(doc: unknown): string {
+  return stableStringify(doc);
+}
+
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") {
+    // JSON.stringify(undefined) is undefined — normalize to null so the
+    // return type stays string (documents never contain top-level undefined).
+    return JSON.stringify(v) ?? "null";
+  }
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  const entries = Object.entries(v as Record<string, unknown>)
+    .filter(([, val]) => val !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return (
+    "{" +
+    entries
+      .map(([k, val]) => JSON.stringify(k) + ":" + stableStringify(val))
+      .join(",") +
+    "}"
+  );
+}
+
 /* ── Badge classification (single source for the UI) ─────────────────────── */
 
 export type ReceiptTone = "verified" | "prepared" | "unverified" | "locked";
