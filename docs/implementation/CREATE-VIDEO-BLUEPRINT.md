@@ -28,12 +28,12 @@ agrees; the alternative is what changes if not.
 | # | Decision ⚑ | Default in this blueprint | If the owner chooses otherwise |
 |---|---|---|---|
 | D1 | Renderer | ✅ **Decided: browser rendering** (`@remotion/web-renderer`) for the MVP. Later server renderer for background renders and Promote hand-off: **Vercel Sandbox** (`@remotion/vercel`) | Remotion Lambda (AWS) or Shotstack behind the same `RenderProvider` interface (§9.5). Google Cloud Run is excluded (Remotion lists it as alpha, not actively developed) |
-| D1a | Remotion licence tier | Free for organizations of up to 3 people; Company License above that | Confirm team size before launch; the licence applies to browser rendering too |
+| D1a | Remotion licence tier | ✅ **Decided: free licence** (the organization is 1 person, 24 Sep 2026; free covers up to 3) | Buy a Company License before the team reaches 4 people; the licence applies to browser rendering too |
 | D2 | Voice provider (after the MVP; the MVP is silent) | **ElevenLabs** `with-timestamps` | Any TTS that returns word/char timings; otherwise add a forced-alignment step |
 | D3 | AI clip provider | **OpenRouter video API** (`/api/v1/videos`) using the existing `OPENROUTER_API_KEY` | Direct Gemini (Veo) adapter behind the same interface |
 | D4 | Who pays for AI clips and TTS | Off by default; small monthly allowance on paid plans; hard per-organization budget | Pass-through top-up (needs T2.4 metered billing) |
 | D5 | AI disclosure on the video | Metadata always + platform AI label via Promote; on-video text only if legal asks | Add an end card or corner label (a composition style flag) |
-| D6 | Stock attribution | Visible credit in the export notes and post description | No credit: stay within Pexels default limits (200 req/h, 20k/month) |
+| D6 | Stock attribution | ✅ **Decided: no credit in the video or the post** (24 Sep 2026). Two things stay because Pexels' API guidelines require them: a visible "Photos and videos provided by Pexels" link in the stock picker UI whenever search results are shown, and the photographer credit stored per asset (not displayed). Consequence: the app stays on Pexels' default limits, **200 requests/hour and 20,000/month for the whole app**, shared by all users | Showing credit would let us request unlimited free quota |
 
 ---
 
@@ -78,7 +78,8 @@ the common format for social feeds, where most video autoplays muted.
 
 **Tickets:** V0 (reduced), V1, V2, V3, V4 (stock only), V5 (browser export).
 Roughly **10–14 working days** (estimate). Owner inputs still needed: a
-Pexels API key, D6 (stock credit), D1a (licence tier). **Not needed for the
+`PEXELS_API_KEY` set on the Convex deployment (the owner has a key; D6 and
+D1a are decided). **Not needed for the
 MVP:** D2 voice, ElevenLabs key, voiceover cap, D3/D4 clip decisions, D5
 beyond a metadata flag.
 
@@ -291,7 +292,13 @@ videos: project("modules/video: moduleQuery/moduleMutation(\"create\") + access.
 videoAssets: project("modules/video: parent video/project ownership"),
 videoClipJobs: project("modules/video: parent video ownership", "excluded"),
 videoRenders: project("modules/video: parent video ownership"),
+// V4: shared Pexels search cache (no user data: query text, result ids, thumbnails)
+stockSearchCache: global("modules/video/assets.searchStock only", "Search results expire after 24 h and are swept", true),
 ```
+
+`stockSearchCache` (V4): `{ key: string /* provider:orientation:normalized query */,
+results: StockHit[], fetchedAt: number, expiresAt: number }`, index `by_key`
+and `by_expires`; the daily cron deletes expired rows.
 
 Deletion must also delete each row's `_storage` blobs. Extend the project
 cascade with a storage hook for `videoAssets.storageId` (the registry audit
@@ -400,7 +407,7 @@ same way `ai.ts` does today.
 |---|---|---|
 | `generateUploadUrl({ projectId })` | `create.edit` | ownership checked (unlike the legacy `files.generateUploadUrl`) |
 | `attachUpload({ videoId, storageId, name })` | `create.edit` | reads `_storage` system row: MIME allow-list `video/mp4, video/quicktime, video/webm, image/jpeg, image/png, image/webp, audio/mpeg, audio/wav`; max 200 MB video, 20 MB image; deletes the blob and throws on violation; stores `sha256` from the system row |
-| `searchStock({ videoId, query, orientation })` | `create.edit` | Pexels search by fixed host with the server key; returns ids, thumbnails, credit; `needs_setup` if no key |
+| `searchStock({ videoId, query, orientation })` | `create.edit` | Pexels video/photo search by fixed host with the server key; returns ids, thumbnails, credit; `needs_setup` if no key. **Shared quota protection** (D6 keeps the default 200/h, 20k/month for the whole app): cache results per normalized query + orientation for 24 h in a small `stockSearchCache` table (global scope, ephemeral, registered); a per-user limit of 30 searches/hour; when Pexels returns 429 or the hourly budget is used up, stock shows `rate_limited` with the reset time and uploads/brand graphics keep working |
 | `importStock({ videoId, provider: "pexels", externalId })` | `create.edit` | re-fetches the item **by id** server-side (never trusts a client URL), downloads the chosen rendition via `safeFetch`, stores blob + attribution |
 
 ### 5.4 `modules/video/voice.ts` (`"use node"`), later (V4b, not in the silent MVP)
@@ -654,7 +661,7 @@ colours.
    saved composition, never unsaved local edits, so the stored
    `compositionHash` is true).
 3. **Render:** `renderMediaOnWeb({ composition, inputProps, container: "mp4",
-   videoCodec: "h264", muted: true, onProgress, signal, licenseKey, schema })`
+   videoCodec: "h264", muted: true, onProgress, signal, schema })`
    (`muted: true` in the MVP: no audio track is written, and stock clips'
    own audio is dropped) with the composition's Zod v4 schema (Zod v4 is already a
    dependency). `signal` comes from an `AbortController` wired to Cancel.
@@ -677,10 +684,11 @@ since export time does not matter.
 ### 9.3 Environment (names only; values never committed, rule 1)
 
 MVP: `PEXELS_API_KEY`, `OPENROUTER_API_KEY` (exists) on the Convex
-deployment; `VITE_REMOTION_LICENSE_KEY` in the web app. A licence key
-used by client-side rendering is by nature visible in the browser bundle: V0
-confirms with Remotion that this key is a public identifier and not a secret;
-if it is a secret, fetch it per session from an authenticated query instead.
+deployment. No Remotion licence key is needed while the free licence applies
+(D1a); client-side rendering sends Remotion a telemetry event per render with
+or without a key. If a Company License is bought later, its key is passed as
+`licenseKey`; V0 notes whether that key is a public identifier (it would be
+visible in the browser bundle) before one is added.
 Later: `ELEVENLABS_API_KEY` (V4b); `VIDEO_CLIP_QUOTE_SECRET` (V6); `VERCEL_TOKEN`, `VERCEL_TEAM_ID`,
 `BLOB_READ_WRITE_TOKEN` or equivalent (V5b). Missing key → that capability
 resolves to `needs_setup`.
@@ -721,7 +729,7 @@ within a tolerance.
 
 | Rule | How this design meets it |
 |---|---|
-| 1 secrets | env names only; secret scan in CI already covers new files; the Remotion licence key in the browser is confirmed public in V0 (§9.3) |
+| 1 secrets | env names only; secret scan in CI already covers new files; no Remotion key in the MVP (§9.3); the Pexels key lives only on the Convex deployment, never in the web bundle |
 | 2 auth + ownership | every public function via `moduleQuery/Mutation` or `requireActionCapability` + `ownedRow`; the generated cross-tenant suite picks new functions up automatically (verify the registry in `tests/unit/function-registry.ts`) |
 | 3 no client snapshots | storyboard/voice/clip/render load everything server-side by id |
 | 4 untrusted content | script, research, stock metadata wrapped as data; model output can't select tools or trigger spend |
@@ -793,11 +801,11 @@ Sizes: S ≤ 1 day, M 2–3 days, L 4–5 days.
 
 | Ticket | Scope | Depends on | Acceptance (each by a test or recorded check) | Size |
 |---|---|---|---|---|
-| **V0 Spike + ADR** | Export a 5 s and a 60 s muted fixture (brand graphics + an uploaded image + a stock clip) with `renderMediaOnWeb` in Chrome, Firefox and Safari 26; confirm it completes (speed not measured), Convex storage CORS for canvas use, and that the licence key is public. ADR "Video rendering and media providers". ElevenLabs and OpenRouter video checks move to V4b/V6. | none | ADR merged; no production code | S |
+| **V0 Spike + ADR** | Export a 5 s and a 60 s muted fixture (brand graphics + an uploaded image + a stock clip) with `renderMediaOnWeb` in Chrome, Firefox and Safari 26; confirm it completes (speed not measured), and Convex storage CORS for canvas use. ADR "Video rendering and media providers". ElevenLabs and OpenRouter video checks move to V4b/V6. | none | ADR merged; no production code | S |
 | **V1 Data + composition** | `src/shared/video/*`; `videos` + `videoAssets` tables; `aiRuns` additive fields; registry entries + blob cleanup; `videos.ts` CRUD with optimistic concurrency; `create.spend` in registry; file owners | T2.2, T2.3, T2.5 | composition tests; cross-tenant + capability tests green; `audit:functions`, `audit:capabilities`, data-registry audit green | M |
 | **V2 Storyboard agent** | `storyboard.ts`, prompt v1, validators, fallback, fixtures | V1, gateway | fidelity/pacing validators reject bad fixtures; no client-supplied script accepted | M |
 | **V3 Studio UI + preview** | Videos tab, studio, scene editing, uploads, brand graphics, `@remotion/player` preview, all UI states | V1, V2 | Playwright journey to preview; axe clean; keyboard reorder | L |
-| **V4 ⚑ Stock** | Pexels search/import (video renditions stored muted-agnostic; the export is muted), attribution stored and shown | V3, D6, Pexels key | `needs_setup` without the key; import by id only; attribution stored | S–M |
+| **V4 Stock** | Pexels search/import (the export is muted, so clip audio is irrelevant); "Photos and videos provided by Pexels" link in the picker; photographer credit stored, not shown; search cache, per-user limit and `rate_limited` state | V3, `PEXELS_API_KEY` on the deployment | `needs_setup` without the key; import by id only; attribution stored; Pexels link visible whenever results show; cached repeat search makes no Pexels call; 429 → `rate_limited` | S–M |
 | V4b ⚑ Sound (after the MVP) | ElevenLabs voiceover, word timings, captions, WebVTT, music bed + ducking, narration fidelity check, `muted: false` export | V5, D2, D4 voice cap | caption timing within 100 ms of alignment on fixtures; `needs_setup` without the key; budget refusal | M |
 | **V5 Browser export (MVP)** | `useBrowserExport`, capability check, progress/cancel, download MP4 + VTT, `exportUploadUrl`/`attachExport`, "Exported on this device" label | V4, V0 | Playwright export journey; unsupported browser shows `unavailable`; `attachExport` rejects bad MIME/size; `ready` only after stored | S–M |
 | V5b Server render + hand-off (later) | Vercel Sandbox `RenderProvider`, `videoRenders` table, `renders.ts`, polling, cron, finalize with receipt, `forPromote` contract, Promote accepts `{type:"video",id}` | V5, Vercel account (Pro) | truth + idempotency tests; receipt only after verified finalize; parity test vs browser export | L |
@@ -807,7 +815,7 @@ Sizes: S ≤ 1 day, M 2–3 days, L 4–5 days.
 
 **MVP = V0 + V1 + V2 + V3 + V4 (stock) + V5, silent**, roughly 10–14 working
 days (estimate). Order: V0 can run in parallel with V1–V3 (they need no
-provider). V4 waits for D6 and the Pexels key; V4b (sound), V5b and V6 come
+provider). V4 needs only the Pexels key set on the deployment; V4b (sound), V5b and V6 come
 after the MVP. Each PR description follows the template in AGENTS.md §6
 (Outcome · Scope · Before · After · Data migration · Security and privacy ·
 Verification · Proof).
@@ -823,12 +831,13 @@ Verification · Proof).
 | Unsupported browser (older Safari, no WebCodecs) | capability check → `unavailable` with the supported versions; preview still works |
 | User closes the tab mid-export | `beforeunload` warning; backgrounding is fine (Remotion keeps rendering via a Worker timer, slower, which is accepted) |
 | Canvas-drawn output differs from the preview for unsupported CSS | CSS subset rule + scan test (§9.1) |
-| Remotion licence tier | free up to 3 people; confirm D1a before launch |
+| Remotion licence tier | free licence now (1 person); add a Company License before the team reaches 4 |
+| Pexels shared quota (200/h for the whole app, D6) | 24 h search cache, per-user limit, `rate_limited` state; revisit D6 (showing credit unlocks unlimited free quota) if users hit it |
 | Provider model retired (Sora API removed 24 Sep 2026) | allow-list + OpenRouter lets us switch model ids; no model id in UI code |
 | Large files | MVP uploads go straight from the browser to a Convex upload URL (no action memory involved); cap at 120 s / 1080p (~30–80 MB). V5b: stream the provider output in a node action or keep it in Blob with a receipt |
 | Preview ≠ server render (V5b) | one composition, one component tree; frame-hash parity test in V5b |
 | Cost surprise | ceilings per model, quote tokens, monthly budget, costs recorded from provider usage |
-| Legal wording (AI disclosure, stock licence, fonts, music) | D5/D6 owner decisions; ship metadata flag first |
+| Legal wording (AI disclosure, stock licence, fonts, music) | D6 decided; D5 open (metadata flag first); Pexels' own terms still apply (no reselling unmodified clips, no copying Pexels' core function) |
 
 ---
 
