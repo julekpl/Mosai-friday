@@ -7,7 +7,12 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm transition-[box-shadow,border-color] duration-200 ease-terminal",
+        // Soft lift only when the whole card is actionable (role="button" or
+        // an explicit data-interactive opt-in), so static cards never
+        // pretend to be clickable.
+        "data-interactive:hover:border-input data-interactive:hover:shadow-pop data-interactive:focus-within:shadow-pop",
+        "[&[role=button]]:hover:border-input [&[role=button]]:hover:shadow-pop",
         className
       )}
       {...props}

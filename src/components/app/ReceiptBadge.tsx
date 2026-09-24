@@ -80,7 +80,7 @@ export function ReceiptBadge({
     <>
       <span
         aria-hidden="true"
-        className={cn("size-1.5 rounded-full", receiptDotClass[tone])}
+        className={cn("size-1.5 shrink-0 rounded-full", receiptDotClass[tone])}
       />
       {text}
       {detail ? (
@@ -89,7 +89,7 @@ export function ReceiptBadge({
     </>
   );
   const base = cn(
-    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-medium",
+    "inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-caption font-medium",
     TONE_CLASS[tone],
     className,
   );
@@ -100,7 +100,10 @@ export function ReceiptBadge({
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className={cn(base, "transition-opacity hover:opacity-80")}
+        className={cn(
+          base,
+          "underline-offset-2 transition-[box-shadow,text-decoration-color] duration-150 ease-terminal hover:underline hover:shadow-card focus-visible:ring-3 focus-visible:ring-ring/50",
+        )}
         aria-label={`${text} — open provider receipt`}
       >
         {content}

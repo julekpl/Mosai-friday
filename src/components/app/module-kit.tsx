@@ -1,6 +1,6 @@
 import { Component, useState, type ErrorInfo, type ReactNode } from "react";
 import { Link } from "react-router";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /* ── Status badge: one visual grammar for every workflow state ─────────── */
@@ -41,12 +42,24 @@ const STATUS_TONE = {
 type Tone = "neutral" | "green" | "amber" | "red" | "blue";
 
 const TONE_CLASS: Record<Tone, string> = {
-  neutral: "border-border text-muted-foreground",
+  neutral: "border-border bg-muted/60 text-muted-foreground",
   green:
     "border-terminal-green/40 bg-terminal-green-soft text-terminal-green",
   amber: "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber",
   red: "border-terminal-red/40 bg-terminal-red-soft text-terminal-red",
   blue: "border-terminal-blue/40 bg-terminal-blue-soft text-terminal-blue",
+};
+
+/* Leading dot per tone. The dot only mirrors the tone the status already
+ * maps to — it never adds a check mark, pulse or other "confirmed"
+ * affordance, so a status can never look more certain than STATUS_TONE
+ * says it is. Externally verifiable states belong in ReceiptBadge. */
+const TONE_DOT: Record<Tone, string> = {
+  neutral: "bg-muted-foreground/60",
+  green: "bg-terminal-green",
+  amber: "bg-terminal-amber",
+  red: "bg-terminal-red",
+  blue: "bg-terminal-blue",
 };
 
 export function StatusBadge({
@@ -63,8 +76,13 @@ export function StatusBadge({
   return (
     <Badge
       variant="outline"
-      className={cn("font-mono text-caption", TONE_CLASS[tone], className)}
+      data-tone={tone}
+      className={cn("gap-1.5 font-mono text-caption", TONE_CLASS[tone], className)}
     >
+      <span
+        aria-hidden="true"
+        className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[tone])}
+      />
       {status.replace(/_/g, " ")}
       {detail ? (
         <span className="font-sans font-normal text-muted-foreground">· {detail}</span>
@@ -93,7 +111,10 @@ export function SourceChip({
   return (
     <Badge
       variant="outline"
-      className={cn("font-mono text-caption text-muted-foreground", className)}
+      className={cn(
+        "bg-card font-mono text-caption text-muted-foreground",
+        className,
+      )}
     >
       src: {label}
     </Badge>
@@ -107,18 +128,33 @@ export function Stat({
   value,
   hint,
   tone,
+  icon: Icon,
+  className,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   tone?: "green" | "amber" | "red";
+  /** Optional small glyph shown beside the label. */
+  icon?: React.ElementType;
+  className?: string;
 }) {
   return (
-    <div className="rounded-md border bg-card p-4 shadow-card">
-      <p className="font-mono text-caption text-muted-foreground">{label}</p>
+    <div
+      className={cn(
+        "rounded-lg border bg-card p-4 shadow-card transition-shadow duration-200 ease-terminal hover:shadow-pop",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-mono text-caption text-muted-foreground">{label}</p>
+        {Icon ? (
+          <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        ) : null}
+      </div>
       <p
         className={cn(
-          "mt-1 font-mono text-metric",
+          "mt-1.5 font-mono text-metric tabular-nums",
           tone === "green" && "text-terminal-green",
           tone === "amber" && "text-terminal-amber",
           tone === "red" && "text-terminal-red",
@@ -131,6 +167,72 @@ export function Stat({
           {hint}
         </p>
       )}
+    </div>
+  );
+}
+
+/* ── Section header: one heading grammar for every module section ─────── */
+
+/** Consistent section heading: optional eyebrow and icon, a title, a
+ *  one-line description and a right-aligned action slot that wraps under
+ *  the title on narrow screens. Choose the heading level with `as` so the
+ *  page outline stays correct. */
+export function SectionHeader({
+  title,
+  description,
+  eyebrow,
+  icon: Icon,
+  actions,
+  as: Heading = "h2",
+  id,
+  className,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  /** Small mono label above the title, e.g. "step 2". */
+  eyebrow?: ReactNode;
+  icon?: React.ElementType;
+  actions?: ReactNode;
+  as?: "h1" | "h2" | "h3" | "h4";
+  /** Heading id, so a surrounding region can use aria-labelledby. */
+  id?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3",
+        className,
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        {Icon ? (
+          <span
+            aria-hidden="true"
+            className="grid size-9 shrink-0 place-items-center rounded-md border bg-card text-muted-foreground shadow-card"
+          >
+            <Icon className="size-4" />
+          </span>
+        ) : null}
+        <div className="min-w-0">
+          {eyebrow ? (
+            <p className="font-mono text-caption uppercase text-muted-foreground">
+              {eyebrow}
+            </p>
+          ) : null}
+          <Heading id={id} className="font-mono text-h3 text-foreground">
+            {title}
+          </Heading>
+          {description ? (
+            <p className="mt-0.5 max-w-prose font-mono text-caption text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -170,6 +272,12 @@ export function ConfirmDelete({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
+          <span
+            aria-hidden="true"
+            className="mb-1 grid size-10 place-items-center rounded-lg border border-terminal-red/30 bg-terminal-red-soft text-terminal-red"
+          >
+            <Trash2 className="size-5" />
+          </span>
           <DialogTitle className="font-mono text-h3">
             Delete {what}?
           </DialogTitle>
@@ -181,7 +289,12 @@ export function ConfirmDelete({
           <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={run} disabled={busy}>
+          <Button
+            variant="destructive"
+            onClick={run}
+            disabled={busy}
+            aria-busy={busy || undefined}
+          >
             {busy && <Loader2 className="size-4 animate-spin" />}
             Delete
           </Button>
@@ -195,23 +308,44 @@ export function ConfirmDelete({
 
 /** Honest skeleton for a module section that is still loading.
  *  Convex queries return `undefined` until they resolve; pages must not
- *  render "No … yet" during that window. */
+ *  render "No … yet" during that window. The shimmer comes from
+ *  `Skeleton` and stops under prefers-reduced-motion. */
 export function ModuleSkeleton({
   label = "Loading…",
   rows = 2,
+  variant = "rows",
 }: {
   label?: string;
   rows?: number;
+  /** "rows" (default) stacks list rows; "cards" lays placeholders in a grid. */
+  variant?: "rows" | "cards";
 }) {
   return (
-    <div role="status" className="grid gap-3">
+    <div
+      role="status"
+      aria-busy="true"
+      className={cn(
+        "grid gap-3",
+        variant === "cards" && "sm:grid-cols-2 lg:grid-cols-3",
+      )}
+    >
       <span className="sr-only">{label}</span>
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
-          aria-hidden
-          className="h-16 animate-pulse rounded-md border bg-card shadow-card"
-        />
+          aria-hidden="true"
+          className={cn(
+            "flex gap-3 rounded-lg border bg-card p-4 shadow-card",
+            variant === "cards" ? "min-h-32 flex-col" : "min-h-16 items-center",
+          )}
+        >
+          <Skeleton className="size-8 shrink-0" />
+          <div className="grid flex-1 gap-2">
+            <Skeleton className="h-3 w-2/5" />
+            <Skeleton className={cn("h-3", i % 2 === 0 ? "w-4/5" : "w-3/5")} />
+            {variant === "cards" ? <Skeleton className="h-3 w-1/2" /> : null}
+          </div>
+        </div>
       ))}
     </div>
   );
@@ -231,13 +365,20 @@ export function ModuleErrorState({
   return (
     <div
       role="alert"
-      className="rounded-md border border-terminal-red/40 bg-terminal-red-soft p-6 text-center"
+      className="rounded-lg border border-terminal-red/40 bg-terminal-red-soft px-6 py-8 text-center"
     >
-      <AlertTriangle className="mx-auto size-5 text-terminal-red" />
-      <p className="mt-2 font-mono text-small font-medium">{title}</p>
-      <p className="mt-1 font-mono text-caption text-muted-foreground">{hint}</p>
+      <span
+        aria-hidden="true"
+        className="mx-auto grid size-10 place-items-center rounded-lg border border-terminal-red/30 bg-card text-terminal-red shadow-card"
+      >
+        <AlertTriangle className="size-5" />
+      </span>
+      <p className="mt-3 font-mono text-small font-medium text-foreground">{title}</p>
+      <p className="mx-auto mt-1 max-w-md font-mono text-caption text-muted-foreground">
+        {hint}
+      </p>
       {onRetry && (
-        <div className="mt-3 flex justify-center">
+        <div className="mt-4 flex justify-center">
           <Button size="sm" variant="outline" onClick={onRetry}>
             Try again
           </Button>
@@ -300,18 +441,22 @@ export function RelatedModules({
   return (
     <nav
       aria-label="Related components"
-      className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-4"
+      className="mt-8 flex flex-wrap items-center gap-2 border-t pt-4"
     >
-      <span className="font-mono text-caption text-muted-foreground">
+      <span className="mr-1 font-mono text-caption text-muted-foreground">
         related:
       </span>
       {modules.map((m) => (
         <Link
           key={m}
           to={`/app/${projectId}/${m}`}
-          className="font-mono text-caption text-terminal-green hover:underline"
+          className="group/related inline-flex items-center gap-1 rounded-full border bg-card px-3 py-1 font-mono text-caption text-foreground shadow-card transition-[color,box-shadow,border-color] duration-150 ease-terminal hover:border-terminal-green/50 hover:text-terminal-green hover:shadow-pop focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           {MODULE_LABEL[m] ?? m}
+          <ArrowUpRight
+            aria-hidden="true"
+            className="size-3 text-muted-foreground transition-transform duration-150 ease-terminal group-hover/related:text-terminal-green motion-safe:group-hover/related:translate-x-0.5 motion-safe:group-hover/related:-translate-y-0.5"
+          />
         </Link>
       ))}
     </nav>
@@ -320,25 +465,58 @@ export function RelatedModules({
 
 /* ── Module empty state ───────────────────────────────────────────────── */
 
+const EMPTY_TILE: Record<"neutral" | "warning" | "error", string> = {
+  neutral: "border-border bg-card text-foreground",
+  warning: "border-terminal-amber/30 bg-terminal-amber-soft text-terminal-amber",
+  error: "border-terminal-red/30 bg-terminal-red-soft text-terminal-red",
+};
+
+/** Empty state: an illustrative icon tile, one title, one line of help and
+ *  a single clear next step. Use `tone="warning"`/`"error"` when the area is
+ *  empty because something is unavailable, not because nothing exists. */
 export function ModuleEmpty({
   icon: Icon,
   title,
   hint,
   action,
+  tone = "neutral",
+  className,
 }: {
   icon: React.ElementType;
   title: string;
   hint: string;
+  /** One clear next step: a single primary button or link. */
   action?: React.ReactNode;
+  tone?: "neutral" | "warning" | "error";
+  className?: string;
 }) {
   return (
-    <div className="rounded-md border border-dashed p-10 text-center">
-      <Icon className="mx-auto size-6 text-muted-foreground" />
-      <p className="mt-3 font-mono text-small font-medium">{title}</p>
+    <div
+      className={cn(
+        "relative isolate overflow-hidden rounded-lg border border-dashed bg-muted/30 px-6 py-12 text-center",
+        className,
+      )}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 bg-dots opacity-70"
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          "relative mx-auto grid size-12 place-items-center rounded-xl border shadow-card",
+          EMPTY_TILE[tone],
+        )}
+      >
+        <span className="absolute -top-1.5 -right-1.5 size-3 rounded-sm border bg-terminal-green-soft" />
+        <span className="absolute -bottom-1 -left-1.5 size-2 rounded-sm border bg-terminal-blue-soft" />
+        <Icon className="size-5" />
+      </span>
+      <p className="mt-4 font-mono text-small font-medium text-foreground">{title}</p>
       <p className="mx-auto mt-1 max-w-md font-mono text-caption text-muted-foreground">
         {hint}
       </p>
-      {action && <div className="mt-4 flex justify-center">{action}</div>}
+      {action && <div className="mt-5 flex justify-center">{action}</div>}
     </div>
   );
 }

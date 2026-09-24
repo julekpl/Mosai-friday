@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import type { ScanResult } from "@/convex/scraping";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
   Check,
@@ -23,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { MOSAI_EASE, MOTION } from "@/components/motion";
 import {
   displayDomain,
   looksLikeUrl,
@@ -52,10 +54,18 @@ type BusinessSuggestion = {
 type BusinessSearchState = "idle" | "loading" | "results" | "empty" | "error";
 
 const steps = [
-  { key: "start", label: "Your business" },
-  { key: "review", label: "Your business map" },
-  { key: "audience", label: "Who you serve" },
+  { key: "start", label: "Your business", hint: "Name and a starting source" },
+  { key: "review", label: "Your business map", hint: "Check what we found" },
+  { key: "audience", label: "Who you serve", hint: "Audience and goals" },
 ] as const;
+
+/** Step slide: a short 12px travel in the direction of navigation. The app's
+ *  MotionConfig (reducedMotion="user") removes the travel when asked. */
+const stepVariants = {
+  enter: (direction: number) => ({ opacity: 0, x: direction * 12 }),
+  center: { opacity: 1, x: 0 },
+  exit: (direction: number) => ({ opacity: 0, x: direction * -12 }),
+};
 
 /* ── Quick-add suggestion row for the interactive "who" step ───────────── */
 
@@ -78,12 +88,12 @@ function Suggestions({
             type="button"
             aria-pressed={active}
             onClick={() => onPick(o)}
-            className={cn(
-              "flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-caption transition-colors ease-terminal",
+            className={`font-mono text-caption ${cn(
+              "flex items-center gap-1 rounded-full border px-2.5 py-1 transition-colors ease-terminal",
               active
                 ? "border-terminal-green/60 bg-terminal-green-soft text-terminal-green"
                 : "text-muted-foreground hover:border-terminal-green/40 hover:text-terminal-green",
-            )}
+            )}`}
           >
             {active && <Check className="size-3" aria-hidden="true" />}
             {o}
@@ -249,7 +259,24 @@ function WebsiteMapReview({
 /* ── The wizard ─────────────────────────────────────────────────────────── */
 
 export function NewProjectWizard() {
-  const [step, setStep] = useState(0);
+  const [step, setStepState] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const stepRegionRef = useRef<HTMLDivElement>(null);
+  const focusPending = useRef(false);
+  const setStep = (next: number) => {
+    setDirection(next >= step ? 1 : -1);
+    focusPending.current = next !== step;
+    setStepState(next);
+  };
+  /** After a step change, move focus to the new step's heading so keyboard
+   *  and screen-reader users start at the top of the new content. */
+  const focusStepHeading = () => {
+    const heading = stepRegionRef.current?.querySelector("h1");
+    if (heading instanceof HTMLElement) {
+      heading.setAttribute("tabindex", "-1");
+      heading.focus({ preventScroll: false });
+    }
+  };
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [websiteInput, setWebsiteInput] = useState("");
@@ -436,6 +463,14 @@ export function NewProjectWizard() {
     setStep(step + 1);
   };
 
+  /** Enter in the first-step text fields moves on, like submitting a form. */
+  const continueOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    if (!name.trim() || isScanning) return;
+    event.preventDefault();
+    void handleContinue();
+  };
+
   const handleFinish = async () => {
     if (!name.trim()) return;
     if (scanSources.business === "needs_review") {
@@ -501,21 +536,82 @@ export function NewProjectWizard() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-7 grid gap-3">
+      <div className="mb-8 grid gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="font-mono text-caption text-muted-foreground">Step {step + 1} of {steps.length} <span aria-hidden="true">·</span> {steps[step].label}</p>
-          <p className="font-mono text-caption text-terminal-green">A little context now makes every next step more useful.</p>
+          <p className="font-mono text-caption text-muted-foreground">
+            Step {step + 1} of {steps.length} <span aria-hidden="true">·</span> {steps[step].label}
+          </p>
+          <p className="font-mono text-caption text-terminal-green-ink">A little context now makes every next step more useful.</p>
         </div>
-        <div role="progressbar" aria-label="New project progress" aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={step + 1} className="h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-terminal-green transition-[width] duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%` }} />
+        <div
+          role="progressbar"
+          aria-label="New project progress"
+          aria-valuemin={1}
+          aria-valuemax={steps.length}
+          aria-valuenow={step + 1}
+          aria-valuetext={`Step ${step + 1} of ${steps.length}: ${steps[step].label}`}
+          className="grid grid-cols-3 gap-1.5"
+        >
+          {steps.map((s, i) => (
+            <span key={s.key} aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <span
+                className={cn(
+                  "block h-full origin-left rounded-full bg-terminal-green transition-transform duration-300 ease-terminal",
+                  i <= step ? "scale-x-100" : "scale-x-0",
+                )}
+              />
+            </span>
+          ))}
         </div>
-        <ol aria-label="New project steps" className="flex flex-wrap gap-x-5 gap-y-2 font-mono text-caption text-muted-foreground">
-          {steps.map((s, i) => <li key={s.key} aria-current={i === step ? "step" : undefined} className={cn("flex items-center gap-2", i === step && "font-semibold text-foreground")}>
-            <span className={cn("grid size-6 place-items-center rounded-full border", i < step && "border-terminal-green bg-terminal-green-soft text-terminal-green", i === step && "border-terminal-green bg-terminal-green text-background")}>{i < step ? <Check className="size-3.5" aria-hidden="true" /> : i + 1}</span>{s.label}
-          </li>)}
+        <ol aria-label="New project steps" className="grid gap-2 sm:grid-cols-3">
+          {steps.map((s, i) => (
+            <li
+              key={s.key}
+              aria-current={i === step ? "step" : undefined}
+              className={`font-mono text-caption ${cn(
+                "flex min-w-0 items-center gap-3 rounded-lg border px-3 py-2 transition-colors duration-200 ease-terminal",
+                i === step ? "border-terminal-green/40 bg-card shadow-soft" : "border-transparent text-muted-foreground",
+              )}`}
+            >
+              <span
+                className={cn(
+                  "grid size-7 shrink-0 place-items-center rounded-full border font-semibold transition-colors duration-200",
+                  i < step && "border-terminal-green/50 bg-terminal-green-soft text-terminal-green-ink",
+                  i === step && "border-primary bg-primary text-primary-foreground",
+                )}
+              >
+                {i < step ? <Check className="size-3.5" aria-hidden="true" /> : i + 1}
+                {i < step && <span className="sr-only">Done:</span>}
+              </span>
+              <span className="min-w-0">
+                <span className={cn("block truncate", i === step && "font-semibold text-foreground")}>{s.label}</span>
+                <span className="hidden truncate text-muted-foreground sm:block">{s.hint}</span>
+              </span>
+            </li>
+          ))}
         </ol>
+        <p className="sr-only" role="status" aria-live="polite">
+          {`Step ${step + 1} of ${steps.length}: ${steps[step].label}`}
+        </p>
       </div>
 
+      <div ref={stepRegionRef}>
+      <AnimatePresence mode="wait" initial={false} custom={direction}>
+      <motion.div
+        key={step}
+        custom={direction}
+        variants={stepVariants}
+        initial="enter"
+        animate="center"
+        exit="exit"
+        transition={{ duration: MOTION.base, ease: MOSAI_EASE }}
+        onAnimationComplete={(definition) => {
+          if (definition === "center" && focusPending.current) {
+            focusPending.current = false;
+            focusStepHeading();
+          }
+        }}
+      >
       {/* ── Step 1: a quick, friendly business starting point ─────────── */}
       {step === 0 && (
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,.9fr)]">
@@ -533,6 +629,7 @@ export function NewProjectWizard() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Northside Coffee"
+                onKeyDown={continueOnEnter}
                 autoFocus
                 aria-describedby="np-name-hint"
                 className="h-12 text-small"
@@ -549,6 +646,7 @@ export function NewProjectWizard() {
                   value={websiteInput}
                   onChange={(e) => setWebsiteInput(e.target.value)}
                   placeholder="yourbusiness.com"
+                  onKeyDown={continueOnEnter}
                   className="h-12 pl-10"
                   aria-describedby="np-url-hint"
                   inputMode="url"
@@ -694,7 +792,7 @@ export function NewProjectWizard() {
 
       {/* ── Step 2: what — auto-filled from scan ────────────────────────── */}
       {step === 1 && (
-        <div className="grid gap-4">
+        <div className="grid gap-4 rounded-xl border bg-card p-5 shadow-soft sm:p-7">
           <div>
             <h1 className="font-mono text-h1">What does the business do?</h1>
             <p className="mt-1 font-mono text-caption text-muted-foreground">
@@ -707,12 +805,12 @@ export function NewProjectWizard() {
           {scanResult && <WebsiteMapReview scanResult={scanResult} businessName={businessName} onBusinessDetailChange={updateBusinessDetail} />}
 
           {(scanStatus === "scraped" || scanStatus === "partial" || scanStatus === "failed") && (
-            <div role="status" className={cn(
-              "flex flex-wrap items-center gap-2 rounded-md border p-3 font-mono text-caption",
+            <div role="status" className={`font-mono text-caption ${cn(
+              "flex flex-wrap items-center gap-2 rounded-md border p-3",
               scanStatus === "scraped"
                 ? "border-terminal-green/30 bg-terminal-green-soft text-terminal-green"
                 : "border-terminal-amber/30 bg-terminal-amber-soft text-terminal-amber",
-            )}>
+            )}`}>
               <ScanSearch className="size-4" />
               {scanStatus === "scraped"
               ? "Sources ready to review"
@@ -817,7 +915,7 @@ export function NewProjectWizard() {
 
       {/* ── Step 3: who — interactive chip builder ─────────────────────── */}
       {step === 2 && (
-        <div className="grid gap-5">
+        <div className="grid gap-5 rounded-xl border bg-card p-5 shadow-soft sm:p-7">
           <div>
             <h1 className="font-mono text-h1">Who are you trying to reach?</h1>
             <p className="mt-1 font-mono text-caption text-muted-foreground">
@@ -907,7 +1005,12 @@ export function NewProjectWizard() {
         </div>
       )}
 
-      <div className="mt-8 flex items-center gap-3">
+      </motion.div>
+      </AnimatePresence>
+      </div>
+
+      <div className="sticky bottom-0 z-10 mt-8 flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3 shadow-soft surface-glass sm:mx-0">
+        {isScanning && <span className="sr-only" role="status">Mapping your business. This can take a little while.</span>}
         {step > 0 && (
           <Button variant="ghost" onClick={() => setStep(step - 1)}>
             Back
@@ -934,7 +1037,12 @@ export function NewProjectWizard() {
             <Plus className="size-4" /> Create project
           </Button>
         )}
-        <p className="ml-auto font-mono text-caption text-muted-foreground">Your details stay a draft until you review them.</p>
+        <p className="font-mono text-caption text-muted-foreground sm:ml-auto">
+          {step === 0 && name.trim() && !isScanning ? (
+            <>Press <kbd className="rounded-sm border bg-card px-1 font-mono text-caption">Enter</kbd> to continue · </>
+          ) : null}
+          Your details stay a draft until you review them.
+        </p>
       </div>
     </div>
   );

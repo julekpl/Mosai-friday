@@ -188,7 +188,14 @@ describe("A client cannot manufacture external success", () => {
     });
     const { pageId } = await seedSite(t, tenant, projectId);
 
-    await tenant.as.mutation(api.cms.publishPage, { pageId });
+    const revisionId = await tenant.as.mutation(api.cms.publishPage, { pageId });
+
+    // Owner decision (24 Sep 2026): the promotion is recorded under the
+    // honest `release_prepared` name — never the legacy `published`.
+    const promoted = await t.run((ctx) => ctx.db.get(revisionId));
+    expect(promoted?.state).toBe("release_prepared");
+    const pageRow = await t.run((ctx) => ctx.db.get(pageId));
+    expect(pageRow?.status).toBe("release_prepared");
 
     const siteRow = await t.run(async (ctx) => {
       const site = await ctx.db
@@ -247,7 +254,7 @@ describe("Failed preparation preserves the previous confirmed release", () => {
     const servedRevision = await t.run((ctx) =>
       ctx.db.get(before!.publishedRevisionId!),
     );
-    expect(servedRevision?.state).toBe("published");
+    expect(servedRevision?.state).toBe("release_prepared");
     expect(servedRevision?.document).toEqual(DOC);
 
     // No second release was recorded.
@@ -1372,5 +1379,133 @@ describe("External delivery is gated on a verified deployment receipt (review fo
     if (sf.kind === "page") {
       expect(sf.page.seo?.title).toBe("B SEO title");
     }
+  });
+});
+
+describe("`published` → `release_prepared` rename keeps public serving unchanged", () => {
+  /** Server-written verification of the newest audit (as BP-13 will). */
+  async function verifyNewest(
+    t: TestBackend,
+    projectId: string,
+    buildId: string,
+    siteId: string,
+  ) {
+    const now = Date.now();
+    const deploymentId = await t.run((ctx) =>
+      ctx.db.insert("buildDeployments", {
+        projectId,
+        buildId,
+        siteId,
+        state: "succeeded",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    await t.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect();
+      audits.sort(
+        (a, b) =>
+          b.createdAt - a.createdAt || b._creationTime - a._creationTime,
+      );
+      await ctx.db.patch(audits[0]._id, { phase: "verified", deploymentId });
+    });
+  }
+
+  it("publishSite and publishPage write release_prepared and never published", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { buildId, pageId } = await seedSite(t, tenant, projectId);
+
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await tenant.as.mutation(api.cms.publishPage, { pageId });
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    const { revisions, page } = await t.run(async (ctx) => ({
+      revisions: await ctx.db.query("pageRevisions").collect(),
+      page: await ctx.db.get(pageId),
+    }));
+    expect(revisions.some((r) => r.state === "published")).toBe(false);
+    expect(revisions.filter((r) => r.state === "release_prepared")).toHaveLength(1);
+    expect(page?.status).toBe("release_prepared");
+  });
+
+  it("nothing is served after preparation alone, whichever name the row carries", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" }),
+    ).toBeNull();
+
+    // A legacy spelling on the same row grants nothing without a receipt.
+    const page = await t.run((ctx) => ctx.db.get(pageId));
+    await t.run(async (ctx) => {
+      await ctx.db.patch(page!.publishedRevisionId!, { state: "published" });
+      await ctx.db.patch(pageId, { status: "published" });
+    });
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" }),
+    ).toBeNull();
+  });
+
+  it("a receipt-pinned revision serves identically under the legacy and the new name", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { buildId, siteId, pageId } = await seedSite(t, tenant, projectId);
+
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+    await verifyNewest(t, projectId, buildId, siteId);
+    const servedNew = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(servedNew?.revision.document).toEqual(DOC);
+    expect(servedNew?.revision.state).toBe("release_prepared");
+
+    // Simulate a pre-rename row: same pinned revision, legacy literal.
+    const pinnedId = servedNew!.revision._id;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(pinnedId, { state: "published" });
+      await ctx.db.patch(pageId, { status: "published" });
+    });
+    const servedLegacy = await tenant.as.query(api.cms.getPublishedByPath, {
+      siteId,
+      fullPath: "/",
+    });
+    expect(servedLegacy?.revision._id).toBe(pinnedId);
+    expect(servedLegacy?.revision.document).toEqual(DOC);
+    expect(servedLegacy?.page).toEqual(servedNew?.page);
+
+    // A superseded pinned row is still refused (the state check is kept).
+    await t.run((ctx) => ctx.db.patch(pinnedId, { state: "superseded" }));
+    expect(
+      await tenant.as.query(api.cms.getPublishedByPath, { siteId, fullPath: "/" }),
+    ).toBeNull();
+  });
+
+  it("a new promotion supersedes a legacy `published` row that is not pinned", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { pageId } = await seedSite(t, tenant, projectId);
+
+    const firstId = await tenant.as.mutation(api.cms.publishPage, { pageId });
+    await t.run((ctx) => ctx.db.patch(firstId, { state: "published" }));
+    const secondId = await tenant.as.mutation(api.cms.publishPage, { pageId });
+
+    const [first, second] = await t.run(async (ctx) => [
+      await ctx.db.get(firstId),
+      await ctx.db.get(secondId),
+    ]);
+    expect(first?.state).toBe("superseded");
+    expect(second?.state).toBe("release_prepared");
   });
 });

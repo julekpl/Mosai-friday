@@ -133,6 +133,23 @@ makes a later run pass both scans — checklist in
 `docs/implementation/reports/BP-01-repair-baseline.md` § *Owner remediation
 checklist* (Freebuff-safe vs. owner-only actions).
 
+**Updated 24 Sep 2026 — public website hosting (owner decision, option B for
+MVP):** customer websites are served at `https://appmosai.com/s/<slug>-website/<page>`
+on the dashboard origin, as server-rendered HTML with no JavaScript. This is a
+dated, time-boxed exception to AGENTS.md rule 9 (recorded in rule 9 and in
+`docs/decisions/2026-09-24-hosting-public-sites.md`, now **accepted**); apps are
+not public. `main.ts` routes every `/s/*` request to
+`server/publicSiteProxy.ts`, which validates the path, forwards only GET/HEAD
+with no browser headers to the Convex route `/public-site/…`, and replaces the
+app CSP with a script-free policy (`tests/unit/public-site-proxy.test.ts`). The
+Build workspace has one **Publish** button (prepare release → deploy) and the
+Site panel a compact "Publish to web" bar; both say "Live" only when
+`siteHosting:status` reports `live` (`tests/unit/publish-to-web.test.ts`). The
+`siteHosting` backend and the Convex HTTP route are built in parallel; owner
+must set `CONVEX_SITE_URL` (or `VITE_CONVEX_URL`) on the Deno server. Moving to
+option A (separate domain) is still required before apps or any user script go
+public.
+
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
 level 5 — a ticket still wins on scope — but it is the ground truth about *state*.

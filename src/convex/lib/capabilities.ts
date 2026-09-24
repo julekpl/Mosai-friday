@@ -485,6 +485,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   buildWorkspace: "build",
   buildChat: "build",
   cms: "build",
+  siteHosting: "build",
   contacts: "customers",
   posts: "promote",
   campaigns: "promote",
@@ -521,6 +522,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   billingWebhooks: "base",
   admin: "base",
   aiModels: "base",
+  aiBudget: "base",
   organizations: "base",
   http: "base",
   crons: "base",
@@ -544,6 +546,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   schema: "internal",
   "test.setup": "internal",
   buildInternals: "internal",
+  cmsReleaseMigration: "internal", // internalMutation only (published → release_prepared)
   commerceEvents: "internal",
   "ads/adapters": "internal",
   "ads/credentialActions": "internal",
@@ -577,6 +580,10 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/googleMaps": "internal",
   "lib/businessProfile": "internal",
   "lib/aiModelCatalog": "internal",
+  "lib/aiBudget": "internal",
+  "lib/sitePaths": "internal",
+  "lib/siteHtml": "internal",
+  "lib/publicSites": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {

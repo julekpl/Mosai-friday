@@ -1,21 +1,29 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
   Blocks,
+  Check,
+  FileCheck2,
   Megaphone,
   PenTool,
+  Route,
   Search,
+  ShieldCheck,
   ShoppingBag,
   TrendingUp,
   Users,
 } from "lucide-react";
 import {
-  FloatingTiles,
   MosaicMark,
-  Reveal,
-  moduleTileText,
+  moduleTileBg,
+  moduleTileChip,
 } from "@/components/mosaic";
+import {
+  LazyMosaicField,
+  PageTransition,
+  ScrollReveal,
+} from "@/components/fx";
 import { SkipLink } from "@/components/SkipLink";
 import { StatusBadge } from "@/components/app/module-kit";
 import { cn } from "@/lib/utils";
@@ -288,7 +296,9 @@ function Demo() {
         ))}
       </ol>
       <div className="min-h-[10rem] px-4 py-6 sm:px-5 sm:py-8">
-        <DemoPanel step={step} />
+        <PageTransition transitionKey={step} preset="rise" animateOnMount={false}>
+          <DemoPanel step={step} />
+        </PageTransition>
       </div>
     </div>
   );
@@ -302,6 +312,54 @@ const navLinks = [
   { href: "#components", label: "What you can do" },
   { href: "#control", label: "Your control" },
 ] as const;
+
+/** Every component the shared project context feeds (hero overview card). */
+const contextModules = [
+  { id: "understand", name: "Understand", icon: Search },
+  { id: "journeys", name: "Journeys", icon: Route },
+  { id: "create", name: "Create", icon: PenTool },
+  { id: "build", name: "Build", icon: Blocks },
+  { id: "customers", name: "Customers", icon: Users },
+  { id: "promote", name: "Promote", icon: Megaphone },
+  { id: "sell", name: "Sell", icon: ShoppingBag },
+  { id: "grow", name: "Grow", icon: TrendingUp },
+] as const;
+
+/** Facts restated from the product copy — no counts, no testimonials. */
+const heroFacts = [
+  "Sign in with an email code",
+  "Free plan: Understand, Journeys and Create",
+  "Nothing is shared until you say so",
+] as const;
+
+function SectionHeader({
+  eyebrow,
+  title,
+  lede,
+  id,
+}: {
+  eyebrow: string;
+  title: string;
+  lede?: ReactNode;
+  id: string;
+}) {
+  return (
+    <ScrollReveal>
+      <p className="font-mono text-caption text-terminal-green">▸ {eyebrow}</p>
+      <h2 id={id} className="mt-2 max-w-3xl font-mono text-h1">
+        {title}
+      </h2>
+      {lede && (
+        <p className="mt-3 max-w-2xl font-mono text-small text-muted-foreground">
+          {lede}
+        </p>
+      )}
+    </ScrollReveal>
+  );
+}
+
+const ctaMotion =
+  "transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 active:translate-y-0 active:scale-95";
 
 export default function Landing() {
   return (
@@ -337,7 +395,7 @@ export default function Landing() {
             <Button asChild size="sm" variant="ghost">
               <a href="/auth">Sign in</a>
             </Button>
-            <Button asChild size="sm">
+            <Button asChild size="sm" className="hidden sm:inline-flex">
               <a href="/auth">Create your workspace</a>
             </Button>
           </div>
@@ -345,100 +403,172 @@ export default function Landing() {
       </header>
 
       <main id="main-content" tabIndex={-1}>
-        {/* Hero — direction B: the product, plainly explained */}
-        <section className="relative overflow-hidden border-b bg-grid">
-          <FloatingTiles />
-          <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
-            <p className="animate-mosaic-in font-mono text-caption text-terminal-green">
-              ▸ mosai — one marketing workspace for a small business
-            </p>
-            <h1
-              className="animate-mosaic-in mt-5 max-w-3xl font-mono text-display"
-              style={{ animationDelay: "80ms" }}
-            >
-              Your marketing,
-              <br />
-              coming together.
-            </h1>
-            <p
-              className="animate-mosaic-in mt-5 max-w-2xl font-mono text-body text-muted-foreground"
-              style={{ animationDelay: "160ms" }}
-            >
-              Understand your audience, make the content, and organize your next
-              move — with what you know about your business close at hand. AI
-              does the first pass; you review, edit and save the work.
-            </p>
-            <div
-              className="animate-mosaic-in mt-8 flex flex-wrap items-center gap-3"
-              style={{ animationDelay: "240ms" }}
-            >
-              <Button
-                asChild
-                size="lg"
-                className="shadow-pop transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:scale-[1.02] active:translate-y-0 active:scale-95"
+        {/* Hero — the product, plainly explained, over a living mosaic */}
+        <section
+          aria-labelledby="hero-title"
+          className="relative isolate overflow-hidden border-b"
+        >
+          <LazyMosaicField variant="hero" className="-z-20" />
+          {/* Readability scrim: solid paper behind the copy (WCAG 2.2 AA),
+              thinning out towards the field on wide screens. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-background/95 via-background/85 to-background/50 lg:bg-gradient-to-r lg:from-background lg:via-background/80 lg:to-background/0"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-24 bg-gradient-to-t from-background to-transparent"
+          />
+
+          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 md:pb-28 md:pt-24 lg:grid-cols-12">
+            <div className="lg:col-span-7">
+              <p className="animate-mosaic-in inline-flex items-center gap-2 rounded-full border bg-card/90 px-3 py-1 font-mono text-caption text-muted-foreground shadow-hairline backdrop-blur">
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 rounded-full bg-terminal-green"
+                />
+                mosai — one marketing workspace for a small business
+              </p>
+              <h1
+                id="hero-title"
+                className="animate-mosaic-in mt-6 font-mono text-h1 sm:text-display"
+                style={{ animationDelay: "80ms" }}
               >
-                <a href="/auth">
-                  Create your workspace
-                  <ArrowRight className="size-4" />
-                </a>
-              </Button>
-              <Button
-                asChild
-                size="lg"
-                variant="outline"
-                className="transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:border-terminal-green/50 active:translate-y-0 active:scale-95"
+                Your marketing,
+                <br />
+                coming together.
+              </h1>
+              <p
+                className="animate-mosaic-in mt-5 max-w-xl font-mono text-body text-muted-foreground"
+                style={{ animationDelay: "160ms" }}
               >
-                <a href="#demo">See how it works</a>
-              </Button>
+                Understand your audience, make the content, and organize your
+                next move — with what you know about your business close at
+                hand. AI does the first pass; you review, edit and save the
+                work.
+              </p>
+              <div
+                className="animate-mosaic-in mt-8 flex flex-wrap items-center gap-3"
+                style={{ animationDelay: "240ms" }}
+              >
+                <Button
+                  asChild
+                  size="lg"
+                  className={cn("shadow-pop hover:scale-[1.02]", ctaMotion)}
+                >
+                  <a href="/auth">
+                    Create your workspace
+                    <ArrowRight aria-hidden="true" className="size-4" />
+                  </a>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className={cn(
+                    "bg-card/80 backdrop-blur hover:border-terminal-green/50",
+                    ctaMotion,
+                  )}
+                >
+                  <a href="#demo">See how it works</a>
+                </Button>
+              </div>
+              <ul
+                className="animate-mosaic-in mt-8 flex flex-col gap-2 font-mono text-caption text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-5"
+                style={{ animationDelay: "320ms" }}
+                aria-label="Before you start"
+              >
+                {heroFacts.map((fact) => (
+                  <li key={fact} className="flex items-center gap-1.5">
+                    <Check
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 text-terminal-green"
+                    />
+                    {fact}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <p
-              className="animate-mosaic-in mt-5 max-w-2xl font-mono text-caption text-muted-foreground"
-              style={{ animationDelay: "320ms" }}
+
+            {/* One context, every component — what the mosaic stands for */}
+            <div
+              className="animate-mosaic-in lg:col-span-5"
+              style={{ animationDelay: "360ms" }}
             >
-              Sign in with an email code to begin. New workspaces start on the
-              free plan — Understand, Journeys and Create — and you can add the
-              rest as you grow.
-            </p>
+              <div className="mx-auto max-w-md rounded-xl border bg-card/90 p-5 shadow-float backdrop-blur-md">
+                <p className="font-mono text-caption text-muted-foreground">
+                  one project context
+                </p>
+                <p className="mt-1 font-mono text-small font-medium">
+                  business · audience · journey · content
+                </p>
+                <div aria-hidden="true" className="my-4 h-px bg-border" />
+                <p className="font-mono text-caption text-muted-foreground">
+                  read by every component
+                </p>
+                <ul className="mt-3 grid grid-cols-2 gap-2">
+                  {contextModules.map((m) => (
+                    <li
+                      key={m.id}
+                      className="flex items-center gap-2 rounded-md border bg-background/60 px-2 py-1.5"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "grid size-6 shrink-0 place-items-center rounded",
+                          moduleTileChip(m.id),
+                        )}
+                      >
+                        <m.icon className="size-3.5" />
+                      </span>
+                      <span className="font-mono text-caption font-medium">
+                        {m.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-4 font-mono text-caption text-muted-foreground">
+                  Each is useful on its own and better when the others are
+                  there.
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 
         {/* Demonstration */}
-        <section id="demo" className="border-b bg-dots">
-          <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
-            <Reveal>
-              <p className="font-mono text-caption text-terminal-green">
-                ▸ one task, start to finish
-              </p>
-              <h2 className="mt-2 font-mono text-h1">
-                Something useful happens quickly
-              </h2>
-              <p className="mt-2 max-w-2xl font-mono text-small text-muted-foreground">
-                A bakery owner tells MOSAI what the business is, picks who
-                they're writing for, asks for an announcement, and reviews the
-                draft. Click through the steps — this is example content, not a
-                real account.
-              </p>
-            </Reveal>
-            <Reveal delay={80}>
-              <div className="mt-6">
-                <Demo />
-              </div>
-            </Reveal>
+        <section
+          id="demo"
+          aria-labelledby="demo-title"
+          className="border-b bg-dots"
+        >
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-20">
+            <SectionHeader
+              id="demo-title"
+              eyebrow="one task, start to finish"
+              title="Something useful happens quickly"
+              lede="A bakery owner tells MOSAI what the business is, picks who they're writing for, asks for an announcement, and reviews the draft. Click through the steps — this is example content, not a real account."
+            />
+            <ScrollReveal preset="scale" delay={0.08} className="mt-8">
+              <Demo />
+            </ScrollReveal>
           </div>
         </section>
 
         {/* How it works */}
-        <section id="how" className="border-b">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-            <Reveal>
-              <p className="font-mono text-caption text-terminal-green">
-                ▸ how it works
-              </p>
-              <h2 className="mt-2 font-mono text-h1">
-                Context first, then work you can review
-              </h2>
-            </Reveal>
-            <ol className="mt-8 grid gap-3 md:grid-cols-3">
+        <section id="how" aria-labelledby="how-title" className="border-b">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-20">
+            <SectionHeader
+              id="how-title"
+              eyebrow="how it works"
+              title="Context first, then work you can review"
+            />
+            <ol className="relative mt-10 grid gap-3 md:grid-cols-3">
+              {/* Decorative connector between the three steps */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-8 top-9 hidden h-px bg-gradient-to-r from-tile-teal via-tile-violet to-tile-coral opacity-50 md:block"
+              />
               {[
                 {
                   n: "1",
@@ -457,23 +587,23 @@ export default function Landing() {
                 },
               ].map((s, i) => (
                 // axe rule `list`/`listitem`: <li> must be a direct child of
-                // <ol> — Reveal renders a div, so it belongs *inside* the li
-                // (BP-01: this markup bug failed the a11y gate).
+                // <ol> — the reveal wrapper renders a div, so it belongs
+                // *inside* the li (BP-01: this markup bug failed the a11y gate).
                 <li
                   key={s.n}
-                  className="h-full rounded-md border bg-card p-5 shadow-card"
+                  className="relative h-full rounded-md border bg-card p-5 shadow-card"
                 >
-                  <Reveal delay={i * 70}>
-                    <span className="grid size-7 place-items-center rounded-[3px] bg-terminal-green font-mono text-caption text-background">
+                  <ScrollReveal preset="mosaic" delay={i * 0.08}>
+                    <span className="grid size-8 place-items-center rounded-[3px] bg-terminal-green font-mono text-caption font-semibold text-background">
                       {s.n}
                     </span>
-                    <p className="mt-3 font-mono text-small font-medium">
+                    <p className="mt-4 font-mono text-small font-medium">
                       {s.title}
                     </p>
                     <p className="mt-1.5 font-mono text-caption text-muted-foreground">
                       {s.body}
                     </p>
-                  </Reveal>
+                  </ScrollReveal>
                 </li>
               ))}
             </ol>
@@ -481,104 +611,145 @@ export default function Landing() {
         </section>
 
         {/* The seven components */}
-        <section id="components" className="border-b bg-dots">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-            <Reveal>
-              <p className="font-mono text-caption text-terminal-green">
-                ▸ what you can do
-              </p>
-              <h2 className="mt-2 font-mono text-h1">Seven components</h2>
-              <p className="mt-2 max-w-2xl font-mono text-small text-muted-foreground">
-                Each one is useful on its own and better when the others are
-                there. Your plan decides which are active — the sidebar always
-                tells you.
-              </p>
-            </Reveal>
-            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <section
+          id="components"
+          aria-labelledby="components-title"
+          className="border-b bg-dots"
+        >
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-20">
+            <SectionHeader
+              id="components-title"
+              eyebrow="what you can do"
+              title="Seven components"
+              lede="Each one is useful on its own and better when the others are there. Your plan decides which are active — the sidebar always tells you."
+            />
+            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {components.map((m, i) => (
-                <Reveal key={m.name} delay={i * 60}>
-                  <article className="group h-full rounded-md border bg-card p-4 shadow-card transition-all duration-300 ease-mosaic hover:-translate-y-1 hover:rotate-[-0.4deg] hover:scale-[1.02] hover:border-terminal-green/40 hover:shadow-pop">
+                <ScrollReveal
+                  key={m.name}
+                  preset="mosaic"
+                  delay={(i % 3) * 0.06}
+                  className="h-full"
+                >
+                  <article className="group relative h-full overflow-hidden rounded-md border bg-card p-5 shadow-card transition-all duration-300 ease-mosaic hover:-translate-y-1 hover:border-terminal-green/40 hover:shadow-pop">
                     <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-500 ease-terminal group-hover:scale-x-100",
+                        moduleTileBg(m.id),
+                      )}
+                    />
+                    <span
+                      aria-hidden="true"
                       className={cn(
                         "grid size-9 place-items-center rounded-md transition-transform duration-300 ease-mosaic",
                         "group-hover:scale-110 group-hover:-rotate-6",
+                        moduleTileChip(m.id),
                       )}
                     >
-                      <m.icon className={cn("size-5", moduleTileText(m.id))} />
+                      <m.icon className="size-5" />
                     </span>
-                    <p className="mt-3 font-mono text-small font-semibold">
-                      {m.name} <span className="text-muted-foreground">— </span>
+                    <h3 className="mt-4 font-mono text-small font-semibold">
+                      {m.name}{" "}
+                      <span className="text-muted-foreground">— </span>
                       {m.task}
-                    </p>
+                    </h3>
                     <p className="mt-1.5 font-mono text-caption text-muted-foreground">
                       {m.detail}
                     </p>
                   </article>
-                </Reveal>
+                </ScrollReveal>
               ))}
             </div>
-            <Reveal delay={120}>
-              <p className="mt-4 font-mono text-caption text-muted-foreground">
+            <ScrollReveal delay={0.12}>
+              <p className="mt-5 font-mono text-caption text-muted-foreground">
                 Journeys — the steps your customers actually take — sits next to
                 Understand in every workspace, and feeds Create and Build.
               </p>
-            </Reveal>
+            </ScrollReveal>
           </div>
         </section>
 
         {/* Control and trust */}
-        <section id="control" className="border-b">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-            <Reveal>
-              <p className="font-mono text-caption text-terminal-green">
-                ▸ your control
-              </p>
-              <h2 className="mt-2 font-mono text-h1">
-                Nothing is live unless you made it live
-              </h2>
-            </Reveal>
-            <div className="mt-8 grid gap-3 md:grid-cols-3">
+        <section
+          id="control"
+          aria-labelledby="control-title"
+          className="border-b"
+        >
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-20">
+            <SectionHeader
+              id="control-title"
+              eyebrow="your control"
+              title="Nothing is live unless you made it live"
+            />
+            <div className="mt-10 grid gap-3 md:grid-cols-3">
               {[
                 {
+                  icon: FileCheck2,
                   title: "Drafts stay drafts",
                   body: "Saving is saving. Publishing is a separate, reviewed step — and a page only shows as published when the system actually published it.",
                 },
                 {
+                  icon: PenTool,
                   title: "You hold the pen",
                   body: "AI writes the first version; you edit every word. Tone, audience and length are visible settings, not hidden magic.",
                 },
                 {
+                  icon: ShieldCheck,
                   title: "Connect only what you choose",
                   body: "Sharing to social accounts requires connecting them first, with your own login. Marketing consent is stored per contact and checked before any send.",
                 },
               ].map((c, i) => (
-                <Reveal key={c.title} delay={i * 70}>
+                <ScrollReveal
+                  key={c.title}
+                  preset="rise"
+                  delay={i * 0.07}
+                  className="h-full"
+                >
                   <div className="h-full rounded-md border bg-card p-5 shadow-card">
-                    <p className="font-mono text-small font-medium">
+                    <c.icon
+                      aria-hidden="true"
+                      className="size-5 text-terminal-green"
+                    />
+                    <h3 className="mt-3 font-mono text-small font-medium">
                       {c.title}
-                    </p>
+                    </h3>
                     <p className="mt-1.5 font-mono text-caption text-muted-foreground">
                       {c.body}
                     </p>
                   </div>
-                </Reveal>
+                </ScrollReveal>
               ))}
             </div>
-            <Reveal delay={140}>
-              <p className="mt-4 font-mono text-caption text-muted-foreground">
+            <ScrollReveal delay={0.14}>
+              <p className="mt-5 font-mono text-caption text-muted-foreground">
                 Your project is exportable as a readable pack at any time —
                 context, personas and content in one file.
               </p>
-            </Reveal>
+            </ScrollReveal>
           </div>
         </section>
 
         {/* Final action */}
-        <section id="start" className="relative overflow-hidden bg-scanlines">
-          <FloatingTiles className="opacity-70" />
-          <div className="relative mx-auto max-w-6xl px-4 py-16 text-center sm:px-6">
-            <Reveal>
-              <div className="mx-auto mb-4 flex justify-center gap-1">
+        <section
+          id="start"
+          aria-labelledby="start-title"
+          className="relative isolate overflow-hidden"
+        >
+          <LazyMosaicField variant="ambient" className="-z-20" />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 bg-background/30"
+          />
+          <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 md:py-28">
+            <ScrollReveal
+              preset="scale"
+              className="mx-auto max-w-2xl rounded-xl border bg-card/95 p-8 text-center shadow-float backdrop-blur-md sm:p-12"
+            >
+              <div
+                aria-hidden="true"
+                className="mx-auto mb-5 flex justify-center gap-1"
+              >
                 {(
                   [
                     "bg-tile-teal",
@@ -592,11 +763,15 @@ export default function Landing() {
                     className="animate-mosaic-pop size-4 rounded-[3px] shadow-hairline"
                     style={{ animationDelay: `${i * 110}ms` }}
                   >
-                    <span className={cn("block size-full rounded-[3px]", tile)} />
+                    <span
+                      className={cn("block size-full rounded-[3px]", tile)}
+                    />
                   </span>
                 ))}
               </div>
-              <h2 className="font-mono text-h1">Start with a workspace</h2>
+              <h2 id="start-title" className="font-mono text-h1">
+                Start with a workspace
+              </h2>
               <p className="mx-auto mt-3 max-w-xl font-mono text-small text-muted-foreground">
                 Sign in with an email code, name your project, and add what your
                 business does. Your first draft is a few clicks after that.
@@ -604,18 +779,18 @@ export default function Landing() {
               <Button
                 asChild
                 size="lg"
-                className="mt-6 shadow-pop transition-transform duration-300 ease-mosaic hover:-translate-y-0.5 hover:scale-[1.03] active:translate-y-0 active:scale-95"
+                className={cn("mt-7 shadow-pop hover:scale-[1.03]", ctaMotion)}
               >
                 <a href="/auth">
                   Create your workspace
-                  <ArrowRight className="size-4" />
+                  <ArrowRight aria-hidden="true" className="size-4" />
                 </a>
               </Button>
               <p className="mt-4 font-mono text-caption text-muted-foreground">
                 Free plan includes Understand, Journeys and Create — add
                 modules as you grow.
               </p>
-            </Reveal>
+            </ScrollReveal>
           </div>
         </section>
       </main>

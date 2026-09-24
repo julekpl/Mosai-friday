@@ -6,6 +6,8 @@ import { oauthCallback } from "./ads/oauth";
 import { socialOauthCallback } from "./social/oauth";
 import { googleOauthCallback } from "./google/oauth";
 import { stripeWebhookSecret, verifyStripeSignature } from "./lib/stripe";
+import { handlePublicSiteRequest } from "./siteHosting";
+import { PUBLIC_SITE_HTTP_PREFIX } from "./lib/publicSites";
 
 const http = httpRouter();
 
@@ -106,6 +108,21 @@ http.route({
   path: "/api/stripe/webhook",
   method: "POST",
   handler: stripeWebhook,
+});
+
+// ── MOSAI-hosted customer websites (owner decision, 24 Sep 2026) ────────────
+// `/public-site/<slug>-website/<page path>` → static, script-free HTML of the
+// CONFIRMED release only (verified audit + succeeded deployment). Public and
+// read-only by design: no identity, no writes, receipt-gated content. The
+// dashboard origin forwards `/s/*` here (see siteHosting.ts).
+const publicSite = httpAction(async (ctx, request) =>
+  handlePublicSiteRequest(ctx, request),
+);
+
+http.route({
+  pathPrefix: PUBLIC_SITE_HTTP_PREFIX,
+  method: "GET",
+  handler: publicSite,
 });
 
 export default http;

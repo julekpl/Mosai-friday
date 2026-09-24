@@ -23,6 +23,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireUser } from "./guards";
 import { DATA_REGISTRY } from "./lib/dataRegistry";
+import schema from "./schema";
 
 // ── Authorized context helpers ─────────────────────────────────────────────
 
@@ -194,4 +195,68 @@ export async function cascadeDeleteProjectStep(
 
   await ctx.db.delete(projectId);
   return { cursor, done: true };
+}
+
+// ── Build deletion cascade (derived, never a hand list) ───────────────────
+
+/** Loose view of a schema table: the same shape `audit:data-registry` reads. */
+type SchemaTableShape = {
+  validator?: { fields?: Record<string, unknown> };
+  indexes?: Array<{ indexDescriptor: string }>;
+};
+
+/**
+ * Every table whose rows belong to ONE build: a registered project-scoped
+ * table (rule 12) that declares a `buildId` field and a `by_build` index.
+ *
+ * Derived from `DATA_REGISTRY` and `schema.ts`, so a new build child table
+ * (for example a future `buildJobs`) is removed with its build as soon as it
+ * is registered and indexed. Nobody has to remember a deletion list.
+ */
+export function buildChildTables(): string[] {
+  const tables = (schema as unknown as { tables: Record<string, SchemaTableShape> }).tables;
+  return Object.entries(DATA_REGISTRY)
+    .filter(([name, entry]) => {
+      if (name === "builds" || entry.scope !== "project") return false;
+      const table = tables[name];
+      if (!table) return false;
+      const hasField = Object.keys(table.validator?.fields ?? {}).includes("buildId");
+      const hasIndex = (table.indexes ?? []).some((index) => index.indexDescriptor === "by_build");
+      return hasField && hasIndex;
+    })
+    .map(([name]) => name)
+    .sort();
+}
+
+/**
+ * Deletes up to `limit` rows that hang off `buildId`, across every table in
+ * `buildChildTables()`, and reports whether rows remain so the caller can
+ * schedule a continuation instead of exceeding one transaction's limits.
+ *
+ * The caller authorizes the build first; this helper only walks indexes.
+ */
+export async function cascadeDeleteBuildStep(
+  ctx: MutationCtx,
+  buildId: Id<"builds">,
+  limit = 100,
+): Promise<{ deleted: number; done: boolean }> {
+  // Tables are named at runtime, as in the project cascade above.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = ctx.db as any;
+  const tables = buildChildTables();
+  const byBuild = (table: string) =>
+    db.query(table).withIndex("by_build", (q: IndexQuery) => q.eq("buildId", buildId));
+
+  let deleted = 0;
+  for (const table of tables) {
+    if (deleted >= limit) break;
+    const rows: Array<{ _id: string }> = await byBuild(table).take(limit - deleted);
+    for (const row of rows) await db.delete(row._id);
+    deleted += rows.length;
+  }
+  if (deleted < limit) return { deleted, done: true };
+  for (const table of tables) {
+    if (await byBuild(table).first()) return { deleted, done: false };
+  }
+  return { deleted, done: true };
 }

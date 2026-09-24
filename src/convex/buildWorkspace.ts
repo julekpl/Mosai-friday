@@ -1,7 +1,12 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { validateDocument, type PageDocument } from "../lib/cms/blocks";
+import {
+  sanitizeDocument,
+  validateDocument,
+  type PageDocument,
+} from "../lib/cms/blocks";
+import { isPreparedPageStatus, promotePageRevision, RELEASE_PREPARED } from "./cms";
 import { READINESS_RULE_VERSION } from "../shared/contracts/status";
 
 /* ── Build workspace: chat history, versions, restore, publish ────────────
@@ -51,7 +56,9 @@ export const getPreviewData = moduleQuery("build", {
         _id: p._id,
         title: p.title,
         fullPath: p.fullPath,
-        status: p.status,
+        // Legacy `published` rows (pre-rename) are reported under the
+        // honest name so the client never sees two spellings of one state.
+        status: isPreparedPageStatus(p.status) ? RELEASE_PREPARED : p.status,
         doc: rev?.document ?? { schemaVersion: 1, blocks: [] },
       });
     }
@@ -220,7 +227,9 @@ export const restoreVersion = moduleMutation("build", {
       if (!page) continue;
       let doc: PageDocument;
       try {
-        doc = JSON.parse(p.draft) as PageDocument;
+        // Build review S1: snapshots hold AI HTML as generated; sanitize on
+        // the way back into a draft (T0.7 sanitize-on-save).
+        doc = sanitizeDocument(JSON.parse(p.draft) as PageDocument);
       } catch {
         continue;
       }
@@ -269,8 +278,9 @@ export const restoreVersion = moduleMutation("build", {
  *   1. validates every draft ALL-OR-NOTHING (one invalid or empty page
  *      fails the whole preparation, leaving the previously prepared
  *      release intact — the blueprint has no partial-release clause),
- *   2. promotes drafts to the approved revision state (prior pointer
- *      superseded) so the page-level contract is unchanged,
+ *   2. promotes drafts to the `release_prepared` revision/page state
+ *      (prior pointer superseded) via `promotePageRevision` — never the
+ *      legacy `published` literal (owner decision, 24 Sep 2026),
  *   3. writes the `buildReleaseAudits` row pinned to the promoted revision
  *      ids + rule version (readiness and the UI delivery view derive from
  *      it),
@@ -357,29 +367,18 @@ export const publishSite = moduleMutation("build", {
     const promotedVersions: number[] = [];
     const promotedPageIds: Id<"cmsPages">[] = [];
     for (const p of promotable) {
-      const nextVersion =
-        (
-          await ctx.db
-            .query("pageRevisions")
-            .withIndex("by_page", (q) => q.eq("pageId", p.pageId))
-            .order("desc")
-            .first()
-        )?.version ?? 0;
-      const approvedId = await ctx.db.insert("pageRevisions", {
-        pageId: p.pageId,
-        projectId: p.projectId,
-        version: nextVersion,
-        state: "published",
-        document: p.doc,
-        createdBy: userId,
-        createdAt: now,
-        publishedAt: now,
-      });
-      await ctx.db.patch(p.pageId, {
-        publishedRevisionId: approvedId,
-        status: "published",
-        updatedAt: now,
-      });
+      // Build review C6 / S1: the shared canonical promotion path numbers the
+      // row max+1 (it used to repeat the draft's version), supersedes the
+      // prior promoted revision (except one the confirmed release still
+      // serves) and sanitizes the stored document.
+      const page = pages.find((row) => row._id === p.pageId)!;
+      const { revisionId: approvedId, version: nextVersion } =
+        await promotePageRevision(ctx, {
+          page,
+          document: p.doc,
+          userId,
+          now,
+        });
       promotedRevisionIds.push(approvedId);
       promotedVersions.push(nextVersion);
       promotedPageIds.push(p.pageId);
