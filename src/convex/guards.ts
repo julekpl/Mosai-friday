@@ -1199,7 +1199,17 @@ function buildContextPack(
       scan.metaDescription ? `Meta description: ${scan.metaDescription}` : "",
       scan.titles?.length ? `Page titles: ${scan.titles.slice(0, 20).join(" | ")}` : "",
       scan.headings?.length ? `Headings: ${scan.headings.slice(0, 30).join(" | ")}` : "",
-      scan.sitemapUrls?.length ? `Sitemap URLs: ${scan.sitemapUrls.slice(0, 20).join(" | ")}` : "",
+      scan.coverage ? `Page coverage: ${scan.coverage.scannedPageCount}/${scan.coverage.discoveredPageCount} scanned; ${scan.coverage.truncated ? "bounded first pass" : "all discovered pages in this pass"}` : "",
+      scan.businessDetails?.name ? `Detected business name (unverified): ${scan.businessDetails.name}` : "",
+      scan.businessDetails?.address ? `Address candidate (unverified): ${scan.businessDetails.address}` : "",
+      scan.businessDetails?.country ? `Country candidate (unverified): ${scan.businessDetails.country}` : "",
+      scan.businessDetails?.phone ? `Public phone (unverified): ${scan.businessDetails.phone}` : "",
+      scan.businessDetails?.email ? `Public email (unverified): ${scan.businessDetails.email}` : "",
+      scan.businessDetails?.footerExcerpt ? `Footer text: ${scan.businessDetails.footerExcerpt}` : "",
+      scan.socialChannels?.length ? `Social profile links (not connected accounts): ${scan.socialChannels.join(" | ")}` : "",
+      scan.productsServices?.length ? `Products/services: ${scan.productsServices.slice(0, 40).join(" | ")}` : "",
+      ...(scan.pages ?? []).slice(0, 8).map((page) => `Page ${page.title ?? page.url} (${page.url}): ${[page.description, page.headings.slice(0, 8).join("; "), page.excerpt.slice(0, 800)].filter(Boolean).join(" · ")}`),
+      scan.sitemapUrls?.length ? `Sitemap URL sample: ${scan.sitemapUrls.slice(0, 40).join(" | ")}` : "",
     ].filter(Boolean).join("\n").slice(0, 6_000);
     evidence.push(contextEvidence({
       ref: `projects/${project._id}/website-scan`,

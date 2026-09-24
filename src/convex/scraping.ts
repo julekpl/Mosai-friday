@@ -1,155 +1,147 @@
 "use node";
 
-import * as cheerio from "cheerio";
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
 import { safeFetch } from "./lib/safeFetch";
+import {
+  extractSitemapLocations,
+  extractWebsitePage,
+  isAllowedByRobots,
+  normalizeCrawlUrl,
+  parseRobotsTxt,
+  prioritizeSiteUrls,
+  type RobotsRules,
+  type WebsiteBusinessDetails,
+  type WebsitePageFinding,
+  type WebsitePageExtraction,
+} from "./lib/websiteScan";
 
 /* ── Open-source scraping (cheerio, server-side) ─────────────────────────
  *
- * Fetches the homepage + sitemap of the given website and extracts:
- *   - page <title>, meta description, h1–h3 headings
- *   - sitemap URLs (from /sitemap.xml, with best-effort /robots.txt Sitemap:)
- *   - product / service names (heuristic: nav/heading/link text + JSON-LD)
+ * Follows robots.txt sitemap hints and sitemap indexes, then fetches the
+ * homepage and up to twenty high-value same-site pages. The bounded page
+ * findings include structured/visible business details and social links.
  *
  * If static HTML looks JS-rendered (too little content), retries once
  * through the public r.jina.ai HTML-to-text proxy as a lightweight
- * JS-rendering fallback. robots.txt is fetched for the sitemap hint but
- * is otherwise ignored (`ignoreRobots` flag), per product requirement.
+ * JS-rendering fallback. Robots rules are respected unless the caller
+ * explicitly opts out for a site they control.
  */
 
 const UA =
   "Mozilla/5.0 (compatible; MosaiBot/1.0; +https://mosai.app/bot)";
 
-async function fetchText(url: string, timeoutMs = 10_000): Promise<string> {
+async function fetchText(
+  url: string,
+  timeoutMs = 8_000,
+  maxBytes = 750_000,
+): Promise<{ text: string; url: string }> {
   // SSRF-guarded: HTTPS only, public hosts only, redirects re-validated,
   // bounded size and time. See lib/safeFetch.ts.
   const res = await safeFetch(url, {
     timeoutMs,
+    maxBytes,
     headers: { "user-agent": UA },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text;
+  return { text: res.text, url: res.url };
 }
 
-function extractFromHtml(html: string) {
-  const $ = cheerio.load(html);
-  const title = $("head title").first().text().trim() || undefined;
-  const metaDescription =
-    $('meta[name="description"]').attr("content")?.trim() || undefined;
+const MAX_SITEMAP_DOCUMENTS = 10;
+const MAX_SITEMAP_URLS = 1_000;
+const MAX_DISCOVERED_URLS = 1_200;
+const MAX_CRAWLED_PAGES = 20;
+const CRAWL_CONCURRENCY = 4;
 
-  const headings: string[] = [];
-  $("h1, h2, h3").each((_, el) => {
-    const t = $(el).text().replace(/\s+/g, " ").trim();
-    if (t && t.length < 120 && !headings.includes(t)) headings.push(t);
-  });
-  headings.splice(30);
-
-  // JSON-LD structured data — most reliable source for products/services
-  const jsonLdNames: string[] = [];
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const parsed = JSON.parse($(el).text());
-      const walk = (node: unknown) => {
-        if (Array.isArray(node)) return node.forEach(walk);
-        if (node && typeof node === "object") {
-          const obj = node as Record<string, unknown>;
-          const type = obj["@type"];
-          if (
-            typeof type === "string" &&
-            /Product|Service|Offer|ProductCollection/i.test(type) &&
-            typeof obj.name === "string"
-          ) {
-            jsonLdNames.push(obj.name.trim());
-          }
-          Object.values(obj).forEach(walk);
-        }
-      };
-      walk(parsed);
-    } catch {
-      /* malformed JSON-LD — skip */
-    }
-  });
-
-  // Heuristic sweep: nav links and headings that smell like products/services
-  const heuristic: string[] = [];
-  const smell =
-    /\b(shop|store|product|products|service|services|plans|pricing|solutions|packages|menu|offers|subscriptions?|courses?|consulting|app)\b/i;
-  $("nav a, header a, footer a, a[href]").each((_, el) => {
-    const t = $(el).text().replace(/\s+/g, " ").trim();
-    if (t.length >= 3 && t.length < 60 && smell.test(t) && !heuristic.includes(t))
-      heuristic.push(t);
-  });
-  heuristic.splice(15);
-
-  return { title, metaDescription, headings, jsonLdNames, heuristic, $ };
-}
-
-async function fetchSitemapUrls(origin: string): Promise<string[]> {
-  const urls: string[] = [];
-  // Prefer robots.txt Sitemap: hint
+async function loadRobots(origin: string): Promise<RobotsRules> {
   try {
-    const robots = await fetchText(`${origin}/robots.txt`, 6_000);
-    for (const line of robots.split("\n")) {
-      const m = line.match(/^\s*Sitemap:\s*(\S+)/i);
-      if (m) urls.push(m[1]);
-    }
+    const robots = await fetchText(`${origin}/robots.txt`, 4_000, 200_000);
+    return parseRobotsTxt(robots.text);
   } catch {
-    /* no robots.txt — fine */
+    return { sitemapUrls: [], allow: [], disallow: [] };
   }
-  if (urls.length === 0) urls.push(`${origin}/sitemap.xml`);
+}
 
-  const out: string[] = [];
-  for (const sm of urls.slice(0, 3)) {
-    try {
-      const xml = await fetchText(sm, 8_000);
-      const $ = cheerio.load(xml, { xmlMode: true });
-      $("loc").each((_, el) => {
-        const u = $(el).text().trim();
-        if (u.startsWith("http")) out.push(u);
-      });
-      out.splice(50); // cap per sitemap
-    } catch {
-      /* unreachable sitemap — fine */
+function isAllowed(url: string, rules: RobotsRules, ignoreRobots: boolean): boolean {
+  return ignoreRobots || isAllowedByRobots(new URL(url).pathname + new URL(url).search, rules);
+}
+
+async function discoverSitemapPages(
+  origin: string,
+  rules: RobotsRules,
+): Promise<{ urls: string[]; documentCount: number; failureCount: number; truncated: boolean }> {
+  const queue = [...new Set([...rules.sitemapUrls, `${origin}/sitemap.xml`])]
+    .map((url) => normalizeCrawlUrl(url, origin))
+    .filter((url): url is string => Boolean(url));
+  const visited = new Set<string>();
+  const pages: string[] = [];
+  let documentCount = 0;
+  let failureCount = 0;
+  let truncated = false;
+
+  while (queue.length && documentCount < MAX_SITEMAP_DOCUMENTS && pages.length < MAX_SITEMAP_URLS) {
+    const batch = queue.splice(0, Math.min(CRAWL_CONCURRENCY, MAX_SITEMAP_DOCUMENTS - documentCount));
+    const results = await Promise.all(batch.map(async (url) => {
+      visited.add(url);
+      try {
+        const response = await fetchText(url, 6_000, 500_000);
+        return { url, xml: response.text };
+      } catch {
+        failureCount += 1;
+        return { url, xml: "" };
+      }
+    }));
+    documentCount += results.length;
+    for (const result of results) {
+      if (!result.xml) continue;
+      const locations = extractSitemapLocations(result.xml);
+      if (/<sitemapindex\b/i.test(result.xml)) {
+        for (const child of locations) {
+          const safe = normalizeCrawlUrl(child, origin);
+          if (safe && !visited.has(safe) && !queue.includes(safe)) queue.push(safe);
+        }
+      } else {
+        for (const location of locations) {
+          const safe = normalizeCrawlUrl(location, origin);
+          if (safe && !pages.includes(safe)) pages.push(safe);
+          if (pages.length >= MAX_SITEMAP_URLS) {
+            truncated = true;
+            break;
+          }
+        }
+      }
     }
   }
-  return [...new Set(out)].slice(0, 80);
+  if (queue.length) truncated = true;
+  return { urls: pages, documentCount, failureCount, truncated };
 }
 
-function scanSite(
-  scan: {
-    url: string;
-    sitemapUrls: string[];
-    titles: string[];
-    headings: string[];
-    metaDescription?: string;
-    productsServices: string[];
-  },
-  opts: { gmb?: ScanResult["gmb"] } = {},
-): ScanResult {
-  return {
-    url: scan.url,
-    scannedAt: Date.now(),
-    sitemapUrls: scan.sitemapUrls,
-    titles: scan.titles,
-    headings: scan.headings,
-    metaDescription: scan.metaDescription,
-    productsServices: scan.productsServices,
-    gmb: opts.gmb,
-  };
-}
+type ScanCoverage = {
+  sitemapCount: number;
+  sitemapFailureCount: number;
+  discoveredPageCount: number;
+  scannedPageCount: number;
+  failedPageCount: number;
+  skippedByRobotsCount: number;
+  pageLimit: number;
+  truncated: boolean;
+};
 
 type ScanResult = {
   url: string;
   scannedAt: number;
   sitemapUrls: string[];
+  pages: WebsitePageFinding[];
   titles: string[];
   headings: string[];
   metaDescription?: string;
   productsServices: string[];
+  socialChannels: string[];
+  businessDetails: WebsiteBusinessDetails;
+  coverage: ScanCoverage;
   gmb?: {
     title?: string;
     address?: string;
@@ -175,54 +167,133 @@ export const scanWebsite = action({
     url: v.string(), // raw user input — any variation
     ignoreRobots: v.optional(v.boolean()),
   },
-  handler: async (ctx, { url }): Promise<ScanResult> => {
+  handler: async (ctx, { url, ignoreRobots = false }): Promise<ScanResult> => {
     await requireActionUser(ctx);
     const normalized = normalizeWebsiteUrl(url);
     if (!normalized) throw new Error("Could not interpret that website URL");
 
     const origin = new URL(normalized).origin;
-    const sitemapUrls = await fetchSitemapUrls(origin);
+    const robots = await loadRobots(origin);
+    if (!isAllowed(normalized, robots, ignoreRobots)) {
+      throw new Error("This page is disallowed by robots.txt. Continue only if you control the site and choose the robots override.");
+    }
+    const sitemap = await discoverSitemapPages(origin, robots);
 
-    let html = "";
+    let homepageResponse: { text: string; url: string };
     try {
-      html = await fetchText(normalized);
+      homepageResponse = await fetchText(normalized, 8_000, 750_000);
     } catch (e) {
       throw new Error(
         `Could not fetch ${normalized} (${e instanceof Error ? e.message : "network error"})`,
       );
     }
-
-    let ex = extractFromHtml(html);
+    const homepageUrl = normalizeCrawlUrl(homepageResponse.url, origin);
+    if (!homepageUrl) throw new Error("The website redirected outside the supplied site, so MOSAI stopped the crawl.");
+    let homepage = extractWebsitePage(homepageResponse.text, homepageUrl);
 
     // JS-render fallback: page looks empty (SPA) → try the jina reader proxy,
     // which executes JS headlessly and returns rendered text.
-    if (ex.headings.length < 3 && html.length < 30_000) {
+    if (homepage.headings.length < 3 && homepage.excerpt.length < 500 && homepageResponse.text.length < 30_000) {
       try {
-        const rendered = await fetchText(
-          `https://r.jina.ai/${normalized}`,
-          15_000,
-        );
-        // The reader returns markdown; wrap it so cheerio can still pull text.
-        ex = extractFromHtml(`<html><body>${rendered}</body></html>`);
-        if (!ex.title) {
-          const m = rendered.match(/^Title:\s*(.+)$/m);
-          if (m) ex.title = m[1].trim();
+        const rendered = await fetchText(`https://r.jina.ai/${normalized}`, 12_000, 500_000);
+        const renderedPage = extractWebsitePage(`<html><body>${rendered.text}</body></html>`, homepageUrl);
+        if (!renderedPage.title) {
+          const match = rendered.text.match(/^Title:\s*(.+)$/m);
+          if (match) renderedPage.title = match[1].trim();
         }
+        if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl };
       } catch {
-        /* keep static-only result */
+        // Keep the original HTML result and its honest evidence.
       }
     }
 
-    const productsServices = [...new Set([...ex.jsonLdNames, ...ex.heuristic])];
+    const candidates = new Set<string>();
+    let skippedByRobotsCount = 0;
+    const addCandidate = (candidate: string) => {
+      const safe = normalizeCrawlUrl(candidate, origin);
+      if (!safe || safe === homepageUrl || candidates.has(safe)) return;
+      if (!isAllowed(safe, robots, ignoreRobots)) {
+        skippedByRobotsCount += 1;
+        return;
+      }
+      if (candidates.size < MAX_DISCOVERED_URLS) candidates.add(safe);
+    };
+    sitemap.urls.forEach(addCandidate);
+    homepage.internalLinks.forEach((link) => addCandidate(link.url));
 
-    return scanSite({
+    const pages: Array<Omit<WebsitePageExtraction, "internalLinks">> = [homepage];
+    const visited = new Set([homepageUrl]);
+    let failedPageCount = 0;
+    while (pages.length < MAX_CRAWLED_PAGES) {
+      const next = prioritizeSiteUrls(
+        [...candidates].filter((candidate) => !visited.has(candidate)),
+        Math.min(CRAWL_CONCURRENCY, MAX_CRAWLED_PAGES - pages.length),
+      );
+      if (!next.length) break;
+      next.forEach((pageUrl) => visited.add(pageUrl));
+      const outcomes = await Promise.all(next.map(async (pageUrl) => {
+        try {
+          const response = await fetchText(pageUrl, 6_000, 500_000);
+          const finalUrl = normalizeCrawlUrl(response.url, origin);
+          if (!finalUrl) throw new Error("Page redirected outside the supplied site");
+          return { pageUrl, page: extractWebsitePage(response.text, finalUrl) };
+        } catch {
+          return { pageUrl, page: null };
+        }
+      }));
+      for (const outcome of outcomes) {
+        if (!outcome.page) {
+          failedPageCount += 1;
+          continue;
+        }
+        const { internalLinks, ...finding } = outcome.page;
+        pages.push(finding);
+        internalLinks.forEach((link) => addCandidate(link.url));
+      }
+    }
+
+    const businessDetails: WebsiteBusinessDetails = {};
+    for (const page of pages) {
+      for (const [key, value] of Object.entries(page.businessDetails)) {
+        if (businessDetails[key as keyof WebsiteBusinessDetails] === undefined && value) {
+          Object.assign(businessDetails, { [key]: value });
+        }
+      }
+    }
+    const productsServices = [...new Set(pages.flatMap((page) => page.productsServices))].slice(0, 80);
+    const socialChannels = [...new Set(pages.flatMap((page) => page.socialChannels))].slice(0, 50);
+    const pendingDiscovered = [...candidates].filter((candidate) => !visited.has(candidate)).length;
+    const truncated = sitemap.truncated || candidates.size >= MAX_DISCOVERED_URLS || pendingDiscovered > 0;
+
+    return {
       url: normalized,
-      sitemapUrls,
-      titles: ex.title ? [ex.title] : [],
-      headings: ex.headings,
-      metaDescription: ex.metaDescription,
+      scannedAt: Date.now(),
+      sitemapUrls: sitemap.urls.slice(0, MAX_SITEMAP_URLS),
+      pages: pages.map(({ url: pageUrl, title, description, headings, productsServices: names, excerpt }) => ({
+        url: pageUrl,
+        title,
+        description,
+        headings,
+        productsServices: names,
+        excerpt,
+      })),
+      titles: pages.map((page) => page.title).filter((title): title is string => Boolean(title)).slice(0, 40),
+      headings: [...new Set(pages.flatMap((page) => page.headings))].slice(0, 160),
+      metaDescription: homepage.description,
       productsServices,
-    });
+      socialChannels,
+      businessDetails,
+      coverage: {
+        sitemapCount: sitemap.documentCount,
+        sitemapFailureCount: sitemap.failureCount,
+        discoveredPageCount: candidates.size + 1,
+        scannedPageCount: pages.length,
+        failedPageCount,
+        skippedByRobotsCount,
+        pageLimit: MAX_CRAWLED_PAGES,
+        truncated,
+      },
+    };
   },
 });
 
