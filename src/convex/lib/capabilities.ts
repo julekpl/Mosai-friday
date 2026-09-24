@@ -502,6 +502,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   // ── internal helpers / libraries (no public functions) ──
   schema: "internal",
   "test.setup": "internal",
+  "modules/buildWebsite/publicProjection": "internal",
   buildInternals: "internal",
   commerceEvents: "internal",
   "ads/adapters": "internal",

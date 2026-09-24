@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { api } from "@/convex/_generated/api";
+import { makeFunctionReference } from "convex/server";
 import { newBackend, seedUser, type TestBackend, type Tenant } from "./helpers";
 
 /**
@@ -594,6 +595,63 @@ describe("Preparation is all-or-nothing (review follow-up 1)", () => {
 });
 
 describe("External delivery is gated on a verified deployment receipt (review follow-up 2)", () => {
+  it("public projection accepts only synthetic verified host receipts and fails closed on tenant conflicts", async () => {
+    const t = newBackend();
+    const tenant = await seedUser(t, { plan: "starter" });
+    const projectId = await tenant.as.mutation(api.projects.create, { name: "p" });
+    const { buildId, siteId } = await seedSite(t, tenant, projectId);
+    await tenant.as.mutation(api.buildWorkspace.publishSite, { buildId });
+
+    const publicProjectionRef = makeFunctionReference<"query">(
+      "modules/buildWebsite/publicProjection:getByHostname",
+    );
+    const lookup = (hostname: string) => t.query(publicProjectionRef, {
+      hostname,
+      fullPath: "/",
+    });
+    expect(await lookup("shop.example.test")).toBeNull();
+
+    const now = Date.now();
+    const audit = (await t.run((ctx) => ctx.db.query("buildReleaseAudits").collect()))[0];
+    const deploymentId = await t.run((ctx) => ctx.db.insert("buildDeployments", {
+      projectId, buildId, siteId, releaseAuditId: audit._id, state: "succeeded",
+      publicHostname: "shop.example.test", createdAt: now, updatedAt: now,
+    }));
+    await t.run((ctx) => ctx.db.patch(audit._id, { phase: "verified", deploymentId }));
+
+    expect(await lookup("unrelated.example.test")).toBeNull();
+    const served = await lookup("shop.example.test");
+    expect(served?.revision.document).toEqual(DOC);
+    expect(served?.page._id).toBeDefined();
+
+    // Synthetic conflicting receipt from another tenant must not win by
+    // database/index order (nor let a stale mapping expose either site).
+    const other = await seedUser(t, { plan: "starter" });
+    const otherProjectId = await other.as.mutation(api.projects.create, { name: "other" });
+    const otherSite = await seedSite(t, other, otherProjectId);
+    await other.as.mutation(api.buildWorkspace.publishSite, { buildId: otherSite.buildId });
+    const foreignRevisionId = (await t.run((ctx) =>
+      ctx.db.query("buildReleaseAudits")
+        .withIndex("by_build", (q) => q.eq("buildId", otherSite.buildId))
+        .first(),
+    ))?.revisionIds[0];
+    const originalRoutes = audit.routes;
+    expect(foreignRevisionId).toBeDefined();
+    if (foreignRevisionId && originalRoutes?.[0]) {
+      await t.run((ctx) => ctx.db.patch(audit._id, {
+        routes: [{ ...originalRoutes[0], revisionId: foreignRevisionId }],
+      }));
+      expect(await lookup("shop.example.test")).toBeNull();
+      await t.run((ctx) => ctx.db.patch(audit._id, { routes: originalRoutes }));
+    }
+
+    await t.run((ctx) => ctx.db.insert("buildDeployments", {
+      projectId: otherProjectId, buildId: otherSite.buildId, siteId: otherSite.siteId,
+      state: "failed", publicHostname: "shop.example.test", createdAt: now + 1, updatedAt: now + 1,
+    }));
+    expect(await lookup("shop.example.test")).toBeNull();
+  });
+
   it("cms.getPublishedByPath serves nothing after preparation alone and the prior release after a failed one", async () => {
     const t = newBackend();
     const tenant = await seedUser(t, { plan: "starter" });
