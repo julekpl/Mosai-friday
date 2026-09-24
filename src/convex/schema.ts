@@ -1025,11 +1025,15 @@ const schema = defineSchema(
       status: v.union(
         v.literal("draft"),
         v.literal("approved"),
+        v.literal("executing"),
         v.literal("executed"),
         v.literal("rejected"),
         v.literal("failed"),
       ),
       idempotencyKey: v.optional(v.string()),
+      // Server-only execution claim. A receipt may be recorded only by the
+      // worker holding this token; an ambiguous abandoned claim needs review.
+      executionToken: v.optional(v.string()),
       requestedBy: v.id("users"),
       createdAt: v.number(),
       decidedAt: v.optional(v.number()),
@@ -1049,7 +1053,9 @@ const schema = defineSchema(
       errorDetail: v.optional(v.string()),
       executedBy: v.id("users"),
       createdAt: v.number(),
-    }).index("by_project", ["projectId"]),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_change", ["changeId"]),
 
     // Copilot chat history (per project). AI calls go through OpenRouter with
     // the admin-selected model; tokens never leave the server.

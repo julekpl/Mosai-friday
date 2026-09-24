@@ -11,7 +11,7 @@ import { moduleAction, moduleMutation, moduleQuery } from "../guards";
  * change, an explicit human approval, an idempotency key, and an immutable
  * execution receipt. (Pattern validated against claude-ads' safety model.)
  *
- *   draft → approved → executed (receipt)   | rejected | failed
+ *   draft → approved → executing → executed (receipt) | rejected | failed
  */
 
 /** Create a change request (draft). The UI and the copilot both land here. */
@@ -111,41 +111,51 @@ export const execute = moduleAction("promote", {
     }
     if (!row.idempotencyKey) throw new Error("Missing idempotency key");
 
-    const platform = row.platform as Platform;
-    const cred = await ctx.runQuery(internal.ads.credentials.getCredId, {
-      projectId: row.projectId,
-      platform,
-    });
-    if (!cred) throw new Error(`No ${platform} credential — reconnect the platform`);
-    // BP-04: refresh runs in an internal action; a rejection surfaces as a
-    // safe, redacted reconnect message and the change is not executed against
-    // the provider with a dead token.
-    const refreshed = await ctx.runAction(
-      internal.ads.credentialActions.refreshIfNeeded,
-      { credId: cred._id },
+    const claim = await ctx.runMutation(
+      internal.ads.control.claimExecution,
+      { changeId: id },
     );
-    if (!refreshed.ok) throw new Error(refreshed.message);
-    const accessToken = refreshed.accessToken;
+    if (claim.status !== "claimed") {
+      throw new Error("This approved change is already claimed or no longer executable");
+    }
 
-    const adapter = getAdapter(platform);
+    const platform = row.platform as Platform;
     let result: { ok: true; providerRef: string } | { ok: false; error: string };
     try {
+      const cred = await ctx.runQuery(internal.ads.credentials.getCredId, {
+        projectId: row.projectId,
+        platform,
+      });
+      if (!cred) throw new Error(`No ${platform} credential — reconnect the platform`);
+      // BP-04: refresh runs in an internal action; a rejection surfaces as a
+      // safe, redacted reconnect message and the change is not executed against
+      // the provider with a dead token.
+      const refreshed = await ctx.runAction(
+        internal.ads.credentialActions.refreshIfNeeded,
+        { credId: cred._id },
+      );
+      if (!refreshed.ok) throw new Error(refreshed.message);
+      // Refresh is an external action and can outlive an entitlement change.
+      // Recheck immediately before the provider write so a revoked capability
+      // leaves an honest failed execution without touching the ad account.
+      await access.requireCapability(row.projectId, "promote.spend");
+      const adapter = getAdapter(platform);
       if (row.kind === "pause") {
         result = await adapter.pauseCampaign(
-          accessToken,
+          refreshed.accessToken,
           row.accountId,
           row.campaignId,
         );
       } else if (row.kind === "resume") {
         result = await adapter.resumeCampaign(
-          accessToken,
+          refreshed.accessToken,
           row.accountId,
           row.campaignId,
         );
       } else {
         if (!row.payload) throw new Error("Missing budget payload");
         result = await adapter.setDailyBudget(
-          accessToken,
+          refreshed.accessToken,
           row.accountId,
           row.campaignId,
           row.payload,
@@ -159,11 +169,16 @@ export const execute = moduleAction("promote", {
     }
 
     // Record the receipt + update the change row.
-    await ctx.runMutation(internal.ads.control.recordExecution, {
-      changeId: id,
-      result,
-      executedBy: userId,
-    });
+    const receipt = await ctx.runMutation(
+      internal.ads.control.recordExecution,
+      {
+        changeId: id,
+        claimToken: claim.claimToken,
+        result,
+        executedBy: userId,
+      },
+    );
+    if (!receipt.applied) throw new Error("Execution claim was lost before receipt recording");
     return result;
   },
 });
@@ -204,18 +219,48 @@ export const getChange = internalQuery({
   },
 });
 
+/** Atomically claim an approved change before any provider request. Claims are
+ * deliberately not auto-released: after an ambiguous timeout, retrying could
+ * duplicate a non-idempotent provider write. Operator reconciliation is the
+ * safe next step until BP-07 recovery is implemented. */
+export const claimExecution = internalMutation({
+  args: { changeId: v.id("adsChangeRequests") },
+  handler: async (ctx, { changeId }) => {
+    const change = await ctx.db.get(changeId);
+    if (!change) return { status: "missing" as const };
+    if (change.status !== "approved" || !change.idempotencyKey) {
+      return { status: "already_claimed" as const };
+    }
+    // Convex mutations guarantee seeded Math.random() and deterministic
+    // Date.now(), while crypto.randomUUID() is not covered by that guarantee.
+    const claimToken = `${changeId}:${Date.now().toString(36)}:${Math.random()
+      .toString(36)
+      .slice(2, 14)}`;
+    await ctx.db.patch(changeId, {
+      status: "executing",
+      executionToken: claimToken,
+      decidedAt: Date.now(),
+    });
+    return { status: "claimed" as const, claimToken };
+  },
+});
+
 export const recordExecution = internalMutation({
   args: {
     changeId: v.id("adsChangeRequests"),
+    claimToken: v.string(),
     result: v.union(
       v.object({ ok: v.literal(true), providerRef: v.string() }),
       v.object({ ok: v.literal(false), error: v.string() }),
     ),
     executedBy: v.id("users"),
   },
-  handler: async (ctx, { changeId, result, executedBy }) => {
+  handler: async (ctx, { changeId, claimToken, result, executedBy }) => {
     const change = await ctx.db.get(changeId);
     if (!change) throw new Error("Change not found");
+    if (change.status !== "executing" || change.executionToken !== claimToken) {
+      return { applied: false as const };
+    }
     await ctx.db.insert("adsExecutions", {
       projectId: change.projectId,
       changeId,
@@ -230,7 +275,9 @@ export const recordExecution = internalMutation({
     });
     await ctx.db.patch(changeId, {
       status: result.ok ? "executed" : "failed",
+      executionToken: undefined,
       decidedAt: Date.now(),
     });
+    return { applied: true as const };
   },
 });
