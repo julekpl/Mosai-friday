@@ -140,6 +140,8 @@ async function persistRunFinish(
     errorCategory: AiErrorCategory | null;
     finishedAt: number;
     latencyMs: number;
+    /** False when no provider call was made; defaults to billable. */
+    billable?: boolean;
   },
 ) {
   try {
@@ -187,6 +189,8 @@ async function callOpenRouter(request: ResolvedRequest, maxTokens: number) {
       messages: request.messages,
       max_tokens: maxTokens,
       temperature: request.temperature ?? 0.7,
+      // Ask OpenRouter to report the real cost so the budget books it.
+      usage: { include: true },
     }),
     signal: AbortSignal.timeout(MODEL_GATEWAY_TIMEOUT_MS),
   });
@@ -204,6 +208,12 @@ async function callOpenRouter(request: ResolvedRequest, maxTokens: number) {
  * The only model-provider boundary for Convex features. It records safe run
  * metadata before and after each provider request; prompts and outputs stay in
  * the caller's memory and never enter the run table.
+ *
+ * Cost control: every attempt (including the repair turn) starts with
+ * `guards.startAiRun`, which refuses with an "AI budget reached" ConvexError
+ * when the organization's monthly budget or the platform's daily cap
+ * (lib/aiBudget.ts) cannot cover the request's worst-case cost. The refusal
+ * happens before any provider call and writes no run.
  */
 export async function modelComplete(
   request: ModelGatewayRequest,
@@ -278,6 +288,9 @@ async function runOnce(request: ResolvedRequest): Promise<AttemptOutcome> {
     autonomy: request.autonomy,
     maxOutputTokens: maxTokens,
     contextSources: request.contextSources,
+    // Budget estimate only: sizes, never content.
+    promptChars: request.messages.reduce((sum, message) => sum + message.content.length, 0),
+    messageCount: request.messages.length,
   });
 
   const invalidRequest = validateRequest(request);
@@ -289,6 +302,7 @@ async function runOnce(request: ResolvedRequest): Promise<AttemptOutcome> {
       errorCategory: invalidRequest,
       finishedAt: Date.now(),
       latencyMs: Date.now() - startedAt,
+      billable: false,
     });
     return { ok: false, error: invalidRequest, text: "" };
   }

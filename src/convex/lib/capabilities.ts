@@ -520,6 +520,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   billingWebhooks: "base",
   admin: "base",
   aiModels: "base",
+  aiBudget: "base",
   organizations: "base",
   http: "base",
   crons: "base",
@@ -575,6 +576,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/googleMaps": "internal",
   "lib/businessProfile": "internal",
   "lib/aiModelCatalog": "internal",
+  "lib/aiBudget": "internal",
   "lib/sitePaths": "internal",
 };
 
