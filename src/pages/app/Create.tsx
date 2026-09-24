@@ -1016,7 +1016,6 @@ function PieceEditor({
   onBack: () => void;
 }) {
   const personas = useQuery(api.personas.list, { projectId }) ?? [];
-  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
   const topics = useQuery(api.contentPlanning.listTopics, { projectId }) ?? [];
   const saveDoc = useMutation(api.contentPlanning.saveDoc);
   const update = useMutation(api.content.update);
@@ -1050,14 +1049,6 @@ function PieceEditor({
 
   const topic = piece.topicId ? topics.find((t) => t._id === piece.topicId) : undefined;
   const persona = personas.find((p) => p._id === piece.personaId);
-  const journey = journeys.find((j) => j._id === (piece as { journeyMapId?: Id<"journeyMaps"> }).journeyMapId);
-
-  const researchDigest = (topic?.research ?? [])
-    .slice(0, 20)
-    .map(
-      (h) =>
-        `- [${h.source}] ${h.title}${h.snippet ? `: ${h.snippet.slice(0, 120)}` : ""}`,
-    );
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const addSource = async () => {
@@ -1079,16 +1070,7 @@ function PieceEditor({
     // empty selection + expand = full AI draft
     if (!selectionText.trim() && op === "expand") {
       return await generateContentAi({
-        projectId,
-        topic: {
-          title: topic?.title ?? piece.title,
-          angle: topic?.angle,
-          contentType: piece.contentType ?? topic?.contentType,
-          keywords: topic?.keywords,
-        },
-        personaId: persona?._id,
-        journeyStage: piece.journeyStage ?? journey?.stages.find((s) => s.stage === piece.journeyStage)?.stage,
-        researchDigest,
+        pieceId: piece._id,
       });
     }
     return await editSelectionAi({

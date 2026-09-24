@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 
-vi.mock("convex/react", () => ({ useQuery: useQueryMock }));
+vi.mock("convex/react", () => ({
+  useQuery: useQueryMock,
+  useMutation: () => async () => undefined,
+}));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({

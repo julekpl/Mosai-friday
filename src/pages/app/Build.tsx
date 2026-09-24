@@ -797,12 +797,12 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
           }
         />
       ) : (
-        <div className="grid gap-3">
+        <div className="grid min-w-0 gap-3">
           {builds.map((b) => (
             <div
               key={b._id}
               className={cn(
-                "flex flex-wrap items-center gap-3 rounded-md border bg-card p-4 shadow-card transition-colors ease-terminal hover:bg-accent",
+                "flex min-w-0 flex-wrap items-center gap-3 rounded-md border bg-card p-4 shadow-card transition-colors ease-terminal hover:bg-accent",
               )}
             >
               <button
@@ -810,12 +810,12 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
                 className="min-w-0 flex-1 cursor-pointer text-left"
                 onClick={() => setSelectedId(b._id)}
               >
-                <p className="font-mono text-small font-medium">
+                <p className="break-words font-mono text-small font-medium">
                   {b.name}{" "}
                   <span className="text-muted-foreground">· {b.kind}</span>
                 </p>
                 {b.positioning ? (
-                  <p className="truncate font-mono text-caption text-muted-foreground">
+                  <p className="break-words font-mono text-caption text-muted-foreground">
                     {b.positioning}
                   </p>
                 ) : (

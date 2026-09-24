@@ -108,6 +108,14 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }));
+    const contentPieceId = await t.run((ctx) => ctx.db.insert("contentPieces", {
+      projectId: projectId as never,
+      title: "Test content",
+      status: "draft",
+      createdBy: ownerId as never,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
 
     const actions: Array<[string, unknown, unknown]> = [
       [
@@ -123,7 +131,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       [
         "ai.generateContent",
         api.ai.generateContent,
-        { projectId, topic: { title: "topic" } },
+        { pieceId: contentPieceId },
       ],
       [
         "ai.editSelection",
