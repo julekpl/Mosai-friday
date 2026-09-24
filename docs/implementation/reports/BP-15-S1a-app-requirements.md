@@ -31,15 +31,28 @@ rejects review if a source changed or disappeared after the brief was saved.
 It records the authenticated user and server time. Review means the brief was
 reviewed; it does not mean code was generated or run.
 
+The `builds.getAppRequirementsStatus` query reactively rechecks saved source
+fingerprints for the selected app. If a source changes or is deleted after
+review, the workspace shows `Stale review`, disables review, and directs the
+user to save the refreshed brief or remove an unavailable reference before
+reviewing again. The status comes from current source records; it does not
+rewrite or imply a new review. The build list does not calculate or display
+app review status.
+
 ## Verification
 
 - `npm run typecheck` — passed.
 - Focused ESLint on the changed TypeScript files — passed.
-- `npm run test:unit -- tests/unit/app-requirements.test.ts` — 7/7 passed,
+- `npm run test:unit -- tests/unit/app-requirements.test.ts` — 9/9 passed,
   covering provenance, server-only review metadata, edit invalidation,
-  wrong-project and wrong-kind references, meaningful-review requirements,
-  stale-source rejection, website-plan rejection, duplicate provenance, and
-  build tenant ownership.
+  wrong-project and wrong-tenant access, wrong-kind references, meaningful-review requirements,
+  stale-source rejection and reactive stale status after source change/delete,
+  website-plan rejection, duplicate provenance, and build tenant ownership.
+- Red-first stale-status regressions: both failed before the status query
+  existed (no `getAppRequirementsStatus` export), then passed after the query
+  and UI indication were added. Both changed-source and deleted-source cases
+  assert fresh and stale status through the selected-build query. Final
+  focused suite: 9/9 passed.
 - `npm run audit:functions` — passed; the existing review notices for billing,
   files, and users remain unchanged.
 - Full `npm run test:unit` — 485 passed, 6 failed in the existing capability
@@ -58,3 +71,5 @@ or deploy path was invoked. Sandbox/backend-host decision O5 and the later
 BP-15 acceptance evidence remain outstanding.
 
 Controller integration rerun with the available Bun 1.3.14 binary: `bun run check` passed typecheck, lint (0 errors, 28 existing warnings), and 491/491 unit tests in 38 files, then exited 1 at the existing tracked `.env.keys:8` secret finding (value redacted). The three public-function/capability/data-registry audits and build passed separately; the hermetic browser suite passed 20 tests with one intentional live-OTP skip using the inert CI Convex URL. It does not reach this authenticated app workspace. The first browser attempt without `VITE_CONVEX_URL` rendered blank; the corrected run passed. Release remains blocked.
+
+After the stale-review follow-up, controller verification with Bun 1.3.14 passed typecheck, lint (0 errors, 28 existing warnings), **494/494 unit tests in 38 files**, all three audits (66 registered tables), production build and `git diff --check`. `bun run check` still exited 1 at the same redacted tracked-secret finding. Local `bun run check:codegen` could not run official codegen because `CONVEX_DEPLOYMENT` is unset; exact-commit CI must establish codegen drift status. The existing browser suite does not exercise this authenticated workspace, so its visual and interaction behavior remains unobserved.

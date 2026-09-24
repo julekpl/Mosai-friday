@@ -1,7 +1,8 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { contextVersion } from "./lib/contextPack";
 import { READINESS_RULE_VERSION, contentFingerprint } from "../shared/contracts/status";
 
@@ -31,6 +32,32 @@ const LOCAL_BUILD_STATUS = v.union(
   v.literal("draft"),
   v.literal("generated"),
 );
+
+type AppRequirementsReviewStatus = "draft" | "fresh" | "stale";
+
+async function appRequirementsReviewStatus(
+  ctx: QueryCtx,
+  build: Doc<"builds">,
+): Promise<AppRequirementsReviewStatus> {
+  const requirements = build.appRequirements;
+  if (build.kind !== "app" || !requirements || requirements.state !== "reviewed") return "draft";
+  for (const ref of requirements.sourceRefs) {
+    if (ref.kind === "persona") {
+      const source = await ctx.db.get(ref.id);
+      if (!source || source.projectId !== build.projectId || contextVersion(JSON.stringify(source)) !== ref.sourceVersion)
+        return "stale";
+    } else if (ref.kind === "journeyMap") {
+      const source = await ctx.db.get(ref.id);
+      if (!source || source.projectId !== build.projectId || contextVersion(JSON.stringify(source)) !== ref.sourceVersion)
+        return "stale";
+    } else {
+      const source = await ctx.db.get(ref.id);
+      if (!source || source.projectId !== build.projectId || contextVersion(JSON.stringify(source)) !== ref.sourceVersion)
+        return "stale";
+    }
+  }
+  return "fresh";
+}
 
 export const list = moduleQuery("build", {
   args: { projectId: v.id("projects") },
@@ -218,6 +245,23 @@ export const reviewAppRequirements = moduleMutation("build", {
       appRequirements: { ...build.appRequirements, state: "reviewed", reviewedAt: now, reviewedBy: userId },
       updatedAt: now,
     });
+  },
+});
+
+/** Reactive truth for the UI: a saved review remains current only while every source snapshot matches. */
+export const getAppRequirementsStatus = moduleQuery("build", {
+  args: { buildId: v.id("builds") },
+  handler: async (ctx, { buildId }, access) => {
+    const build = await access.ownedRow(await ctx.db.get(buildId));
+    if (!build || build.kind !== "app" || !build.appRequirements) return null;
+    const requirements = build.appRequirements;
+    const status = await appRequirementsReviewStatus(ctx, build);
+    if (status !== "fresh") return { status };
+    return {
+      status: "fresh" as const,
+      reviewedAt: requirements.reviewedAt,
+      reviewedBy: requirements.reviewedBy,
+    };
   },
 });
 

@@ -113,6 +113,7 @@ describe("app requirements review", () => {
       buildId,
       requirements: { audience: "internal_team", goal: "x", targetUsers: "y", coreWorkflows: [], constraints: [], sourceRefs: [] },
     })).rejects.toThrow();
+    expect(await other.as.query(api.builds.getAppRequirementsStatus, { buildId })).toBeNull();
     const row = await t.run((ctx) => ctx.db.get(buildId));
     expect(row?.appRequirements).toBeUndefined();
   });
@@ -196,5 +197,44 @@ describe("app requirements review", () => {
     await owner.as.mutation(api.personas.update, { id: personaId, name: "Changed persona" });
     await expect(owner.as.mutation(api.builds.reviewAppRequirements, { buildId }))
       .rejects.toThrow("A selected source changed; save requirements again before review");
+  });
+
+  it("reports an already-reviewed brief as stale after its selected source changes", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, { plan: "starter" });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "A" });
+    const personaId = await owner.as.mutation(api.personas.create, { projectId, name: "Before" });
+    const buildId = await owner.as.mutation(api.builds.create, { projectId, name: "App", kind: "app" });
+    await owner.as.mutation(api.builds.saveAppRequirements, {
+      buildId,
+      requirements: {
+        audience: "both", goal: "Serve people", targetUsers: "People",
+        coreWorkflows: ["Use app"], constraints: [],
+        sourceRefs: [{ kind: "persona" as const, id: personaId }],
+      },
+    });
+    await owner.as.mutation(api.builds.reviewAppRequirements, { buildId });
+    expect(await owner.as.query(api.builds.getAppRequirementsStatus, { buildId })).toMatchObject({ status: "fresh" });
+    await owner.as.mutation(api.personas.update, { id: personaId, name: "After" });
+    expect(await owner.as.query(api.builds.getAppRequirementsStatus, { buildId })).toMatchObject({ status: "stale" });
+  });
+
+  it("reports an already-reviewed brief as stale after a selected source is deleted", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, { plan: "starter" });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "A" });
+    const personaId = await owner.as.mutation(api.personas.create, { projectId, name: "Before" });
+    const buildId = await owner.as.mutation(api.builds.create, { projectId, name: "App", kind: "app" });
+    await owner.as.mutation(api.builds.saveAppRequirements, {
+      buildId,
+      requirements: {
+        audience: "internal_team", goal: "Serve team", targetUsers: "Team",
+        coreWorkflows: ["Use app"], constraints: [],
+        sourceRefs: [{ kind: "persona" as const, id: personaId }],
+      },
+    });
+    await owner.as.mutation(api.builds.reviewAppRequirements, { buildId });
+    await owner.as.mutation(api.personas.remove, { id: personaId });
+    expect(await owner.as.query(api.builds.getAppRequirementsStatus, { buildId })).toMatchObject({ status: "stale" });
   });
 });

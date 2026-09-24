@@ -44,11 +44,16 @@ type Draft = {
 };
 
 export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => void }) {
-  const personas = useQuery(api.personas.list, { projectId: build.projectId }) ?? [];
-  const journeys = useQuery(api.journeys.list, { projectId: build.projectId }) ?? [];
-  const content = useQuery(api.content.list, { projectId: build.projectId }) ?? [];
+  const personasResult = useQuery(api.personas.list, { projectId: build.projectId });
+  const journeysResult = useQuery(api.journeys.list, { projectId: build.projectId });
+  const contentResult = useQuery(api.content.list, { projectId: build.projectId });
+  const sourcesLoaded = personasResult !== undefined && journeysResult !== undefined && contentResult !== undefined;
+  const personas = personasResult ?? [];
+  const journeys = journeysResult ?? [];
+  const content = contentResult ?? [];
   const save = useMutation(api.builds.saveAppRequirements);
   const review = useMutation(api.builds.reviewAppRequirements);
+  const reviewStatus = useQuery(api.builds.getAppRequirementsStatus, { buildId: build._id });
   const [draft, setDraft] = useState<Draft>(() => ({
     audience: build.appRequirements?.audience ?? "",
     goal: build.appRequirements?.goal ?? build.idea ?? "",
@@ -58,7 +63,8 @@ export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => vo
     sourceRefs: build.appRequirements?.sourceRefs.map(({ kind, id }) => ({ kind, id })) ?? [],
   }));
   const [saving, setSaving] = useState(false);
-  const reviewed = build.appRequirements?.state === "reviewed";
+  const reviewed = reviewStatus?.status === "fresh";
+  const stale = reviewStatus?.status === "stale";
   const normalizedDraft = {
     audience: draft.audience,
     goal: draft.goal.trim(),
@@ -83,6 +89,9 @@ export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => vo
     ...journeys.map((x) => ({ kind: "journeyMap" as const, id: x._id, label: x.name, detail: "Customer journey" })),
     ...content.map((x) => ({ kind: "contentPiece" as const, id: x._id, label: x.title, detail: x.contentType ?? "Content" })),
   ];
+  const missingRefs = sourcesLoaded
+    ? draft.sourceRefs.filter((ref) => !sources.some((source) => source.kind === ref.kind && source.id === ref.id))
+    : [];
   const toggleSource = (kind: SourceRef["kind"], id: string) => {
     const exists = draft.sourceRefs.some((ref) => ref.kind === kind && ref.id === id);
     setDraft((d) => ({ ...d, sourceRefs: exists
@@ -136,18 +145,19 @@ export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => vo
       <section className="grid gap-2" aria-labelledby="app-context-heading">
         <h2 id="app-context-heading" className="font-mono text-small font-semibold">Project context used</h2>
         <p className="font-mono text-caption text-muted-foreground">Select the records that inform this brief. Labels come from saved project records; their presence does not certify their accuracy.</p>
-        {sources.length === 0 ? <p className="rounded-md border p-3 font-mono text-caption text-muted-foreground">No personas, journeys or content are available yet. You can still write requirements and add context later.</p> : sources.map((source) => {
+        {!sourcesLoaded ? <p role="status" className="rounded-md border p-3 font-mono text-caption text-muted-foreground">Loading project context…</p> : sources.length === 0 ? <p className="rounded-md border p-3 font-mono text-caption text-muted-foreground">No personas, journeys or content are available yet. You can still write requirements and add context later.</p> : sources.map((source) => {
           const checked = draft.sourceRefs.some((ref) => ref.kind === source.kind && ref.id === source.id);
           return <label key={`${source.kind}:${source.id}`} className="flex cursor-pointer items-center gap-3 rounded-md border p-3 font-mono text-caption">
             <input type="checkbox" checked={checked} onChange={() => toggleSource(source.kind, source.id)} aria-label={`Use ${source.detail}: ${source.label}`} />
             <span className="font-semibold">{source.label}</span><span className="text-muted-foreground">{source.detail}</span>
           </label>;
         })}
+        {missingRefs.map((ref) => <div key={`missing:${ref.kind}:${ref.id}`} className="flex items-center justify-between gap-3 rounded-md border border-terminal-amber/40 p-3 font-mono text-caption text-terminal-amber"><span>Unavailable saved reference ({ref.kind})</span><Button variant="outline" size="sm" onClick={() => setDraft((d) => ({ ...d, sourceRefs: d.sourceRefs.filter((item) => item.kind !== ref.kind || item.id !== ref.id) }))}>Remove reference</Button></div>)}
         {build.appRequirements?.sourceRefs.length ? <div className="grid gap-1 font-mono text-caption text-muted-foreground"><p>Sources saved with this brief on {new Date(build.appRequirements.editedAt).toLocaleString()}:</p>{build.appRequirements.sourceRefs.map((ref) => <p key={`${ref.kind}:${ref.id}`}>{ref.label} · {ref.kind === "journeyMap" ? "Journey" : ref.kind === "contentPiece" ? "Content" : "Persona"}</p>)}</div> : null}
       </section>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <div><p className="font-mono text-caption text-muted-foreground">Review status: <strong>{reviewed ? "Reviewed" : "Draft"}</strong>{reviewed && build.appRequirements?.reviewedAt ? ` · ${new Date(build.appRequirements.reviewedAt).toLocaleString()}` : ""}</p>{hasUnsavedChanges ? <p role="status" className="font-mono text-caption text-terminal-amber">Unsaved changes. Save this brief before review.</p> : null}</div>
-        <div className="flex gap-2"><Button variant="outline" onClick={persist} disabled={saving || !draft.audience || !draft.goal.trim() || !draft.targetUsers.trim()}>{saving ? <Loader2 className="size-4 animate-spin" /> : null}Save requirements</Button><Button onClick={markReviewed} disabled={saving || !canReview || reviewed}>{saving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}Mark reviewed</Button></div>
+        <div><p className="font-mono text-caption text-muted-foreground">Review status: <strong>{reviewStatus === undefined ? "Checking…" : stale ? "Stale review" : reviewed ? "Reviewed" : "Draft"}</strong>{reviewed && reviewStatus?.status === "fresh" && reviewStatus.reviewedAt ? ` · ${new Date(reviewStatus.reviewedAt).toLocaleString()}` : ""}</p>{stale ? <p role="status" className="font-mono text-caption text-terminal-amber">A saved source changed or was removed after review. Save this brief again to refresh its provenance; remove unavailable references above, then review again.</p> : hasUnsavedChanges ? <p role="status" className="font-mono text-caption text-terminal-amber">Unsaved changes. Save this brief before review.</p> : null}</div>
+        <div className="flex gap-2"><Button variant="outline" onClick={persist} disabled={saving || !draft.audience || !draft.goal.trim() || !draft.targetUsers.trim()}>{saving ? <Loader2 className="size-4 animate-spin" /> : null}Save requirements</Button><Button onClick={markReviewed} disabled={saving || !canReview || reviewed || stale || reviewStatus === undefined}>{saving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}Mark reviewed</Button></div>
       </div>
     </div>
   </div>;
