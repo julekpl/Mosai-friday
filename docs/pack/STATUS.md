@@ -430,6 +430,7 @@ These are the pack's open questions, unchanged:
 | 4 | Which countries and languages must be polished at launch? Regulated products, marketplaces, B2B pricing in scope? | capability matrix |
 | 5 | Is the app builder for the same small-business audience, or for startups and agencies? | defaults, pricing |
 | 6 | Where does a generated app's backend live, and how does a customer take it away? | G6, export promise |
+| 9 | App builder preview runtime and approach (BP-15 first slice)? | ✅ **Answered (owner, 24 Sep 2026): in-browser Sandpack first, port open-lovable, chat first.** Recorded in `docs/decisions/2026-09-24-app-builder-preview.md`. Generation, versions and preview exist; app backend, deploy and export still wait on question 6 and ADR-3. |
 | 7 | Is "Conductor" the enterprise SEO/AI-search platform? | `09` |
 | 8 | Which package manager is authoritative — bun (what the platform runs today) or npm (what the blueprint's commands assume)? | ✅ **Answered in T1.1 (22 Sep 2026): bun.** `bun.lock` is the only lockfile, the runtime is pinned in `engines` + `.nvmrc`, and `AGENTS.md` §4 is the authoritative command list. Every `npm ci` / `npm run …` in the blueprint and `10-build-backlog.md` is to be read as its bun equivalent; no further ticket is needed. |
 

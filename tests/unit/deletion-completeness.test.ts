@@ -324,6 +324,36 @@ const fixtures: Fixture[] = [
     }),
   },
   {
+    table: "appRuns",
+    doc: (s) => ({
+      buildId: s.ids.builds,
+      projectId: s.projectId,
+      userId: s.userId,
+      prompt: "Build it",
+      mode: "create",
+      status: "succeeded",
+      createdAt: at,
+    }),
+  },
+  {
+    table: "appSnapshots",
+    doc: (s) => ({
+      buildId: s.ids.builds,
+      projectId: s.projectId,
+      version: 1,
+      label: "Starter",
+      source: "starter",
+      files: [{ path: "src/App.jsx", hash: "h1", bytes: 3 }],
+      dependencies: [{ name: "react", version: "18.3.1" }],
+      createdBy: s.userId,
+      createdAt: at,
+    }),
+  },
+  {
+    table: "appSourceFiles",
+    doc: (s) => ({ buildId: s.ids.builds, projectId: s.projectId, hash: "h1", content: "app", createdAt: at }),
+  },
+  {
     // BP-03: server-written release-preparation audit trail. No client
     // writer exists — the fixture only proves project deletion clears it.
     table: "buildReleaseAudits",

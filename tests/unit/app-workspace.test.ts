@@ -9,9 +9,38 @@ vi.mock("convex/react", () => ({
   useMutation: () => async () => undefined,
 }));
 
+import { AppBriefPanel } from "@/components/build/AppBriefPanel";
 import { AppWorkspace } from "@/components/build/AppWorkspace";
+import { briefGaps } from "@/components/build/appBriefGaps";
 
-describe("app brief workspace", () => {
+const build = {
+  _id: "build_1" as never,
+  projectId: "project_1" as never,
+  name: "Example app",
+  idea: "Help customers compare plans",
+};
+
+describe("app workspace (chat first)", () => {
+  beforeEach(() => {
+    // workspace, personas, journeys (then the brief panel's own queries).
+    useQueryMock.mockReset().mockImplementation(() => undefined);
+    useQueryMock
+      .mockReturnValueOnce({ head: null, versions: [], runs: [] })
+      .mockReturnValueOnce([{ name: "Pat", role: "Owner", goals: ["save time"] }])
+      .mockReturnValueOnce([]);
+  });
+
+  it("opens on the chat with suggestions from the project, and is honest about limits", () => {
+    const markup = renderToStaticMarkup(createElement(AppWorkspace, { build, onBack: () => undefined }));
+    expect(markup).toContain("Build the first version: Help customers compare plans. Design it for Pat (Owner), who wants to save time.");
+    expect(markup).toContain('for="app-prompt"');
+    expect(markup).toContain("Nothing is published, and the app has no backend or deploy yet.");
+    expect(markup).toContain("Your app appears here after the first message.");
+    expect(markup).not.toContain("App generation and live preview aren’t available yet.");
+  });
+});
+
+describe("app brief panel", () => {
   beforeEach(() => {
     useQueryMock
       .mockReset()
@@ -21,28 +50,15 @@ describe("app brief workspace", () => {
       .mockReturnValueOnce(undefined);
   });
 
-  it("starts with a guided idea step and states the limits of the brief", () => {
-    const markup = renderToStaticMarkup(createElement(AppWorkspace, {
-      build: {
-        _id: "build_1" as never,
-        projectId: "project_1" as never,
-        name: "Example app",
-        idea: "Help customers compare plans",
-      },
-      onBack: () => undefined,
-    }));
-
+  it("starts with a guided idea step and says the brief is optional", () => {
+    const markup = renderToStaticMarkup(createElement(AppBriefPanel, { build }));
     expect(markup).toContain('aria-label="App brief steps"');
     expect(markup).toContain('aria-current="step"');
     expect(markup).toContain("What should your app help people do?");
-    expect(markup).toContain("App generation and live preview aren’t available yet.");
+    expect(markup).toContain("The brief is optional.");
     expect(markup).toContain("Help customers compare plans");
-    expect(markup).toContain("Continue");
-    expect(markup).not.toContain("Requirements workspace only");
   });
 });
-
-import { briefGaps } from "@/components/build/appBriefGaps";
 
 describe("app brief gaps", () => {
   it("names the missing audience fields that keep Save brief disabled", () => {

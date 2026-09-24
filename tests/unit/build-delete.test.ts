@@ -65,6 +65,27 @@ async function seedBuildWithChildren(
       pages: [],
       createdAt: now,
     });
+    await ctx.db.insert("appRuns", {
+      buildId,
+      projectId,
+      userId: tenant.userId as never,
+      prompt: "Build it",
+      mode: "create",
+      status: "succeeded",
+      createdAt: now,
+    });
+    await ctx.db.insert("appSnapshots", {
+      buildId,
+      projectId,
+      version: 1,
+      label: "Starter",
+      source: "starter",
+      files: [],
+      dependencies: [],
+      createdBy: tenant.userId as never,
+      createdAt: now,
+    });
+    await ctx.db.insert("appSourceFiles", { buildId, projectId, hash: "h1", content: "app", createdAt: now });
     await ctx.db.insert("buildPages", {
       buildId,
       projectId,

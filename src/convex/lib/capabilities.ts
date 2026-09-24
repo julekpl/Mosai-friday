@@ -486,6 +486,8 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   buildChat: "build",
   cms: "build",
   siteHosting: "build",
+  "modules/buildApp/workspace": "build",
+  "modules/buildApp/generate": "internal",
   contacts: "customers",
   posts: "promote",
   campaigns: "promote",

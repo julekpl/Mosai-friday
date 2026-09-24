@@ -35,7 +35,10 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob: https:",
   "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://*.convex.site",
-  "frame-src 'none'",
+  // App builder preview (BP-15, owner decision 24 Sep 2026): generated code
+  // runs only inside Sandpack's bundler iframe on *.codesandbox.io, a
+  // separate registrable domain — never on this origin (AGENTS.md rule 9).
+  "frame-src https://*.codesandbox.io",
   "worker-src 'self' blob:",
 ].join("; ");
 
