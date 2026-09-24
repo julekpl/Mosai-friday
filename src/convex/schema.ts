@@ -1677,10 +1677,16 @@ const schema = defineSchema(
       parentId: v.optional(v.id("cmsPages")),
       // standard | homepage | landing | article | product | collection | utility
       pageType: v.optional(v.string()),
-      // draft | published | archived
+      // draft | release_prepared | archived. `release_prepared` (owner
+      // decision, 24 Sep 2026) replaces `published`: a page promotion is a
+      // local preparation, never proof of external delivery. `published` is
+      // a LEGACY literal kept only so pre-rename rows validate until
+      // `cmsReleaseMigration.migratePublishedToReleasePrepared` has run;
+      // no code path writes it any more.
       status: v.union(
         v.literal("draft"),
-        v.literal("published"),
+        v.literal("release_prepared"),
+        v.literal("published"), // legacy, read-only
         v.literal("archived"),
       ),
       publishedRevisionId: v.optional(v.id("pageRevisions")),
@@ -1708,10 +1714,13 @@ const schema = defineSchema(
       pageId: v.id("cmsPages"),
       projectId: v.id("projects"),
       version: v.number(), // monotonically increasing per page
-      // draft | published | superseded
+      // draft | release_prepared | superseded. `published` is the legacy
+      // name for `release_prepared` (see cmsPages.status above); kept in the
+      // union only so pre-rename rows validate until the migration has run.
       state: v.union(
         v.literal("draft"),
-        v.literal("published"),
+        v.literal("release_prepared"),
+        v.literal("published"), // legacy, read-only
         v.literal("superseded"),
       ),
       // structured PageDocument — never canonical HTML

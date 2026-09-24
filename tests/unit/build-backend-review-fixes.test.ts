@@ -283,7 +283,7 @@ describe("C6 — publishSite numbers revisions max+1 and supersedes the prior on
     // draft v1, first promotion v2, second promotion v3
     expect([...versions].sort((a, b) => a - b)).toEqual([1, 2, 3]);
 
-    const published = revs.filter((r) => r.state === "published");
+    const published = revs.filter((r) => r.state === "release_prepared");
     expect(published).toHaveLength(1);
     expect(published[0].version).toBe(3);
     expect(revs.find((r) => r._id === firstId)?.state).toBe("superseded");
@@ -310,6 +310,6 @@ describe("C6 — publishSite numbers revisions max+1 and supersedes the prior on
     const revs = await revisionsOf(t, pageId);
     const versions = revs.map((r) => r.version);
     expect(new Set(versions).size).toBe(versions.length);
-    expect(revs.filter((r) => r.state === "published")).toHaveLength(1);
+    expect(revs.filter((r) => r.state === "release_prepared")).toHaveLength(1);
   });
 });

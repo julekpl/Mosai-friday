@@ -20,6 +20,7 @@ import {
 
 import { PageEditor } from "./PageEditor";
 import {
+  isReleasePrepared,
   pageStatusForDisplay,
   siteStatusForDisplay,
   statusText,
@@ -158,7 +159,7 @@ function PagesTab({ site }: { site: SiteDoc }) {
             </p>
             <p className="truncate font-mono text-caption text-muted-foreground">
               {p.fullPath}
-              {p.status === "published" && p.latestDraftRevisionId
+              {isReleasePrepared(p.status) && p.latestDraftRevisionId
                 ? " · draft changes since the prepared release"
                 : ""}
             </p>
@@ -172,7 +173,7 @@ function PagesTab({ site }: { site: SiteDoc }) {
             </Badge>
           )}
           <StatusBadge status={pageStatusForDisplay(p.status)} />
-          {p.status !== "published" && (
+          {!isReleasePrepared(p.status) && (
             <Button
               size="sm"
               variant="ghost"

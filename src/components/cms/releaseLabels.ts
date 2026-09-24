@@ -1,12 +1,13 @@
 /**
  * Honest display wording for local release states (AGENTS.md rule 5).
  *
- * The server still stores `published` on CMS pages and page revisions (and
- * `live` on legacy site rows) when a release is PREPARED. Nothing is served
- * publicly until a verified deployment receipt exists (`lib/deliveryGate.ts`),
- * so the UI must not repeat those words. These helpers translate the stored
- * names into wording that claims no more than the server knows. They change
- * display only: server state names are untouched.
+ * CMS pages and page revisions store `release_prepared` when a release is
+ * PREPARED (owner decision, 24 Sep 2026). Rows written before that rename
+ * still say `published` (and legacy site rows `live`) until the
+ * `cmsReleaseMigration` has run. Nothing is served publicly until a verified
+ * deployment receipt exists (`lib/deliveryGate.ts`), so the UI must not
+ * repeat those words. These helpers accept both spellings and translate them
+ * into wording that claims no more than the server knows.
  *
  * Return values are status keys (snake_case) so `StatusBadge` can render them.
  */
@@ -19,14 +20,20 @@ export const RELEASE_PREPARED_MESSAGE =
 export const RELEASE_DIALOG_MESSAGE =
   "This promotes the draft to the page's release version. Nothing is publicly served until hosting is set up. The previous version stays recoverable.";
 
+/** True for a page status or revision state that marks a prepared release,
+ *  under its current name (`release_prepared`) or the legacy `published`. */
+export function isReleasePrepared(status: string): boolean {
+  return status === "release_prepared" || status === "published";
+}
+
 /** A CMS page status as shown to the user. */
 export function pageStatusForDisplay(status: string): string {
-  return status === "published" ? "prepared_for_release" : status;
+  return isReleasePrepared(status) ? "prepared_for_release" : status;
 }
 
 /** A page revision state as shown in version history. */
 export function revisionStateForDisplay(state: string): string {
-  return state === "published" ? "latest_release" : state;
+  return isReleasePrepared(state) ? "latest_release" : state;
 }
 
 /** A site or build status as shown to the user. `live` and `published`

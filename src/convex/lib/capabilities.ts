@@ -543,6 +543,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   schema: "internal",
   "test.setup": "internal",
   buildInternals: "internal",
+  cmsReleaseMigration: "internal", // internalMutation only (published → release_prepared)
   commerceEvents: "internal",
   "ads/adapters": "internal",
   "ads/credentialActions": "internal",

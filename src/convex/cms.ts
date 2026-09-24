@@ -12,11 +12,11 @@ import { selectConfirmedRelease } from "./lib/deliveryGate";
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
  *
  * Canonical rules enforced here:
- *  - editing never mutates a published revision; it creates a draft
+ *  - editing never mutates a promoted revision; it creates a draft
  *  - publish promotes the draft atomically and supersedes the prior one
  *  - public resolution (getPublishedByPath) can never return a draft
  *  - URLs are normalized, hierarchical and unique within a site
- *  - path changes on published pages create 301 redirects; loops rejected
+ *  - path changes on release-prepared pages create 301 redirects; loops rejected
  */
 
 const documentValidator = v.object({
@@ -37,6 +37,33 @@ const seoValidator = v.object({
   noindex: v.optional(v.boolean()),
   ogImageUrl: v.optional(v.string()),
 });
+
+/**
+ * Release-prepared state names (owner decision, 24 Sep 2026).
+ *
+ * A page promotion is a LOCAL preparation — it proves nothing about external
+ * delivery (only a verified deployment receipt does; `lib/deliveryGate.ts`).
+ * Writers use `release_prepared`. Rows written before the rename still say
+ * `published` until `cmsReleaseMigration.migratePublishedToReleasePrepared`
+ * has run, so every reader accepts both through these helpers. Remove the
+ * legacy branch (and the schema literal) only after the migration has run on
+ * every deployment.
+ */
+export const RELEASE_PREPARED = "release_prepared" as const;
+
+/** True for a promoted page revision (current or legacy name). */
+export function isPreparedRevisionState(
+  state: Doc<"pageRevisions">["state"],
+): boolean {
+  return state === RELEASE_PREPARED || state === "published";
+}
+
+/** True for a page whose latest promotion is prepared (current or legacy). */
+export function isPreparedPageStatus(
+  status: Doc<"cmsPages">["status"],
+): boolean {
+  return status === RELEASE_PREPARED || status === "published";
+}
 
 const RESERVED_SLUGS = new Set(["api", "app", "auth", "dashboard", "_generated"]);
 const MAX_DEPTH = 5;
@@ -206,7 +233,9 @@ export const getPublishedByPath = query({
     const pinnedId: Id<"pageRevisions"> | undefined = route?.revisionId;
     if (!pinnedId || !route?.title) return null;
     const revision = await ctx.db.get(pinnedId);
-    if (!revision || revision.state !== "published") return null;
+    // Accepts the legacy `published` name during the rename transition; the
+    // receipt-pinned route above is what actually authorizes serving.
+    if (!revision || !isPreparedRevisionState(revision.state)) return null;
     // Metadata comes from the snapshot frozen at preparation — a title/SEO
     // edit belonging to a later, unverified release must not appear before
     // that release verifies (follow-up 4). No mutable page.status check:
@@ -391,8 +420,8 @@ export const updatePage = moduleMutation("build", {
         queue.push(...childrenOf(child._id));
       }
 
-      // published path changed → auto 301 so nothing 404s (§33, §133.8)
-      if (page.status === "published" && oldPath !== fullPath && oldPath !== "/") {
+      // promoted page's path changed → auto 301 so nothing 404s (§33, §133.8)
+      if (isPreparedPageStatus(page.status) && oldPath !== fullPath && oldPath !== "/") {
         const existing = await ctx.db
           .query("cmsRedirects")
           .withIndex("by_site_path", (q) =>
@@ -518,7 +547,7 @@ export const saveDraft = moduleMutation("build", {
 
     if (page.latestDraftRevisionId) {
       const draft = await ctx.db.get(page.latestDraftRevisionId);
-      // a *published* row is immutable — only live drafts are patched (§45)
+      // a *promoted* (release-prepared) row is immutable — only live drafts are patched (§45)
       if (draft && draft.state === "draft") {
         await ctx.db.patch(draft._id, { document, createdAt: Date.now() });
         await ctx.db.patch(page._id, { updatedAt: Date.now() });
@@ -650,9 +679,11 @@ export const publishPage = moduleMutation("build", {
  *  - the prior promoted revision is marked `superseded` (never mutated
  *    otherwise), and the page pointer moves to the new row.
  *
- * The state names written here are unchanged (`pageRevisions.state` and
- * `cmsPages.status` = "published"); renaming them is an owner decision (build
- * review T1). Not a registered function — callers are authorized mutations.
+ * The state written here is `release_prepared` on both `pageRevisions.state`
+ * and `cmsPages.status` (owner decision, 24 Sep 2026 — was `published`, which
+ * claimed external delivery no database edit can prove). Legacy `published`
+ * rows are still recognised and superseded. Not a registered function —
+ * callers are authorized mutations.
  */
 export async function promotePageRevision(
   ctx: MutationCtx,
@@ -677,14 +708,15 @@ export async function promotePageRevision(
   // EXCEPT a revision pinned by the last confirmed public release. BP-03:
   // "continue serving the last confirmed public release" until the next one
   // verifies, and the public readers only serve a pinned row whose state is
-  // still `published`. Such a row is superseded by the next promotion after
+  // still promoted (`release_prepared`, or legacy `published`). Such a row
+  // is superseded by the next promotion after
   // a newer release has been confirmed.
   const gate = await selectConfirmedRelease(ctx, page.projectId);
   const pinned = new Set<Id<"pageRevisions">>(
     gate.allowed ? gate.audit.revisionIds : [],
   );
   for (const r of revs) {
-    if (r.state === "published" && !pinned.has(r._id)) {
+    if (isPreparedRevisionState(r.state) && !pinned.has(r._id)) {
       await ctx.db.patch(r._id, { state: "superseded" });
     }
   }
@@ -692,7 +724,7 @@ export async function promotePageRevision(
     pageId: page._id,
     projectId: page.projectId,
     version,
-    state: "published",
+    state: RELEASE_PREPARED,
     document,
     createdBy: userId,
     createdAt: now,
@@ -700,7 +732,7 @@ export async function promotePageRevision(
   });
   await ctx.db.patch(page._id, {
     publishedRevisionId: revisionId,
-    status: "published",
+    status: RELEASE_PREPARED,
     updatedAt: now,
   });
   return { revisionId, version };
