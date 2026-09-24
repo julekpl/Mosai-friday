@@ -2,6 +2,9 @@
 
 **Status:** `not started`. Blueprint ready for ticketing; blocked on the owner
 decisions in §0 only for the tickets marked ⚑.
+**Decided 24 Sep 2026 (owner):** the MVP renders the final video **in the
+user's browser** with `@remotion/web-renderer`. No AWS, no render server. A
+server renderer (Vercel Sandbox preferred) is a later ticket (V5b). See §1.1.
 **Written:** 24 September 2026 against the working tree on
 `claude/nice-cerf-n78iit` (post T2.4). Re-find symbols with `rg -n` if files
 have moved.
@@ -15,13 +18,14 @@ decision.
 
 ## 0. Decisions this blueprint assumes
 
-The tickets that need nothing from the owner (V1–V4) can start now. The ⚑
+The tickets that need nothing from the owner (V1–V3, and V5 once V4 is in) can start now. The ⚑
 tickets wait for these answers. The default is what gets built if the owner
 agrees; the alternative is what changes if not.
 
 | # | Decision ⚑ | Default in this blueprint | If the owner chooses otherwise |
 |---|---|---|---|
-| D1 | Server renderer | **Remotion on AWS Lambda** (needs AWS account + Remotion licence tier for team size) | Shotstack or Creatomate behind the same `RenderProvider` interface (§9.4); preview stays Remotion Player |
+| D1 | Renderer | ✅ **Decided: browser rendering** (`@remotion/web-renderer`) for the MVP. Later server renderer for background renders and Promote hand-off: **Vercel Sandbox** (`@remotion/vercel`) | Remotion Lambda (AWS) or Shotstack behind the same `RenderProvider` interface (§9.5). Google Cloud Run is excluded (Remotion lists it as alpha, not actively developed) |
+| D1a | Remotion licence tier | Free for organizations of up to 3 people; Company License above that | Confirm team size before launch; the licence applies to browser rendering too |
 | D2 | Voice provider | **ElevenLabs** `with-timestamps` | Any TTS that returns word/char timings; otherwise add a forced-alignment step |
 | D3 | AI clip provider | **OpenRouter video API** (`/api/v1/videos`) using the existing `OPENROUTER_API_KEY` | Direct Gemini (Veo) adapter behind the same interface |
 | D4 | Who pays for AI clips and TTS | Off by default; small monthly allowance on paid plans; hard per-organization budget | Pass-through top-up (needs T2.4 metered billing) |
@@ -44,11 +48,36 @@ Promote hand-off, optional AI clips with spend control.
 **Out of scope (deferred, §13 V7+):** multi-track timeline or keyframes
 ("Advanced edit", OpenReel as reference), editing raw phone footage ("Rough
 cut", OpenStoryline as reference), avatars, voice cloning, dubbing, music
-generation, browser-side final export.
+generation.
 
 **Principle.** The LLM writes and plans; a deterministic renderer draws. The
-same JSON composition drives the browser preview and the server render, so what
-the user previews is what renders.
+same JSON composition and the same React components drive the preview and the
+export, so what the user previews is what renders.
+
+### 1.1 MVP (what ships first)
+
+**Loop:** saved video script → AI storyboard → edit scenes → voiceover +
+captions → **export MP4 in the browser** → download (and keep a copy in the
+project).
+
+| In the MVP | Later |
+|---|---|
+| Storyboard agent with fidelity check and fallback split | "Rewrite scene with AI" |
+| Edit text, reorder, add/delete scenes, pick visual, aspect (9:16, 1:1, 16:9), one style preset, live preview | Split/merge, more presets |
+| Visuals: uploads, brand graphics, Pexels stock | AI images, AI clips (V6) |
+| ElevenLabs voiceover, captions from its timings, WebVTT file | Music bed + ducking |
+| Browser export → download + saved as a project asset | Server render with receipt (V5b), Promote hand-off, disclosure end card |
+
+**Tickets:** V1, V2, V3, V4 (without music), V5 (browser export). Owner
+inputs still needed: D2 (voice), D6 (stock credit), a monthly voiceover cap per
+plan, D1a (licence tier). Not needed for the MVP: D3, D4 for clips, D5 beyond a
+metadata flag.
+
+**Done when:** a user with a video script downloads a 60 s voiced, captioned
+MP4 in under 10 minutes on a mid-range laptop in a supported browser; cost under
+$0.15 per video; no success state shown without a real file; cross-tenant,
+budget and truth tests green; axe clean; with voice or stock keys missing, those
+parts show `needs_setup` and the rest still works.
 
 ---
 
@@ -60,7 +89,7 @@ Browser (Create → Videos tab)                       Convex (module: create)
 │ VideoStudio                   │   mutations    │ modules/video/videos.ts   CRUD, save  │
 │  SceneList · SceneCard        │ ─────────────▶ │ modules/video/storyboard.ts  LLM      │
 │  VisualPicker · StylePanel    │                │ modules/video/assets.ts  upload/stock │
-│  VoicePanel · RenderPanel     │ ◀───────────── │ modules/video/voice.ts   TTS          │
+│  VoicePanel · ExportPanel     │ ◀───────────── │ modules/video/voice.ts   TTS          │
 │  PreviewPlayer (@remotion/    │   live rows    │ modules/video/clips.ts   AI clip jobs │
 │   player, lazy-loaded)        │                │ modules/video/renders.ts render jobs  │
 └──────────────┬────────────────┘                │ http.ts  /api/video/* webhooks        │
@@ -70,8 +99,13 @@ Browser (Create → Videos tab)                       Convex (module: create)
 │  composition.ts (schema,      │◀──────────┐            │           │          │
 │   validate, timing, captions) │           │     OpenRouter    ElevenLabs   Pexels
 │ src/video/remotion/           │           │     (LLM + video)  (TTS)       (stock)
-│  Root.tsx · scenes · captions │ ──deploy──┴──▶ Remotion Lambda (AWS) ── webhook ──▶ http.ts
-└───────────────────────────────┘                  renders MP4 to S3; Convex copies to storage
+│  MosaiVideo · scenes ·        │           │
+│  captions                     │           └── later (V5b): Vercel Sandbox server render
+└──────────────┬────────────────┘
+               │ MVP export: renderMediaOnWeb() in the user's tab (WebCodecs)
+               ▼
+   MP4 Blob ──▶ download to the user's device
+            └─▶ upload to Convex storage as a `render` asset (assets.attachExport)
 ```
 
 ### 2.1 File map
@@ -86,7 +120,7 @@ Browser (Create → Videos tab)                       Convex (module: create)
 | `src/convex/modules/video/assets.ts` | new | `"create"` |
 | `src/convex/modules/video/voice.ts` (`"use node"`) | new | `"create"` |
 | `src/convex/modules/video/clips.ts` (`"use node"`) | new | `"create"` |
-| `src/convex/modules/video/renders.ts` (`"use node"`) | new | `"create"` |
+| `src/convex/modules/video/renders.ts` (`"use node"`) | **later (V5b)**: server renders | `"create"` |
 | `src/convex/modules/video/jobs.ts` | new: internal state machine mutations | `"internal"` |
 | `src/convex/modules/video/agents/storyboard.prompt.v1.ts` | new | `"internal"` |
 | `src/convex/modules/video/providers/{openrouterVideo,elevenlabs,pexels,remotion}.ts` | new adapters | `"internal"` |
@@ -96,7 +130,7 @@ Browser (Create → Videos tab)                       Convex (module: create)
 | `src/convex/lib/capabilities.ts` | changed: `create` gains `spend`; file owners | n/a |
 | `src/convex/http.ts` | changed: 2 routes | n/a |
 | `src/convex/crons.ts` | changed: stuck-job sweep | n/a |
-| `src/video/remotion/*` | new: Remotion root, scene components (also deployed as the Lambda site) | n/a |
+| `src/video/remotion/*` | new: `MosaiVideo` composition and scene components, used by the preview and by `renderMediaOnWeb` (and later by the server renderer) | n/a |
 | `src/components/create/video/*` | new: editor UI | n/a |
 | `src/pages/app/Create.tsx` | changed: add "Videos" tab + "Make video" action only (extract, don't grow) | n/a |
 
@@ -111,7 +145,8 @@ through a published contract query, never the tables.
 ## 3. Data model (additive)
 
 Add to `src/convex/schema.ts`. All four tables are project-scoped and cascade
-with the project.
+with the project. **The MVP creates two:** `videos` and `videoAssets`.
+`videoClipJobs` arrives with V6 and `videoRenders` with V5b.
 
 ```ts
 const videoStatus = v.union(v.literal("draft"), v.literal("ready"), v.literal("archived"));
@@ -163,6 +198,10 @@ videoAssets: defineTable({
     aiRunId: v.optional(v.id("aiRuns")),
   }),
   wordTimings: v.optional(v.array(v.object({ word: v.string(), startMs: v.number(), endMs: v.number() }))),
+  // Browser exports (kind "render"): which composition and renderer produced
+  // the file. Recorded as claimed by the client, not verified (see §10).
+  compositionHash: v.optional(v.string()),
+  rendererVersion: v.optional(v.string()),   // e.g. "web-renderer@4.0.528+mosai-video-v1"
   createdBy: v.id("users"),
   createdAt: v.number(),
 })
@@ -196,6 +235,8 @@ videoClipJobs: defineTable({
   .index("by_idempotency", ["idempotencyKey"])
   .index("by_status_next_poll", ["status", "nextPollAt"]),
 
+// Later (V5b, server rendering). Not created in the MVP: browser exports are
+// stored as `videoAssets` rows with kind "render" (see below).
 videoRenders: defineTable({
   projectId: v.id("projects"),
   videoId: v.id("videos"),
@@ -204,7 +245,7 @@ videoRenders: defineTable({
   compositionSnapshot: compositionValidator,  // frozen copy; edits never change a running render
   rendererVersion: v.string(),                // deployed Remotion site name
   idempotencyKey: v.string(),                 // hash(videoId, compositionHash, rendererVersion)
-  provider: v.literal("remotion_lambda"),
+  provider: v.union(v.literal("vercel_sandbox"), v.literal("remotion_lambda")),
   providerRenderId: v.optional(v.string()),
   providerBucket: v.optional(v.string()),
   progress: v.optional(v.number()),           // 0..1, display only
@@ -370,14 +411,35 @@ The OpenRouter `callback_url` points at `/api/video/clip-callback/<jobId>`. We d
 not rely on the callback body: it only schedules an immediate `poll`, and the
 state comes from the authenticated status read.
 
-### 5.6 `modules/video/renders.ts` (`"use node"`) ⚑ D1
+### 5.6 Export (MVP: browser rendering)
+
+There is no server render job in the MVP. The browser renders; the server only
+stores the result.
+
+| Function | Capability | Behaviour |
+|---|---|---|
+| `assets.exportUploadUrl({ videoId })` | `create.edit` | ownership checked; returns a Convex upload URL |
+| `assets.attachExport({ videoId, storageId, compositionHash, rendererVersion })` | `create.edit` | reads the `_storage` system row: MIME must be `video/mp4`, size ≤ 300 MB; stores a `videoAssets` row, kind `render`, `source.provider: "browser_export"`, `aiGenerated` copied from the video; builds the WebVTT from `wordTimings` server-side and stores it as a `captions` asset; sets video `status: "ready"`. Replaces the previous export of the same video (old blob deleted) |
+
+The export itself runs in `src/components/create/video/useBrowserExport.ts`
+(§9.2). The downloaded file never depends on the upload: if the upload fails,
+the user still has the MP4 and the UI says "Saved on this device; not saved to
+the project" with a retry.
+
+### 5.6b `modules/video/renders.ts` (`"use node"`), later (V5b)
+
+Server rendering on Vercel Sandbox for renders that must finish after the tab
+closes, and for the Promote hand-off with a receipt. Same job pattern as below;
+the provider calls become `renderMediaOnVercel({ detached: true })` +
+`getRenderProgress()` polling (no signed webhook needed), output read from Vercel
+Blob. The table below is written for that ticket.
 
 | Function | Capability | Behaviour |
 |---|---|---|
 | `requestRender({ videoId })` | `create.edit` | `isRenderable` or throw with the issues; idempotent on `(videoId, compositionHash, rendererVersion)`; snapshot composition; `queued`; schedules `submit` |
-| internal `submit({ renderId })` | n/a | builds `inputProps` = snapshot + short-lived asset URLs (`ctx.storage.getUrl`); `renderMediaOnLambda` via `@remotion/lambda-client` with `codec: "h264"`, `webhook: { url, secret }`; stores `providerRenderId`, `providerBucket`; `running`; schedules a backup `poll` at +60 s |
-| internal `poll({ renderId })` | n/a | `getRenderProgress`; updates `progress`; on done → `finalize`; on fatal error → `failed` |
-| internal `finalize({ renderId })` | n/a | downloads output from S3, computes sha-256, stores blob as `render` asset, builds WebVTT from `wordTimings` as `captions` asset, writes `receipt`, sets `succeeded`, sets video `status: "ready"`. **Only path that writes `succeeded`.** |
+| internal `submit({ renderId })` | n/a | builds `inputProps` = snapshot + short-lived asset URLs (`ctx.storage.getUrl`); starts a detached render through the `RenderProvider` (§9.5); stores `providerRenderId`; `running`; schedules `poll` at +30 s |
+| internal `poll({ renderId })` | n/a | `getRenderProgress`; updates `progress`; on done → `finalize`; on fatal error → `failed`; reschedules with backoff |
+| internal `finalize({ renderId })` | n/a | downloads the output from the provider's storage, computes sha-256, stores blob as `render` asset, builds WebVTT from `wordTimings` as `captions` asset, writes `receipt`, sets `succeeded`, sets video `status: "ready"`. **Only path that writes `succeeded`.** |
 | `cancelRender({ renderId })` | `create.edit` | marks `canceled`; late webhook for a canceled render is ignored |
 
 ### 5.7 State machine (`modules/video/jobs.ts`)
@@ -391,12 +453,12 @@ transition writes `updatedAt`; a duplicate webhook or poll is a no-op.
 
 | Route | Verification | Effect |
 |---|---|---|
-| `POST /api/video/render-webhook` | `validateWebhookSignature` with `REMOTION_WEBHOOK_SECRET` over the parsed body and `X-Remotion-Signature`; reject `X-Remotion-Mode: demo` in production | looks up the render by `renderId` in the payload; `success` → schedule `finalize`; `error/timeout` → `failed` with the provider message |
+| `POST /api/video/render-webhook` (only if V5b uses Lambda; Vercel Sandbox is polled) | `validateWebhookSignature` with `REMOTION_WEBHOOK_SECRET` over the parsed body and `X-Remotion-Signature`; reject `X-Remotion-Mode: demo` in production | looks up the render by `renderId` in the payload; `success` → schedule `finalize`; `error/timeout` → `failed` with the provider message |
 | `POST /api/video/clip-callback/:jobId` | none trusted (body ignored); rate-limited by job | schedules `poll({ jobId })` now |
 
 ### 5.9 Cron (`src/convex/crons.ts`)
 
-Every 5 min: `running` renders older than 20 min → `poll`; clip jobs whose
+Every 5 min (from V5b/V6): `running` renders older than 20 min → `poll`; clip jobs whose
 `nextPollAt` is past → `poll`; `queued` older than 10 min → re-`submit`
 (idempotent). Daily: delete `videoAssets` with no `videoId` reference older
 than 30 days that are not library uploads.
@@ -485,13 +547,13 @@ lives in `src/components/create/video/`:
 
 | Component | Job |
 |---|---|
-| `VideosTab.tsx` | list of videos (status via `StatusBadge`; render via `ReceiptBadge`), empty state linking to "write a video script" |
+| `VideosTab.tsx` | list of videos (status via `StatusBadge`; MVP exports labelled "Exported on this device"; `ReceiptBadge` only for V5b server renders), empty state linking to "write a video script" |
 | `VideoStudio.tsx` | three-pane layout: scenes · preview · settings; stacks on mobile |
 | `SceneList.tsx` / `SceneCard.tsx` | narration + on-screen text fields, visual thumbnail, duration, move up/down buttons (keyboard), split/merge, delete, "Rewrite with AI" |
 | `VisualPicker.tsx` | tabs: Upload · Brand · Stock · AI clip (AI clip shows `locked` without `create.spend`, `needs_setup` without provider) |
 | `PreviewPlayer.tsx` | `@remotion/player` with the shared composition, `React.lazy` so the Create bundle does not grow for users who never open video |
 | `StylePanel.tsx`, `VoicePanel.tsx`, `MusicPanel.tsx` | aspect, preset, captions style; voice select + "Generate voiceover"; music upload + gain |
-| `RenderPanel.tsx` | render button, `aria-live="polite"` job status, progress, download, "Send to Promote" |
+| `ExportPanel.tsx` | MVP: Export button (or `unavailable` with supported browsers), progress + Cancel, `aria-live="polite"` status, download MP4 + VTT, save-to-project status. V5b adds server render and "Send to Promote" |
 | `ClipSpendDialog.tsx` | prompt, model, duration, **price quote**, remaining budget, explicit confirm |
 | `useVideoDraft.ts` | local reducer over the composition, debounced `save` with `baseRevision`, conflict banner "Updated elsewhere: reload" |
 
@@ -503,7 +565,7 @@ lives in `src/components/create/video/`:
 | empty | no videos / piece has no script | `ModuleEmpty` with next action |
 | error | storyboard/render `failed` | error text from job + retry |
 | partial | any scene `visual === null` or no voice | scene cards flagged; render disabled with the list of issues |
-| success | render `succeeded` with receipt | `ReceiptBadge`, download, send to Promote |
+| success | MVP: export stored via `attachExport`; V5b: server render `succeeded` with receipt | MVP: "Exported on this device" + download; V5b: `ReceiptBadge`, send to Promote |
 | locked | plan lacks `create`, role lacks `spend` | `locked` badge on AI clip + reason |
 | needs_setup | provider key missing on the deployment | `needs_setup` on voice/stock/render/clips, never simulated media |
 
@@ -517,51 +579,104 @@ colours.
 
 ---
 
-## 9. Rendering (Remotion) ⚑ D1
+## 9. Rendering (Remotion)
 
 ### 9.1 Composition code (`src/video/remotion/`)
 
-- `index.ts` → `registerRoot(Root)`.
-- `Root.tsx` → `<Composition id="MosaiVideo" component={MosaiVideo}
-  calculateMetadata={({ props }) => ({ durationInFrames: frames(props),
-  width, height, fps: 30 })} />`.
-- `MosaiVideo.tsx` → `<Series>` of scenes with transitions; one `<Audio>` for
-  the voiceover; `<Audio>` for music with volume ducking computed from
-  `wordTimings`; `<Captions>` overlay; optional disclosure end card.
-- Scene components per visual kind: `BrandGraphicScene`, `MediaScene`
-  (`<OffthreadVideo>` / `<Img>` with Ken Burns), all reading the shared types.
-- Fonts bundled with the site (only licences that allow embedding in video).
+- `MosaiVideo.tsx`: `<Series>` of scenes with transitions; one `<Audio>` for
+  the voiceover; captions overlay; optional disclosure end card. Music (later)
+  is a second `<Audio>` with ducking from `wordTimings`.
+- `composition.ts`: `toRemotionComposition(c)` returns `{ id: "MosaiVideo",
+  component, durationInFrames, fps: 30, width, height, calculateMetadata: null }`
+  from the shared `Composition`, so the Player and `renderMediaOnWeb` get the
+  same object.
+- Scene components per visual kind: `BrandGraphicScene`, `MediaScene`.
+- **Media components must be the browser-renderer-compatible ones:** `<Video>`
+  and `<Audio>` from `@remotion/media`, and `<Img>`. `<OffthreadVideo>`,
+  `<Html5Video>` and `<Html5Audio>` are not supported by client-side rendering.
+- **CSS subset rule.** Client-side rendering draws the layout onto a canvas and
+  supports only listed properties (layout, `transform`, `opacity`, colours,
+  linear gradients, borders and radius, most text properties, `text-shadow`).
+  Not supported, so banned in `src/video/remotion/`: `z-index` (use DOM order),
+  `perspective`, `object-position`, non-gradient `background-image`, inset or
+  spread shadows, SVG masks and `clip-path: url()`, CSS filters (not in
+  Safari). V3 adds a lint rule or unit test that scans these files for the
+  banned properties.
+- Fonts loaded through `@remotion/fonts` or `@remotion/google-fonts` (only
+  licences that allow embedding in video).
+- All media URLs are same-origin or CORS-enabled (Convex storage URLs; V0
+  confirms Convex storage sends the needed CORS headers for canvas use).
 
-### 9.2 Deploy
+### 9.2 Browser export (MVP)
 
-`bunx remotion lambda functions deploy` once per region;
-`bunx remotion lambda sites create src/video/remotion/index.ts --site-name=mosai-video-v<N>`
-per renderer change. `rendererVersion` on each render row records the site, so
-an old render can be reproduced. Output: h264 MP4, CRF 23, AAC audio.
+`src/components/create/video/useBrowserExport.ts`:
+
+1. **Capability check** before showing the button: `typeof VideoEncoder !==
+   "undefined"` plus a trial `VideoEncoder.isConfigSupported({ codec: "avc1…",
+   width, height })`. Unsupported → the Export button is `unavailable` with
+   "Use Chrome 94+, Firefox 130+ or Safari 26+".
+2. **Guard:** `isRenderable(composition)` and a saved revision (export uses the
+   saved composition, never unsaved local edits, so the stored
+   `compositionHash` is true).
+3. **Render:** `renderMediaOnWeb({ composition, inputProps, container: "mp4",
+   videoCodec: "h264", audioCodec: "aac", onProgress, signal, licenseKey,
+   schema })` with the composition's Zod v4 schema (Zod v4 is already a
+   dependency). `signal` comes from an `AbortController` wired to Cancel.
+   Load `@remotion/web-renderer` with a dynamic `import()` so it never enters
+   the main bundle.
+4. **Progress:** progress bar + `aria-live="polite"` text at 10 % steps;
+   `beforeunload` warning while rendering; a note that a background tab renders
+   slower.
+5. **Deliver:** `getBlob()` → object URL → download `<title>.mp4` and the
+   `.vtt` captions. Then upload the blob with `exportUploadUrl` and
+   `attachExport` (with hash and `rendererVersion`).
+6. **Failure:** show the error, keep the editor state, offer retry. Never mark
+   the video ready unless `attachExport` succeeded.
+
+Performance knobs to settle in V0: `pageResponsiveness` (responsive vs. fast),
+`hardwareAcceleration`, `videoBitrate`, and `scale` (e.g. a quick 540p draft
+export).
 
 ### 9.3 Environment (names only; values never committed, rule 1)
 
-`REMOTION_AWS_ACCESS_KEY_ID`, `REMOTION_AWS_SECRET_ACCESS_KEY`,
-`REMOTION_AWS_REGION`, `REMOTION_FUNCTION_NAME`, `REMOTION_SERVE_URL`,
-`REMOTION_WEBHOOK_SECRET`, `ELEVENLABS_API_KEY`, `PEXELS_API_KEY`,
-`OPENROUTER_API_KEY` (exists), `VIDEO_CLIP_QUOTE_SECRET`. Missing key → that
-capability resolves to `needs_setup`.
+MVP: `ELEVENLABS_API_KEY`, `PEXELS_API_KEY`, `OPENROUTER_API_KEY` (exists) on
+the Convex deployment; `VITE_REMOTION_LICENSE_KEY` in the web app. A licence key
+used by client-side rendering is by nature visible in the browser bundle: V0
+confirms with Remotion that this key is a public identifier and not a secret;
+if it is a secret, fetch it per session from an authenticated query instead.
+Later: `VIDEO_CLIP_QUOTE_SECRET` (V6); `VERCEL_TOKEN`, `VERCEL_TEAM_ID`,
+`BLOB_READ_WRITE_TOKEN` or equivalent (V5b). Missing key → that capability
+resolves to `needs_setup`.
 
-### 9.4 `RenderProvider` interface
+### 9.4 Server rendering later (V5b): Vercel Sandbox
+
+`@remotion/vercel` renders in an ephemeral Vercel Sandbox VM (Chrome +
+FFmpeg) and writes to Vercel Blob. It needs one Vercel account and a Blob
+store; no AWS. Limits from Remotion's docs: single machine per render (slower
+than Lambda, a few seconds to start), 45 min timeout on Hobby and 5 h on Pro,
+10 concurrent renders on Hobby and 2000 on Pro; functions run up to 800 s, so
+use `renderMediaOnVercel({ detached: true })` and poll `getRenderProgress()`.
+Vercel's Hobby plan is for non-commercial use, so production needs Pro; set
+Vercel spend management and delete Blob outputs after they are copied into
+Convex storage. Because server rendering uses a real Chrome screenshot, the
+CSS subset rule of §9.1 is stricter than needed there, which keeps preview,
+browser export and server render identical.
+
+### 9.5 `RenderProvider` interface (server rendering only)
 
 ```ts
 interface RenderProvider {
-  id: "remotion_lambda" | "shotstack";
+  id: "vercel_sandbox" | "remotion_lambda" | "shotstack";
   submit(input: { snapshot: Composition; assetUrls: Record<string, string>;
-    webhookUrl: string; idempotencyKey: string }): Promise<{ providerRenderId: string; bucket?: string }>;
+    idempotencyKey: string }): Promise<{ providerRenderId: string }>;
   progress(id: string): Promise<{ done: boolean; progress: number; error?: string; outputUrl?: string; costUsd?: number }>;
   fetchOutput(id: string): Promise<Uint8Array>;
 }
 ```
 
-A Shotstack implementation maps the composition to its JSON; the preview stays
-Remotion Player, so a parity test (same fixture, frame hashes at 3 timestamps)
-gates any provider switch.
+Any provider switch is gated by a parity test: the same fixture rendered by the
+browser export and the server provider, frame hashes compared at 3 timestamps
+within a tolerance.
 
 ---
 
@@ -569,15 +684,15 @@ gates any provider switch.
 
 | Rule | How this design meets it |
 |---|---|
-| 1 secrets | env names only; secret scan in CI already covers new files |
+| 1 secrets | env names only; secret scan in CI already covers new files; the Remotion licence key in the browser is confirmed public in V0 (§9.3) |
 | 2 auth + ownership | every public function via `moduleQuery/Mutation` or `requireActionCapability` + `ownedRow`; the generated cross-tenant suite picks new functions up automatically (verify the registry in `tests/unit/function-registry.ts`) |
 | 3 no client snapshots | storyboard/voice/clip/render load everything server-side by id |
 | 4 untrusted content | script, research, stock metadata wrapped as data; model output can't select tools or trigger spend |
-| 5 no fake success | `succeeded` only from `finalize` (render) or `poll` (clip) after verified provider state + stored blob + sha-256; client mutations can't write job status (test) |
+| 5 no fake success | MVP: a browser export is labelled "Exported on this device" and is a user-supplied file, never "verified" or "published"; `ready` only after the file is actually stored (`attachExport`). Later: `succeeded` only from `finalize` (server render) or `poll` (clip) after verified provider state + stored blob + sha-256; client mutations can't write job status (test) |
 | 6 idempotency + receipts | `idempotencyKey` on renders and clips, receipts stored |
 | 7 money | costs in integer micro-USD; quotes are HMAC-signed; budget checked before submit |
 | 8 user URLs | no user-supplied URL is fetched; stock downloads by provider id via `safeFetch` |
-| 9 public content origin | rendered MP4 served via Convex storage URL (separate registrable domain from the app) until T2.15 defines the public media origin |
+| 9 public content origin | exported/rendered MP4 served via Convex storage URL (separate registrable domain from the app) until T2.15 defines the public media origin |
 | 10 module independence | all code in `modules/video` + `shared/video`; Promote reads `forPromote` only |
 | 11 gateway | TTS and video through `modelGateway.ts` with `aiRuns` |
 | 12 registry | 4 entries + blob cleanup test |
@@ -598,7 +713,8 @@ Per 60 s video, list prices on 24 Sep 2026:
 | Storyboard LLM | existing text model via OpenRouter | ~3k tokens | < $0.01 |
 | Voiceover (ElevenLabs) | $0.05–0.10 / 1k chars | ~900 chars | $0.05–0.09 |
 | Stock (Pexels) | free | 3–6 clips | $0 |
-| Render (Lambda + licence) | cents of compute; Remotion automation licence reported at ~$0.01/render with a $100/month minimum for companies of 4+ | 1 render | ~$0.01–0.05 |
+| Export (MVP, browser) | runs on the user's device | 1 export | $0 (plus the Remotion licence if the company has 4+ people) |
+| Server render (later, Vercel Sandbox) | usage-based Vercel compute + Blob storage; Vercel Pro plan | 1 render | measure in V5b |
 | AI clips (optional) | Veo 3.1 Lite $0.05/s … Fast 1080p $0.12/s | 4 × 6 s | $1.20–2.90 |
 
 Enforcement: `assertMediaBudget(organizationId, estimateMicrousd)` sums this
@@ -620,13 +736,14 @@ limits `spend` to owners). Plans without an allowance see AI clips as `locked`.
 | Timing/captions | char alignment → words; scene split; VTT output snapshot; pacing estimator |
 | Authorization | cross-tenant suite covers every new public function; member vs owner on `requestClip` |
 | Capability | free plan can storyboard; `create.spend` missing → `requestClip` refused before any provider call |
-| Truth | no client-callable function can set `succeeded`; forged render webhook (bad signature) → no change; demo-mode webhook refused; callback body ignored |
-| Idempotency | double `requestRender` / `requestClip` → one row, one provider submit (mock) |
+| Truth | MVP: `attachExport` refuses a non-MP4 or oversized blob, and the video is not `ready` without a stored export; later: no client-callable function can set `succeeded`; forged webhook → no change; callback body ignored |
+| Renderer compatibility | unit test scans `src/video/remotion/` for banned CSS properties and unsupported components (§9.1) |
+| Idempotency | double `attachExport` of the same video replaces the old export (one row, old blob deleted); later double `requestRender` / `requestClip` → one row, one provider submit (mock) |
 | State machine | table test over `canTransition`; terminal states immutable |
 | Storyboard | fixture model outputs: rewritten script rejected; over-long on-screen text rejected; deterministic fallback |
 | Budget | over-allowance quote refused; cost recorded from `usage.cost` |
 | Deletion | project deletion removes rows **and** storage blobs |
-| Browser (Playwright) | create video from a script → edit scene → preview plays → render with mocked provider → receipt badge; keyboard-only reorder |
+| Browser (Playwright, Chromium) | create video from a script → edit scene → preview plays → export a short fixture in the browser → download event fires with an MP4 → export listed on the video; keyboard-only reorder; unsupported-browser message when `VideoEncoder` is stubbed out |
 | A11y (axe) | Videos tab and studio pass with no allow-list |
 
 ---
@@ -637,18 +754,20 @@ Sizes: S ≤ 1 day, M 2–3 days, L 4–5 days.
 
 | Ticket | Scope | Depends on | Acceptance (each by a test or recorded check) | Size |
 |---|---|---|---|---|
-| **V0 ⚑ Spike + ADR** | Render one fixture composition on Remotion Lambda; one OpenRouter video job end to end; one ElevenLabs call with timestamps. Record time, cost, failure modes. ADR "Video rendering and media providers". | D1–D3 | ADR merged with measured numbers; no production code | M |
-| **V1 Data + composition** | `src/shared/video/*`; four tables; `aiRuns` additive fields; registry entries + blob cleanup; `videos.ts` CRUD with optimistic concurrency; `create.spend` in registry; file owners | T2.2, T2.3, T2.5 | composition tests; cross-tenant + capability tests green; `audit:functions`, `audit:capabilities`, data-registry audit green | M |
+| **V0 Spike + ADR** | Export a 60 s 1080×1920 fixture (stock clips + voice + captions) with `renderMediaOnWeb` on a mid-range laptop in Chrome, Firefox and Safari 26; confirm Convex storage CORS for canvas use and that the licence key is public; one ElevenLabs call with timestamps; (for V6) one OpenRouter video job. Record times, file sizes, failures. ADR "Video rendering and media providers". | none for the browser part | ADR merged with measured numbers; no production code | M |
+| **V1 Data + composition** | `src/shared/video/*`; `videos` + `videoAssets` tables; `aiRuns` additive fields; registry entries + blob cleanup; `videos.ts` CRUD with optimistic concurrency; `create.spend` in registry; file owners | T2.2, T2.3, T2.5 | composition tests; cross-tenant + capability tests green; `audit:functions`, `audit:capabilities`, data-registry audit green | M |
 | **V2 Storyboard agent** | `storyboard.ts`, prompt v1, validators, fallback, fixtures | V1, gateway | fidelity/pacing validators reject bad fixtures; no client-supplied script accepted | M |
 | **V3 Studio UI + preview** | Videos tab, studio, scene editing, uploads, brand graphics, `@remotion/player` preview, all UI states | V1, V2 | Playwright journey to preview; axe clean; keyboard reorder | L |
 | **V4 ⚑ Stock + voice + captions** | Pexels search/import, ElevenLabs voiceover, word timings, captions in preview, music bed | V3, D2, D6 | caption timing within 100 ms of alignment on fixtures; `needs_setup` without keys; attribution stored | M |
-| **V5 ⚑ Render job + hand-off** | `renders.ts`, webhook route, cron, finalize with receipt, VTT, download, `forPromote` contract, Promote accepts `{type:"video",id}` as media | V4, V0, D1 | truth + idempotency tests; forged webhook refused; receipt badge only after verified finalize | L |
-| **V6 ⚑ AI clips** | allow-list, quote token, `clips.ts`, poll loop, budget, disclosure flag to Promote; approval record once T2.12 lands | V5, D3, D4, D5 | no clip without `create.spend` + valid quote; budget refusal; `aiGenerated` reaches Promote | M |
+| **V5 Browser export (MVP)** | `useBrowserExport`, capability check, progress/cancel, download MP4 + VTT, `exportUploadUrl`/`attachExport`, "Exported on this device" label | V4, V0 | Playwright export journey; unsupported browser shows `unavailable`; `attachExport` rejects bad MIME/size; `ready` only after stored | S–M |
+| V5b Server render + hand-off (later) | Vercel Sandbox `RenderProvider`, `videoRenders` table, `renders.ts`, polling, cron, finalize with receipt, `forPromote` contract, Promote accepts `{type:"video",id}` | V5, Vercel account (Pro) | truth + idempotency tests; receipt only after verified finalize; parity test vs browser export | L |
+| **V6 ⚑ AI clips** | allow-list, quote token, `clips.ts`, poll loop, budget, disclosure flag to Promote; approval record once T2.12 lands | V5 (V5b for the Promote flag), D3, D4, D5 | no clip without `create.spend` + valid quote; budget refusal; `aiGenerated` reaches Promote | M |
 | V7 Rough cut (deferred) | Upload phone footage → shot detection + ASR filler removal (OpenStoryline as reference, isolated worker) | ADR | n/a | L |
 | V8 Advanced edit (deferred) | Multi-track editor (OpenReel as reference, MIT; check ffmpeg.wasm licensing and CDN loading) | ADR | n/a | L+ |
 
-Order: V0 can run in parallel with V1–V3 (they need no provider). V4–V6 wait
-for their ⚑ decisions. Each PR description follows the template in AGENTS.md §6
+**MVP = V0 + V1 + V2 + V3 + V4 (no music) + V5**, roughly 13–18 working days
+(estimate, to be checked by V0). Order: V0 can run in parallel with V1–V3 (they
+need no provider). V4 waits for D2/D6; V5b and V6 come after the MVP. Each PR description follows the template in AGENTS.md §6
 (Outcome · Scope · Before · After · Data migration · Security and privacy ·
 Verification · Proof).
 
@@ -658,10 +777,14 @@ Verification · Proof).
 
 | Risk | Mitigation |
 |---|---|
-| Remotion licence or AWS not approved | `RenderProvider` + Shotstack path; V1–V3 unaffected |
+| Browser export too slow or fails on low-end devices | V0 measures; offer a 540p draft export (`scale`); cap MVP length at 120 s; V5b server render as the fallback |
+| Unsupported browser (older Safari, no WebCodecs) | capability check → `unavailable` with the supported versions; preview still works |
+| User closes or backgrounds the tab | `beforeunload` warning; background tabs keep rendering, slower (Remotion falls back to a Worker timer) |
+| Canvas-drawn output differs from the preview for unsupported CSS | CSS subset rule + scan test (§9.1) |
+| Remotion licence tier | free up to 3 people; confirm D1a before launch |
 | Provider model retired (Sora API removed 24 Sep 2026) | allow-list + OpenRouter lets us switch model ids; no model id in UI code |
-| Large files in Convex actions (memory/time limits) | cap at 120 s / 1080p (~30–80 MB); stream downloads in node actions; if exceeded, keep output in S3 and store a signed-URL receipt instead (ADR in V0) |
-| Preview ≠ render | one composition, one component tree; frame-hash parity test in V5 |
+| Large files | MVP uploads go straight from the browser to a Convex upload URL (no action memory involved); cap at 120 s / 1080p (~30–80 MB). V5b: stream the provider output in a node action or keep it in Blob with a receipt |
+| Preview ≠ server render (V5b) | one composition, one component tree; frame-hash parity test in V5b |
 | Cost surprise | ceilings per model, quote tokens, monthly budget, costs recorded from provider usage |
 | Legal wording (AI disclosure, stock licence, fonts, music) | D5/D6 owner decisions; ship metadata flag first |
 
@@ -671,6 +794,14 @@ Verification · Proof).
 
 - Remotion licence/pricing: https://www.remotion.dev/docs/license/pricing ,
   summary https://www.therundown.ai/tools/remotion
+- Remotion client-side rendering: https://www.remotion.dev/docs/client-side-rendering/ ,
+  https://www.remotion.dev/docs/client-side-rendering/limitations ,
+  https://www.remotion.dev/docs/web-renderer/render-media-on-web
+  (read from the docs source at github.com/remotion-dev/remotion, `packages/docs/docs`;
+  `@remotion/web-renderer` 4.0.528 published 24 Sep 2026 on npm)
+- Remotion on Vercel Sandbox: https://www.remotion.dev/docs/vercel-sandbox ,
+  https://github.com/remotion-dev/template-vercel
+- Remotion Cloud Run (alpha, not actively developed): https://www.remotion.dev/docs/cloudrun
 - Remotion Lambda and webhooks: https://www.remotion.dev/docs/lambda ,
   https://www.remotion.dev/docs/lambda/webhooks ,
   https://www.remotion.dev/docs/lambda/validatewebhooksignature
