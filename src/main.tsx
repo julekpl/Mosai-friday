@@ -102,6 +102,22 @@ const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
 
 
+/**
+ * `/s/*` is public customer-website space, served by `main.ts` as
+ * server-rendered, script-free HTML. The SPA never renders dashboard UI
+ * there; this only shows in `vite dev`, which serves the SPA for every path.
+ */
+function PublicSiteDevNotice() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <p className="max-w-md text-center font-mono text-caption text-muted-foreground">
+        Public sites are served by the server. Open this address on the
+        deployed app to see the published page.
+      </p>
+    </main>
+  );
+}
+
 function RouteSyncer() {
   const location = useLocation();
   useEffect(() => {
@@ -216,6 +232,8 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
+              <Route path="/s/*" element={<PublicSiteDevNotice />} />
+              <Route path="/s" element={<PublicSiteDevNotice />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

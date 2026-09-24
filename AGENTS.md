@@ -120,6 +120,12 @@ only way to silence it — keep that file tiny and justified.
    directly on a URL a user or a scraped page supplied.
 9. **Public user content** is served from a separate registrable domain from the
    dashboard, never from the app origin (T2.15).
+   *Owner exception (24 Sep 2026, time-boxed):* until the move to a separate
+   domain (option A in `docs/decisions/2026-09-24-hosting-public-sites.md`),
+   public customer WEBSITES may be served at `/s/<slug>-website` on the app
+   origin, only as server-rendered HTML with no JavaScript and the strict CSP
+   in `main.ts` (`server/publicSiteProxy.ts`); apps and any user-supplied
+   script remain forbidden on the app origin.
 
 **Architecture**
 
