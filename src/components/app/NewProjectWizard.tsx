@@ -10,10 +10,8 @@ import {
   Globe,
   Loader2,
   MapPin,
-  PackageSearch,
   Plus,
   ScanSearch,
-  Share2,
   Sparkles,
   Store,
   X,
@@ -45,9 +43,10 @@ type BusinessListing = {
 };
 
 const steps = [
-  { key: "start", label: "Your business" },
-  { key: "review", label: "Your business map" },
-  { key: "audience", label: "Who you serve" },
+  { key: "start", label: "Business" },
+  { key: "review", label: "Review" },
+  { key: "audience", label: "Audience" },
+  { key: "draft", label: "First draft" },
 ] as const;
 
 /* ── Chip input: type + Enter or comma, click ✕ to remove ─────────────── */
@@ -95,6 +94,7 @@ function ChipInput({
         </div>
       )}
       <Input
+        aria-label={placeholder ?? "Add an item"}
         value={draft}
         onChange={(e) => {
           const val = e.target.value;
@@ -144,6 +144,7 @@ function Suggestions({
           <button
             key={o}
             type="button"
+            aria-pressed={active}
             onClick={() => onPick(o)}
             className={cn(
               "flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-caption transition-colors ease-terminal",
@@ -190,52 +191,6 @@ const PAIN_SUGGESTIONS = [
   "low repeat purchases",
 ];
 
-function BusinessMapIllustration({
-  website,
-  businessName,
-  scanning,
-}: {
-  website: string;
-  businessName: string;
-  scanning: boolean;
-}) {
-  return (
-    <aside className="rounded-lg border bg-card p-5 sm:p-6" aria-label="What MOSAI will map from your business">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 font-mono text-caption text-terminal-green">
-          <Sparkles className="size-3.5" aria-hidden="true" /> Your business, connected
-        </span>
-        {scanning && <span role="status" className="font-mono text-caption text-muted-foreground">Mapping…</span>}
-      </div>
-      <h2 className="mt-4 font-mono text-h2 font-semibold">A website becomes a clearer starting point.</h2>
-      <p className="mt-2 font-mono text-caption text-muted-foreground">MOSAI looks for the parts that help shape the next steps: what you offer, who you serve, where you are, and how people can find you.</p>
-      <div className="relative mt-5 overflow-hidden rounded-md border bg-background p-3 sm:p-4">
-        <svg viewBox="0 0 420 210" className="h-auto w-full text-terminal-green" aria-hidden="true">
-          <path d="M210 104 88 45M210 104 332 45M210 104 88 165M210 104 332 165" fill="none" stroke="currentColor" strokeDasharray="5 7" strokeOpacity=".45" strokeWidth="2" />
-          <circle cx="210" cy="104" r="49" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".7" strokeWidth="2" />
-          <circle cx="210" cy="104" r="36" fill="currentColor" fillOpacity=".08" className="motion-safe:animate-pulse" />
-          <circle cx="88" cy="45" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <circle cx="332" cy="45" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <circle cx="88" cy="165" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <circle cx="332" cy="165" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <foreignObject x="161" y="76" width="98" height="56"><div className="flex h-full flex-col items-center justify-center text-center font-mono text-caption font-semibold text-foreground">{displayDomain(website) || businessName || "Your business"}</div></foreignObject>
-          <foreignObject x="49" y="28" width="78" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">Offers</div></foreignObject>
-          <foreignObject x="291" y="28" width="82" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">People</div></foreignObject>
-          <foreignObject x="43" y="148" width="90" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">Location</div></foreignObject>
-          <foreignObject x="285" y="148" width="94" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">Social links</div></foreignObject>
-        </svg>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 font-mono text-caption text-muted-foreground">
-        <span className="flex items-center gap-2"><PackageSearch className="size-4 text-terminal-green" aria-hidden="true" /> Products and services</span>
-        <span className="flex items-center gap-2"><MapPin className="size-4 text-terminal-green" aria-hidden="true" /> Address and country</span>
-        <span className="flex items-center gap-2"><Globe className="size-4 text-terminal-green" aria-hidden="true" /> Important pages</span>
-        <span className="flex items-center gap-2"><Share2 className="size-4 text-terminal-green" aria-hidden="true" /> Public social links</span>
-      </div>
-      <p className="mt-4 border-t pt-3 font-mono text-caption text-muted-foreground">You’ll review what was found before it becomes part of your project context.</p>
-    </aside>
-  );
-}
-
 function WebsiteMapReview({
   scanResult,
   businessName,
@@ -251,25 +206,15 @@ function WebsiteMapReview({
     <section className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="website-map-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /><span className="font-mono text-caption font-semibold">Your first business map</span></div>
-          <h2 id="website-map-title" className="mt-1 font-mono text-h2 font-semibold">Check what MOSAI found</h2>
-          <p className="mt-1 font-mono text-caption text-muted-foreground">These are candidates from public pages, not verified business facts. Correct anything that looks wrong below.</p>
+          <div className="flex items-center gap-2 text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /><span className="font-mono text-caption font-semibold">A first look at your business</span></div>
+          <h2 id="website-map-title" className="mt-1 font-sans text-h2 font-semibold">Here’s what we picked up</h2>
+          <p className="mt-1 font-sans text-small text-muted-foreground">These details came from the source you chose. Fix anything that’s off before saving.</p>
         </div>
-        {coverage && <Badge variant="outline" className="font-mono text-caption">{coverage.scannedPageCount} pages read</Badge>}
       </div>
-      {coverage && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-md border p-3"><p className="font-mono text-h2 font-semibold">{coverage.scannedPageCount}</p><p className="font-mono text-caption text-muted-foreground">pages read</p></div>
-        <div className="rounded-md border p-3"><p className="font-mono text-h2 font-semibold">{coverage.discoveredPageCount}</p><p className="font-mono text-caption text-muted-foreground">pages found</p></div>
-        <div className="rounded-md border p-3"><p className="font-mono text-h2 font-semibold">{coverage.sitemapCount}</p><p className="font-mono text-caption text-muted-foreground">sitemap files</p></div>
-        <div className="rounded-md border p-3"><p className="font-mono text-h2 font-semibold">{scanResult.socialChannels?.length ?? 0}</p><p className="font-mono text-caption text-muted-foreground">social links</p></div>
-      </div>}
-      {coverage?.truncated && <p role="status" className="rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-3 font-mono text-caption text-terminal-amber">This is a first pass: the site listed more pages than we could read here. MOSAI chose key pages and stopped at its {coverage.pageLimit}-page limit. Review the page list and re-scan later for a deeper crawl.</p>}
-      {coverage?.failedPageCount ? <p role="status" className="font-mono text-caption text-terminal-amber">{coverage.failedPageCount} discovered pages couldn’t be read. They’re not counted as scanned.</p> : null}
-      {coverage?.skippedByRobotsCount ? <p className="font-mono text-caption text-muted-foreground">{coverage.skippedByRobotsCount} pages were skipped because of robots.txt rules.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-md border p-3">
-          <h3 className="font-mono text-small font-semibold">Business details</h3>
-          <div className="mt-2 grid gap-2 font-mono text-caption">
+          <h3 className="font-sans text-small font-semibold">Business details</h3>
+          <div className="mt-2 grid gap-2 font-sans text-caption">
             {([
               ["name", "Business name", businessName || details?.name || ""],
               ["address", "Address", details?.address || ""],
@@ -280,25 +225,32 @@ function WebsiteMapReview({
               <Label htmlFor={`scan-${field}`} className="text-muted-foreground">{label}{field === "name" ? "" : " (optional)"}</Label>
               <Input id={`scan-${field}`} type={field === "email" ? "email" : "text"} value={value} onChange={(event) => onBusinessDetailChange(field, event.target.value)} placeholder={`Add ${label.toLowerCase()} if useful`} />
             </div>)}
-            {!details?.address && !details?.country && !details?.phone && !details?.email && <p className="text-muted-foreground">No structured address or contact details were found. Add anything you want MOSAI to know.</p>}
+            {!details?.address && !details?.country && !details?.phone && !details?.email && <p className="text-muted-foreground">No extra contact details were found.</p>}
           </div>
-          {details?.footerExcerpt && <details className="mt-3 border-t pt-2"><summary className="cursor-pointer font-mono text-caption">View footer text source</summary><p className="mt-2 font-mono text-caption text-muted-foreground">{details.footerExcerpt}</p></details>}
+          {details?.footerExcerpt && <details className="mt-3 border-t pt-2"><summary className="cursor-pointer font-sans text-caption">View footer text source</summary><p className="mt-2 font-sans text-caption text-muted-foreground">{details.footerExcerpt}</p></details>}
         </div>
         <div className="grid gap-3">
           <div className="rounded-md border p-3">
-            <h3 className="font-mono text-small font-semibold">Products and services</h3>
-            {scanResult.productsServices?.length ? <div className="mt-2 flex flex-wrap gap-1.5">{scanResult.productsServices.slice(0, 16).map((item) => <Badge key={item} variant="outline" className="font-mono text-caption">{item}</Badge>)}</div> : <p className="mt-2 font-mono text-caption text-muted-foreground">No clear offers found yet.</p>}
+            <h3 className="font-sans text-small font-semibold">What you offer</h3>
+            {scanResult.productsServices?.length ? <div className="mt-2 flex flex-wrap gap-1.5">{scanResult.productsServices.slice(0, 16).map((item) => <Badge key={item} variant="outline" className="font-sans text-caption">{item}</Badge>)}</div> : <p className="mt-2 font-sans text-caption text-muted-foreground">No clear offers found yet.</p>}
           </div>
           <div className="rounded-md border p-3">
-            <h3 className="font-mono text-small font-semibold">Social links on the website</h3>
-            {scanResult.socialChannels?.length ? <ul className="mt-2 grid gap-1 font-mono text-caption">{scanResult.socialChannels.slice(0, 8).map((url) => <li key={url} className="truncate"><a href={url} target="_blank" rel="noreferrer" className="text-terminal-green underline">{displayDomain(url)} · open source page</a></li>)}</ul> : <p className="mt-2 font-mono text-caption text-muted-foreground">No public social links found. Connected account data can be added later.</p>}
+            <h3 className="font-sans text-small font-semibold">Social links</h3>
+            {scanResult.socialChannels?.length ? <ul className="mt-2 grid gap-1 font-sans text-caption">{scanResult.socialChannels.slice(0, 8).map((url) => <li key={url} className="truncate"><a href={url} target="_blank" rel="noreferrer" className="text-terminal-green underline">{displayDomain(url)} · open link</a></li>)}</ul> : <p className="mt-2 font-sans text-caption text-muted-foreground">No public social links found.</p>}
           </div>
         </div>
       </div>
-      <details className="rounded-md border px-3 py-2">
-        <summary className="cursor-pointer font-mono text-caption font-medium">Pages reviewed ({scanResult.pages?.length ?? 0})</summary>
-        <ul className="mt-2 grid gap-2">{(scanResult.pages ?? []).map((page) => <li key={page.url} className="min-w-0 border-t pt-2"><a href={page.url} target="_blank" rel="noreferrer" className="break-all font-mono text-caption font-medium text-terminal-green underline">{page.title || page.url}</a>{page.description && <p className="mt-1 font-mono text-caption text-muted-foreground">{page.description}</p>}{page.headings.length > 0 && <p className="mt-1 font-mono text-caption text-muted-foreground">{page.headings.slice(0, 4).join(" · ")}</p>}<p className="mt-1 line-clamp-3 font-mono text-caption text-muted-foreground">{page.excerpt}</p></li>)}</ul>
-      </details>
+      {coverage && <details className="rounded-md border px-3 py-2">
+        <summary className="cursor-pointer font-sans text-caption font-medium">How we read your site</summary>
+        <div className="mt-3 grid gap-2 font-sans text-caption text-muted-foreground">
+          {coverage && <p>We read {coverage.scannedPageCount} of {coverage.discoveredPageCount} pages we found.</p>}
+          {coverage?.truncated && <p>We stopped after {coverage.pageLimit} pages to keep this first pass quick.</p>}
+          {coverage?.failedPageCount ? <p>{coverage.failedPageCount} pages couldn’t be read.</p> : null}
+          {coverage?.skippedByRobotsCount ? <p>Some pages asked not to be read, so we skipped them.</p> : null}
+          {coverage?.sitemapCount ? <p>We used {coverage.sitemapCount} site map{coverage.sitemapCount === 1 ? "" : "s"} to find pages.</p> : null}
+          {(scanResult.pages?.length ?? 0) > 0 && <details className="border-t pt-2"><summary className="cursor-pointer">Pages we checked ({scanResult.pages?.length ?? 0})</summary><ul className="mt-2 grid gap-2">{(scanResult.pages ?? []).map((page) => <li key={page.url} className="min-w-0 border-t pt-2"><a href={page.url} target="_blank" rel="noreferrer" className="break-all font-medium text-terminal-green underline">{page.title || page.url}</a>{page.description && <p className="mt-1">{page.description}</p>}<p className="mt-1 line-clamp-3">{page.excerpt}</p></li>)}</ul></details>}
+        </div>
+      </details>}
     </section>
   );
 }
@@ -307,6 +259,7 @@ function WebsiteMapReview({
 
 export function NewProjectWizard() {
   const [step, setStep] = useState(0);
+  const [entryMode, setEntryMode] = useState<"website" | "describe" | "google">("website");
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [websiteInput, setWebsiteInput] = useState("");
@@ -321,6 +274,7 @@ export function NewProjectWizard() {
   const [pains, setPains] = useState<string[]>([]);
 
   const [isScanning, setIsScanning] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [scanStatus, setScanStatus] = useState<
     "idle" | "scanning" | "scraped" | "partial" | "failed"
   >("idle");
@@ -334,6 +288,7 @@ export function NewProjectWizard() {
   const [scanResult, setScanResult] = useState<Partial<Omit<ScanResult, "url" | "scannedAt">> | null>(null);
 
   const create = useMutation(api.projects.create);
+  const createPersona = useMutation(api.personas.create);
   const saveScan = useMutation(api.projects.saveScan);
   const scanWebsite = useAction(api.scraping.scanWebsite);
   const lookupGmb = useAction(api.scraping.lookupGoogleBusiness);
@@ -356,22 +311,30 @@ export function NewProjectWizard() {
   const runScan = async () => {
     const jobs: Promise<void>[] = [];
     let scraped = false;
-    let websiteStatus: ProjectScanSourceStatus = normalizedUrl ? "failed" : "not_requested";
+    const scanUrl = normalizedUrl;
+    const scanWebsiteRequested = entryMode === "website" && Boolean(scanUrl);
+    const lookupBusinessRequested = entryMode === "google" && Boolean(gmbName.trim());
+    let websiteStatus: ProjectScanSourceStatus = scanWebsiteRequested ? "failed" : "not_requested";
     let gmbFound = false;
+    let discoveredBusinessName = "";
     setScanStatus("scanning");
     setScanResult(null);
     setBusinessCandidate(null);
 
-    if (normalizedUrl) {
+    if (scanWebsiteRequested && scanUrl) {
       jobs.push(
-        scanWebsite({ url: normalizedUrl, ignoreRobots })
+        scanWebsite({ url: scanUrl, ignoreRobots })
           .then((r) => {
             scraped = true;
             websiteStatus = r.coverage.truncated || r.coverage.failedPageCount > 0 || r.coverage.sitemapFailureCount > 0
               ? "partial"
               : "succeeded";
             setScanResult((prev) => ({ ...r, gmb: prev?.gmb }));
-            if (!businessName.trim() && r.businessDetails.name) setBusinessName(r.businessDetails.name);
+            if (!businessName.trim() && r.businessDetails.name) {
+              discoveredBusinessName = r.businessDetails.name;
+              setBusinessName(r.businessDetails.name);
+              setName(r.businessDetails.name);
+            }
             if (!description && r.metaDescription) setDescription(r.metaDescription);
             if (!description && r.titles?.length) setDescription(r.titles[0]);
             setProductsServices((prev) => {
@@ -379,15 +342,11 @@ export function NewProjectWizard() {
               return [...merged].slice(0, 20);
             });
           })
-          .catch((e) => {
-            toast.warning("Website scan failed", {
-              description: e instanceof Error ? e.message : "Try again later.",
-            });
-          }),
+          .catch(() => undefined),
       );
     }
 
-    if (gmbName.trim()) {
+    if (lookupBusinessRequested) {
       jobs.push(
         lookupGmb({ name: gmbName.trim() })
           .then((g) => {
@@ -403,32 +362,37 @@ export function NewProjectWizard() {
               openHours: g.openHours,
             });
           })
-          .catch((e) => {
-            toast.warning("Google Business lookup failed", {
-              description: e instanceof Error ? e.message : "Try again later.",
-            });
-          }),
+          .catch(() => undefined),
       );
     }
 
     await Promise.allSettled(jobs);
     const sources = {
-      website: normalizedUrl ? (scraped ? websiteStatus : "failed") : "not_requested",
-      business: gmbName.trim() ? (gmbFound ? "needs_review" : "failed") : "not_requested",
+      website: scanWebsiteRequested ? (scraped ? websiteStatus : "failed") : "not_requested",
+      business: lookupBusinessRequested ? (gmbFound ? "needs_review" : "failed") : "not_requested",
     } as const;
     setScanSources(sources);
     setScanStatus(summarizeProjectScan(sources));
+    if (!name.trim() && scanWebsiteRequested) {
+      const projectName = discoveredBusinessName || displayDomain(scanUrl ?? "");
+      setName(projectName);
+      if (!businessName.trim() && discoveredBusinessName) setBusinessName(discoveredBusinessName);
+    }
     return scraped || gmbFound;
   };
 
   const handleBasicsContinue = async () => {
-    if (!name.trim()) return;
-    if (!normalizedUrl && !gmbName.trim()) {
+    if (entryMode === "website" && websiteInput.trim() && !normalizedUrl) return;
+    if (entryMode === "google" && !gmbName.trim()) return;
+    if (entryMode === "describe" && !description.trim()) return;
+    const shouldScanWebsite = entryMode === "website" && Boolean(normalizedUrl);
+    const shouldLookupBusiness = entryMode === "google" && Boolean(gmbName.trim());
+    if (!shouldScanWebsite && !shouldLookupBusiness) {
       setScanResult(null);
       setBusinessCandidate(null);
       setScanSources({ website: "not_requested", business: "not_requested" });
       setScanStatus("idle");
-      setStep(1); // nothing to scan
+      setStep(1);
       return;
     }
     setIsScanning(true);
@@ -437,6 +401,7 @@ export function NewProjectWizard() {
     } finally {
       setIsScanning(false);
     }
+    if (!name.trim() && businessName.trim()) setName(businessName.trim());
     setStep(1);
   };
 
@@ -449,17 +414,20 @@ export function NewProjectWizard() {
   };
 
   const handleFinish = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || isCreating) return;
     if (scanSources.business === "needs_review") {
       toast.warning("Confirm the Google Business listing or skip it before creating this project.");
       setStep(1);
       return;
     }
+    setIsCreating(true);
     try {
       const id = await create({
         name: name.trim(),
         businessName: businessName.trim() || undefined,
-        websiteUrl: normalizedUrl ?? scanResult?.gmb?.website ?? undefined,
+        websiteUrl: entryMode === "website"
+          ? normalizedUrl ?? scanResult?.gmb?.website ?? undefined
+          : entryMode === "google" ? scanResult?.gmb?.website : undefined,
         industry: industry.trim() || undefined,
         description: description.trim() || undefined,
         competitors: competitors.map((c) => c.value),
@@ -470,6 +438,22 @@ export function NewProjectWizard() {
         kpis: undefined,
         channels: undefined,
       });
+
+      let personaSaved = true;
+      if (audience.length || goals.length || pains.length) {
+        try {
+          await createPersona({
+            projectId: id,
+            name: audience[0] || `${businessName || name} customer`,
+            role: audience.join(", ") || undefined,
+            goals: goals.length ? goals : undefined,
+            pains: pains.length ? pains : undefined,
+            evidence: "Based on the audience, goal, and customer challenges you selected during setup.",
+          });
+        } catch {
+          personaSaved = false;
+        }
+      }
 
       // Persist scan findings so every module can reuse the enriched context.
       if (scanResult) {
@@ -494,27 +478,26 @@ export function NewProjectWizard() {
           saved = false;
         }
         if (!saved) toast.warning("Project created, but the website findings weren’t saved. You can scan it again in project settings.");
-        else toast.success("Your business map is ready", { description: "It’s saved as source material. Review its details before using them." });
-      } else {
-        toast.success("Project created", { description: "Start by describing your business in Understand." });
+        else toast.success("Your business profile is ready", { description: "Your reviewed details are saved with the workspace." });
       }
+      if (!personaSaved) toast.warning("Workspace created, but the audience profile couldn’t be saved. You can add it in Understand.");
+      else if (!scanResult && (audience.length || goals.length || pains.length)) toast.success("Workspace and first audience profile are ready");
+      else if (!scanResult) toast.success("Workspace created", { description: "You can add an audience profile in Understand whenever you’re ready." });
       navigate(`/app/${id}/understand`);
     } catch (e) {
       toast.error("Could not create project", {
         description: e instanceof Error ? e.message : "Please try again.",
       });
+    } finally {
+      setIsCreating(false);
     }
   };
 
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-7 grid gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="font-mono text-caption text-muted-foreground">Step {step + 1} of {steps.length} <span aria-hidden="true">·</span> {steps[step].label}</p>
-          <p className="font-mono text-caption text-terminal-green">A little context now makes every next step more useful.</p>
-        </div>
-        <div role="progressbar" aria-label="New project progress" aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={step + 1} className="h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-terminal-green transition-[width] duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%` }} />
+        <div className="flex justify-end">
+          <p className="font-sans text-caption text-muted-foreground">Nothing here is final. Change anything.</p>
         </div>
         <ol aria-label="New project steps" className="flex flex-wrap gap-x-5 gap-y-2 font-mono text-caption text-muted-foreground">
           {steps.map((s, i) => <li key={s.key} aria-current={i === step ? "step" : undefined} className={cn("flex items-center gap-2", i === step && "font-semibold text-foreground")}>
@@ -524,116 +507,62 @@ export function NewProjectWizard() {
       </div>
 
       {/* ── Step 1: basics — flexible website, GMB, competitors ────────── */}
-      {step === 0 && (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(20rem,.95fr)]">
-          <div className="grid gap-5 rounded-lg border bg-card p-4 sm:p-6">
+      {isScanning && (
+        <section className="mx-auto grid max-w-xl justify-items-center gap-4 py-16 text-center" role="status" aria-live="polite">
+          <Loader2 className="size-8 animate-spin text-terminal-green motion-reduce:animate-none" aria-hidden="true" />
           <div>
-            <span className="mb-2 inline-flex items-center gap-2 font-mono text-caption text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /> Your starting point</span>
-            <h1 className="font-mono text-h1">Let’s map your business.</h1>
-            <p className="mt-2 max-w-prose font-mono text-caption text-muted-foreground">
-              Share a website or business listing. MOSAI will find useful public details, show its sources and let you correct them before they guide your workspace.
+            <h1 className="font-sans text-h1 font-semibold">Getting to know your business…</h1>
+            <p className="mt-2 font-sans text-small text-muted-foreground">
+              {entryMode === "google" ? "Looking for the business listing you named." : `Reading public pages from ${displayDomain(websiteInput)}.`}
             </p>
+            <p className="mt-1 font-sans text-caption text-muted-foreground">We’ll show you what we found so you can check it.</p>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="np-name">Project name</Label>
-            <Input
-              id="np-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Nord Coffee Roasters"
-              autoFocus
-            />
+        </section>
+      )}
+
+      {step === 0 && !isScanning && (
+        <div className="mx-auto grid w-full max-w-3xl gap-5 rounded-lg border bg-card p-5 sm:p-8">
+          <div>
+            <span className="mb-2 inline-flex items-center gap-2 font-mono text-caption text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /> A useful first step</span>
+            <h1 className="font-sans text-h1 font-semibold">Paste your website. We’ll do the rest.</h1>
+            <p className="mt-2 max-w-prose font-sans text-small text-muted-foreground">We’ll draft a business profile from public information. You can review and change every detail before it’s saved.</p>
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="np-url">Website</Label>
-            <Input
-              id="np-url"
-              value={websiteInput}
-              onChange={(e) => setWebsiteInput(e.target.value)}
-              placeholder="example.com or https://yourbusiness.com"
-            />
-            {websiteInput.trim() !== "" && (
-              <p className="font-mono text-caption text-muted-foreground">
-                {normalizedUrl ? (
-                  <span className="text-terminal-green">
-                    will scan: {normalizedUrl}
-                  </span>
-                ) : (
-                  <span className="text-terminal-amber">
-                    doesn't look like a website URL yet
-                  </span>
-                )}
-              </p>
-            )}
-          </div>
+          {entryMode === "website" && <div className="grid gap-2">
+            <Label htmlFor="np-url">Your website</Label>
+            <Input id="np-url" value={websiteInput} onChange={(event) => setWebsiteInput(event.target.value)} placeholder="example.com" autoFocus className="h-14 text-lg" />
+            {websiteInput.trim() !== "" && !normalizedUrl && <p role="alert" className="font-sans text-caption text-destructive">Enter a website address, or choose another way to start.</p>}
+            {normalizedUrl && <p className="font-sans text-caption text-muted-foreground">We’ll read public pages from {displayDomain(normalizedUrl)}.</p>}
+          </div>}
 
-          <div className="grid gap-2">
-            <Label htmlFor="np-gmb">Google Business profile (optional)</Label>
-            <div className="flex items-center gap-2">
-              <MapPin className="size-4 shrink-0 text-terminal-green" />
-              <Input
-                id="np-gmb"
-                value={gmbName}
-                onChange={(e) => setGmbName(e.target.value)}
-                placeholder="Search by business name and city"
-              />
-            </div>
-            <p className="font-mono text-caption text-muted-foreground">
-              We’ll show the matching listing for you to confirm before using its details.
-            </p>
+          {entryMode === "describe" && <div className="grid gap-2">
+            <Label htmlFor="np-description">What does your business do?</Label>
+            <Textarea id="np-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="I run a neighborhood bakery that makes sourdough and celebration cakes." rows={3} autoFocus />
+            <p className="font-sans text-caption text-muted-foreground">A sentence is enough. You can add more later.</p>
+          </div>}
+
+          {entryMode === "google" && <div className="grid gap-2">
+            <Label htmlFor="np-gmb">Business name and city</Label>
+            <div className="flex items-center gap-2"><MapPin className="size-4 shrink-0 text-terminal-green" aria-hidden="true" /><Input id="np-gmb" value={gmbName} onChange={(event) => setGmbName(event.target.value)} placeholder="e.g. Northside Bakery, Amsterdam" autoFocus /></div>
+            <p className="font-sans text-caption text-muted-foreground">You’ll confirm the matching listing before MOSAI uses its details.</p>
+          </div>}
+
+          <div className="flex flex-wrap gap-2 border-t pt-4">
+            <Button type="button" aria-pressed={entryMode === "website"} variant={entryMode === "website" ? "outline" : "ghost"} onClick={() => setEntryMode("website")}><Globe className="size-4" aria-hidden="true" /> Use a website</Button>
+            <Button type="button" aria-pressed={entryMode === "describe"} variant={entryMode === "describe" ? "outline" : "ghost"} onClick={() => setEntryMode("describe")}>No website? Describe it</Button>
+            <Button type="button" aria-pressed={entryMode === "google"} variant={entryMode === "google" ? "outline" : "ghost"} onClick={() => setEntryMode("google")}><MapPin className="size-4" aria-hidden="true" /> Find it on Google</Button>
           </div>
 
           <details className="rounded-md border px-3 py-2">
-            <summary className="cursor-pointer font-mono text-caption font-medium">Add competitors (optional)</summary>
-            <p className="mt-2 font-mono text-caption text-muted-foreground">Paste a website address, or type @business name and city to mark a Google Business profile for a later confirmed lookup.</p>
-            <ChipInput
-              values={competitors.map((c) => c.value)}
-              onChange={(next) => {
-                // rebuild preserving detected types for kept entries
-                const nextEntries: CompetitorEntry[] = next.map((v) => {
-                  const existing = competitors.find(
-                    (c) => c.value.toLowerCase() === v.toLowerCase(),
-                  );
-                  return existing ?? (looksLikeUrl(v) ? { type: "website", value: v } : { type: "gmb", value: v });
-                });
-                setCompetitors(nextEntries);
-              }}
-              placeholder="example.com or @Business Name, city — press Enter"
-              renderChip={(v) => {
-                const entry = competitors.find(
-                  (c) => c.value.toLowerCase() === v.toLowerCase(),
-                );
-                return (
-                  <span className="inline-flex items-center gap-1">
-                    {entry?.type === "gmb" ? (
-                      <Store className="size-3" />
-                    ) : (
-                      <Globe className="size-3" />
-                    )}
-                    {displayDomain(v) || v}
-                  </span>
-                );
-              }}
-            />
+            <summary className="cursor-pointer font-sans text-caption font-medium">Add competitors (optional)</summary>
+            <p className="mt-2 font-sans text-caption text-muted-foreground">Add website addresses or business names for later comparison.</p>
+            <ChipInput values={competitors.map((competitor) => competitor.value)} onChange={(next) => setCompetitors(next.map((value) => competitors.find((item) => item.value.toLowerCase() === value.toLowerCase()) ?? (looksLikeUrl(value) ? { type: "website", value } : { type: "gmb", value })))} placeholder="Website or business name — press Enter" renderChip={(value) => <span className="inline-flex items-center gap-1">{competitors.find((item) => item.value === value)?.type === "gmb" ? <Store className="size-3" aria-hidden="true" /> : <Globe className="size-3" aria-hidden="true" />}{displayDomain(value) || value}</span>} />
           </details>
 
-          {normalizedUrl && (
-            <details className="rounded-md border px-3 py-2">
-              <summary className="cursor-pointer font-mono text-caption font-medium">Advanced website scan</summary>
-              <label className="mt-2 flex items-start gap-2 font-mono text-caption text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={ignoreRobots}
-                onChange={(e) => setIgnoreRobots(e.target.checked)}
-                className="size-3.5 accent-terminal-green"
-              />
-                <span><span className="font-medium text-foreground">Continue through robots.txt restrictions</span><br />Only switch this on for a website you control and have permission to scan.</span>
-              </label>
-            </details>
-          )}
-          </div>
-          <BusinessMapIllustration website={websiteInput} businessName={name} scanning={isScanning} />
+          {entryMode === "website" && normalizedUrl && <details className="rounded-md border px-3 py-2">
+            <summary className="cursor-pointer font-sans text-caption font-medium">Advanced website scan</summary>
+            <label className="mt-2 flex items-start gap-2 font-sans text-caption text-muted-foreground"><input type="checkbox" checked={ignoreRobots} onChange={(event) => setIgnoreRobots(event.target.checked)} className="mt-0.5 size-3.5 accent-terminal-green" /><span>Continue through pages that ask crawlers to stay away. Only enable this for a site you control and have permission to scan.</span></label>
+          </details>}
         </div>
       )}
 
@@ -641,11 +570,13 @@ export function NewProjectWizard() {
       {step === 1 && (
         <div className="grid gap-4">
           <div>
-            <h1 className="font-mono text-h1">What does the business do?</h1>
-            <p className="mt-1 font-mono text-caption text-muted-foreground">
+            <h1 className="font-sans text-h1 font-semibold">Your business, in a first draft</h1>
+            <p className="mt-1 font-sans text-small text-muted-foreground">
               {scanResult
-                ? `Based on ${sourceLabels}. Review and edit every detail before using it.`
-                : "No scan details were added. Describe your business in your own words."}
+                ? `From ${sourceLabels}. Check anything that looks off.`
+                : scanStatus === "failed"
+                  ? "We couldn’t read that source. Tell us about your business in your own words instead."
+                  : "Add a name and a short description. You can fill in the rest later."}
             </p>
           </div>
 
@@ -656,51 +587,40 @@ export function NewProjectWizard() {
               "flex flex-wrap items-center gap-2 rounded-md border p-3 font-mono text-caption",
               scanStatus === "scraped"
                 ? "border-terminal-green/30 bg-terminal-green-soft text-terminal-green"
-                : "border-terminal-amber/30 bg-terminal-amber-soft text-terminal-amber",
+                : "border-border bg-muted/40 text-muted-foreground",
             )}>
-              <ScanSearch className="size-4" />
+              <ScanSearch className="size-4" aria-hidden="true" />
               {scanStatus === "scraped"
-              ? "Sources ready to review"
+              ? "We found details to review."
                 : scanStatus === "partial"
-                  ? "Some source details need your review. You can continue with what was found."
-                  : "Sources could not be loaded. You can still add the details yourself."}
-              {scanSources.website !== "not_requested" && (
-                <span>Website: {scanSources.website === "succeeded" ? `${scanResult?.coverage?.scannedPageCount ?? 0} pages read` : scanSources.website === "partial" ? `${scanResult?.coverage?.scannedPageCount ?? 0} pages read · partial` : "unavailable"}</span>
-              )}
-              {scanSources.business !== "not_requested" && (
-                <span>Google Business: {scanSources.business === "succeeded"
-                  ? "confirmed"
-                  : scanSources.business === "needs_review"
-                    ? "confirm match"
-                    : scanSources.business === "skipped"
-                      ? "skipped"
-                      : "unavailable"}</span>
-              )}
-              {scanResult?.sitemapUrls?.length ? (
-                <Badge variant="outline" className="font-mono text-caption">
-                  {scanResult.sitemapUrls.length} sitemap URLs
-                </Badge>
-              ) : null}
-              {scanResult?.gmb?.rating != null && (
-                <Badge variant="outline" className="font-mono text-caption">
-                  GMB {scanResult.gmb.rating}★ ({scanResult.gmb.reviews ?? 0})
-                </Badge>
-              )}
+                  ? "Review the details and fill in anything missing."
+                  : "You can add your details manually below."}
             </div>
           )}
 
           {businessCandidate && scanSources.business === "needs_review" && (
-            <div className="rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-3 font-mono text-caption">
+            <div className="rounded-md border bg-card p-4 font-sans text-small">
               <p className="font-medium">Is this your Google Business listing?</p>
               <p className="mt-1">{businessCandidate.title ?? "Unnamed listing"}</p>
               {businessCandidate.address && <p className="text-muted-foreground">{businessCandidate.address}</p>}
               {businessCandidate.website && <p className="text-muted-foreground">{businessCandidate.website}</p>}
-              <p className="mt-2 text-muted-foreground">We will use this listing only if you confirm it.</p>
+              <p className="mt-2 text-muted-foreground">MOSAI will use this listing only if you confirm it.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => {
-                  setScanResult((prev) => ({ ...prev, gmb: businessCandidate }));
-                  if (!businessName.trim() && businessCandidate.title) setBusinessName(businessCandidate.title);
-                  if (!description.trim() && businessCandidate.title) setDescription(businessCandidate.title);
+                  setScanResult((prev) => ({
+                    ...prev,
+                    gmb: businessCandidate,
+                    businessDetails: {
+                      ...prev?.businessDetails,
+                      name: businessCandidate.title,
+                      address: businessCandidate.address,
+                      phone: businessCandidate.phone,
+                    },
+                  }));
+                  if (!businessName.trim() && businessCandidate.title) {
+                    setBusinessName(businessCandidate.title);
+                    setName(businessCandidate.title);
+                  }
                   if (!industry.trim() && businessCandidate.category) setIndustry(businessCandidate.category);
                   const next = { ...scanSources, business: "succeeded" as const };
                   setScanSources(next);
@@ -718,18 +638,22 @@ export function NewProjectWizard() {
           )}
 
           <div className="grid gap-2">
-            <Label htmlFor="np-desc">Description</Label>
+            <Label htmlFor="np-name">Workspace name</Label>
+            <Input id="np-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your business name" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="np-desc">What do you do?</Label>
             <Textarea
               id="np-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="One or two honest sentences."
+              rows={2}
+              placeholder="Describe what you offer in one or two sentences."
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="np-ind">Industry</Label>
+              <Label htmlFor="np-ind">Category (optional)</Label>
               <Input
                 id="np-ind"
                 value={industry}
@@ -738,7 +662,7 @@ export function NewProjectWizard() {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="np-biz2">Business name</Label>
+              <Label htmlFor="np-biz2">Public business name (optional)</Label>
               <Input
                 id="np-biz2"
               value={businessName}
@@ -763,46 +687,38 @@ export function NewProjectWizard() {
       {step === 2 && (
         <div className="grid gap-5">
           <div>
-            <h1 className="font-mono text-h1">Who are you trying to reach?</h1>
-            <p className="mt-1 font-mono text-caption text-muted-foreground">
-              Tap what fits — no typing needed unless you want to.
-            </p>
+            <h1 className="font-sans text-h1 font-semibold">Who do you most want to help?</h1>
+            <p className="mt-1 font-sans text-small text-muted-foreground">Choose an audience and one thing you want to improve. These answers shape a first audience profile you can edit later.</p>
           </div>
 
           <div className="grid gap-2">
-            <Label>Audience</Label>
+            <Label>People you serve</Label>
             <Suggestions
-              options={AUDIENCE_SUGGESTIONS}
+              options={scanResult?.productsServices?.[0]
+                ? [`People looking for ${scanResult.productsServices[0]}`, `Local customers interested in ${industry || scanResult.productsServices[0]}`, `People comparing ${scanResult.productsServices[0]} options`]
+                : AUDIENCE_SUGGESTIONS.slice(0, 4)}
               picked={audience}
-              onPick={(v) =>
-                setAudience((prev) =>
-                  prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v],
-                )
-              }
+              onPick={(value) => setAudience((current) => current[0] === value ? [] : [value])}
             />
             <ChipInput
               values={audience}
-              onChange={setAudience}
+              onChange={(next) => setAudience(next.slice(-1))}
               placeholder="Describe your own audience — Enter to add"
             />
           </div>
 
           <div className="grid gap-2">
-            <Label>Goals</Label>
-            <Suggestions
-              options={GOAL_SUGGESTIONS}
-              picked={goals}
-              onPick={(v) =>
-                setGoals((prev) =>
-                  prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v],
-                )
-              }
-            />
-            <ChipInput values={goals} onChange={setGoals} placeholder="Custom goals — Enter to add" />
+            <Label>What matters most right now?</Label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {GOAL_SUGGESTIONS.slice(0, 4).map((goal) => <button key={goal} type="button" aria-pressed={goals[0] === goal} onClick={() => setGoals((current) => current[0] === goal ? [] : [goal])} className={cn("rounded-md border p-4 text-left font-sans text-small transition-colors", goals[0] === goal ? "border-terminal-green bg-terminal-green-soft text-foreground" : "bg-card text-muted-foreground hover:border-terminal-green/50 hover:text-foreground")}>
+                {goal}
+              </button>)}
+            </div>
+            <ChipInput values={goals} onChange={(next) => setGoals(next.slice(-1))} placeholder="Or type your own goal — press Enter" />
           </div>
 
           <div className="grid gap-2">
-            <Label>Customer pains</Label>
+            <Label>What gets in their way? (optional)</Label>
             <Suggestions
               options={PAIN_SUGGESTIONS}
               picked={pains}
@@ -817,37 +733,39 @@ export function NewProjectWizard() {
         </div>
       )}
 
-      <div className="mt-8 flex items-center gap-3">
+      {step === 3 && (
+        <section className="mx-auto grid w-full max-w-3xl gap-5 rounded-lg border bg-card p-5 sm:p-8" aria-labelledby="first-draft-title">
+          <div>
+            <span className="mb-2 inline-flex items-center gap-2 font-mono text-caption text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /> Your first useful output</span>
+            <h1 id="first-draft-title" className="font-sans text-h1 font-semibold">A starting profile for {businessName || name}</h1>
+            <p className="mt-2 font-sans text-small text-muted-foreground">Built from what you shared. {audience.length || goals.length || pains.length ? "We’ll save it as an editable audience profile in your workspace." : "You can add these details now or later in Understand."}</p>
+          </div>
+          <div className="grid gap-4 rounded-md border bg-background p-4 sm:grid-cols-2 sm:p-5">
+            <div><p className="font-mono text-caption text-muted-foreground">AUDIENCE</p><p className="mt-1 font-sans text-small font-medium">{audience[0] || "Add an audience anytime"}</p></div>
+            <div><p className="font-mono text-caption text-muted-foreground">THEIR MAIN GOAL</p><p className="mt-1 font-sans text-small font-medium">{goals[0] || "Choose a goal anytime"}</p></div>
+            {pains.length > 0 && <div><p className="font-mono text-caption text-muted-foreground">WHAT GETS IN THE WAY</p><p className="mt-1 font-sans text-small font-medium">{pains.join(", ")}</p></div>}
+            {(productsServices.length > 0 || description) && <div><p className="font-mono text-caption text-muted-foreground">BUSINESS CONTEXT</p><p className="mt-1 font-sans text-small font-medium">{productsServices.slice(0, 3).join(", ") || description}</p></div>}
+          </div>
+          <p className="font-sans text-caption text-muted-foreground">This is a working draft, not a claim about a real customer. You can change it in Understand.</p>
+        </section>
+      )}
+
+      {!isScanning && <div className="mt-8 flex items-center gap-3">
         {step > 0 && (
           <Button variant="ghost" onClick={() => setStep(step - 1)}>
             Back
           </Button>
         )}
         {step < steps.length - 1 ? (
-          <Button onClick={handleContinue} disabled={step === 0 && (!name.trim() || isScanning)}>
-            {isScanning ? (
-              <>
-                <Loader2 className="size-4 animate-spin" /> Mapping your business…
-              </>
-            ) : step === 0 ? (
-              <>
-                Map my business <Sparkles className="size-4" />
-              </>
-            ) : (
-              <>
-                Continue <ArrowRight className="size-4" />
-              </>
-            )}
+          <Button onClick={handleContinue} disabled={(step === 0 && ((entryMode === "website" && !normalizedUrl) || (entryMode === "describe" && !description.trim()) || (entryMode === "google" && !gmbName.trim()))) || (step === 1 && (!name.trim() || scanSources.business === "needs_review"))}>
+            {step === 0 ? entryMode === "website" ? <>Read my website <Sparkles className="size-4" /></> : entryMode === "google" ? <>Find my business <ArrowRight className="size-4" /></> : <>Build my profile <ArrowRight className="size-4" /></> : <>Continue <ArrowRight className="size-4" /></>}
           </Button>
         ) : (
-          <Button onClick={handleFinish} disabled={!name.trim()}>
-            <Plus className="size-4" /> Create project
+          <Button onClick={handleFinish} disabled={!name.trim() || isCreating} className="font-sans">
+            {isCreating ? <><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Creating your workspace…</> : <><Plus className="size-4" /> Create my workspace</>}
           </Button>
         )}
-        <Badge variant="outline" className="ml-auto font-mono text-caption">
-          all fields optional except name
-        </Badge>
-      </div>
+      </div>}
     </div>
   );
 }
