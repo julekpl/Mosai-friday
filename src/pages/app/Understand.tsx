@@ -61,6 +61,8 @@ function PersonaForm({
   const [goals, setGoals] = useState("");
   const [pains, setPains] = useState("");
   const [evidence, setEvidence] = useState("");
+  const [country, setCountry] = useState("");
+  const [demographics, setDemographics] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   // Seed once loaded when editing
@@ -70,6 +72,8 @@ function PersonaForm({
     setGoals((existing.goals ?? []).join(", "));
     setPains((existing.pains ?? []).join(", "));
     setEvidence(existing.evidence ?? "");
+    setCountry(existing.country ?? "");
+    setDemographics(existing.demographics ?? "");
   }
 
   const split = (s: string) =>
@@ -85,6 +89,8 @@ function PersonaForm({
         goals: split(goals),
         pains: split(pains),
         evidence: evidence.trim() || undefined,
+        country: country.trim() || undefined,
+        demographics: demographics.trim() || undefined,
       };
       if (personaId) {
         await update({ id: personaId, ...payload });
@@ -145,6 +151,16 @@ function PersonaForm({
         </div>
       </div>
       <div className="grid gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2"><Label htmlFor="pf-country">Country / market</Label><Input id="pf-country" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. Netherlands" /></div>
+          <div className="grid gap-2"><Label htmlFor="pf-demo">Useful context (optional)</Label><Input id="pf-demo" value={demographics} onChange={(e) => setDemographics(e.target.value)} placeholder="e.g. 35–44, urban, B2B buyer" /></div>
+        </div>
+      </div>
+      <details className="rounded-md border p-3">
+        <summary className="cursor-pointer font-mono text-caption">Advanced personality (Big Five, optional)</summary>
+        <p className="mt-2 font-mono text-caption text-muted-foreground">Add only if it helps your decisions. Scores are 0–100 and are hypotheses, not clinical assessments.</p>
+      </details>
+      <div className="grid gap-2">
         <Label htmlFor="pf-ev">Evidence</Label>
         <Textarea
           id="pf-ev"
@@ -196,6 +212,9 @@ function AiPersonaDialog({
         pains: p.pains,
         objections: p.objections,
         channels: p.channels,
+        country: p.country,
+        demographics: p.demographics,
+        bigFive: p.bigFive,
         evidence: p.evidence,
       });
       toast.success(`Persona "${p.name}" created`, {

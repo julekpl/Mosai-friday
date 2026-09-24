@@ -536,6 +536,10 @@ export default function Journeys({
   const [csvText, setCsvText] = useState("");
   const [csvPersona, setCsvPersona] = useState("");
   const [importing, setImporting] = useState(false);
+  const [personaFilter, setPersonaFilter] = useState("all");
+  const visibleJourneys = personaFilter === "all"
+    ? journeys
+    : journeys.filter((j) => personaFilter === "unassigned" ? !j.personaId : j.personaId === personaFilter);
 
   const editingDoc = useMemo(
     () => journeys.find((j) => j._id === editing) ?? null,
@@ -685,8 +689,16 @@ export default function Journeys({
           }
         />
       ) : (
+        <div className="grid gap-3">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="journey-persona-filter" className="font-mono text-caption text-muted-foreground">Filter by persona</Label>
+            <Select value={personaFilter} onValueChange={setPersonaFilter}>
+              <SelectTrigger id="journey-persona-filter" className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All personas</SelectItem><SelectItem value="unassigned">Unassigned</SelectItem>{personas.map((p) => <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
         <div className="grid gap-3 md:grid-cols-2">
-          {journeys.map((j) => {
+          {visibleJourneys.map((j) => {
             const persona = personas.find((p) => p._id === j.personaId);
             const scores = j.stages.map((s) => s.score).filter((s): s is number => typeof s === "number");
             const avg = scores.length
@@ -700,7 +712,7 @@ export default function Journeys({
                     <p className="font-mono text-caption text-muted-foreground">
                       {j.stages.length} stages · {j.lanes?.length ?? 5} lanes
                       {persona ? ` · ${persona.name}` : ""}
-                      {avg ? ` · avg {avg}/10` : ""}
+                      {avg ? ` · avg ${avg}/10` : ""}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -797,6 +809,7 @@ export default function Journeys({
               </div>
             );
           })}
+        </div>
         </div>
       )}
     </div>

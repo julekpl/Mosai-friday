@@ -246,6 +246,15 @@ const schema = defineSchema(
       pains: v.optional(v.array(v.string())),
       objections: v.optional(v.array(v.string())),
       channels: v.optional(v.array(v.string())),
+      country: v.optional(v.string()),
+      demographics: v.optional(v.string()),
+      bigFive: v.optional(v.object({
+        openness: v.number(),
+        conscientiousness: v.number(),
+        extraversion: v.number(),
+        agreeableness: v.number(),
+        neuroticism: v.number(),
+      })),
       evidence: v.optional(v.string()),
       journeyStages: v.optional(
         v.array(
@@ -756,11 +765,16 @@ const schema = defineSchema(
       ),
       provider: v.optional(v.string()),
       providerResourceId: v.optional(v.string()),
+      // Set only by a future host verifier after domain ownership proof.
+      // Public projection resolves through this receipt field, never a
+      // caller-supplied site/project id.
+      publicHostname: v.optional(v.string()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
       .index("by_build", ["buildId"])
-      .index("by_project", ["projectId"]),
+      .index("by_project", ["projectId"])
+      .index("by_public_hostname", ["publicHostname"]),
 
     // One page/screen of a build. Strategy-first: every page declares which
     // persona it speaks to and which journey stage it answers, so the

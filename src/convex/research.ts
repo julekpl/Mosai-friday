@@ -80,7 +80,7 @@ async function fetchJson<T>(
   }
 }
 
-function clean(s: string, max = 280): string {
+function clean(s: string, max = 900): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
@@ -384,6 +384,6 @@ export const researchTopic = action({
         merged.push(h);
       }
     }
-    return { hits: merged.slice(0, 60), sources };
+    return { hits: merged.slice(0, 100), sources };
   },
 });

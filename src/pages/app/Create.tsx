@@ -828,6 +828,10 @@ function ContentTab({ projectId, onNext }: { projectId: Id<"projects">; onNext: 
   const pieces = useQuery(api.content.list, { projectId }) ?? [];
   const remove = useMutation(api.content.remove);
   const update = useMutation(api.content.update);
+  const create = useMutation(api.content.create);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualType, setManualType] = useState("blog");
 
   const [openPiece, setOpenPiece] = useState<Id<"contentPieces"> | null>(null);
   const piece = pieces.find((p) => p._id === openPiece);
@@ -845,6 +849,12 @@ function ContentTab({ projectId, onNext }: { projectId: Id<"projects">; onNext: 
 
   return (
     <div className="grid gap-4">
+      <div className="flex justify-end"><Button onClick={() => setManualOpen(true)}><Plus className="size-4" /> Create content manually</Button></div>
+      <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Create content</DialogTitle><DialogDescription>Start with a title. You can write or generate the copy in the editor.</DialogDescription></DialogHeader>
+          <div className="grid gap-3"><div className="grid gap-1.5"><Label htmlFor="manual-content-title">Title</Label><Input id="manual-content-title" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} placeholder="e.g. How to choose…" /></div><div className="grid gap-1.5"><Label>Type</Label><Select value={manualType} onValueChange={setManualType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONTENT_TYPES.map((ct) => <SelectItem key={ct.id} value={ct.id}>{ct.label}</SelectItem>)}</SelectContent></Select></div><div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setManualOpen(false)}>Cancel</Button><Button disabled={!manualTitle.trim()} onClick={async () => { const id = await create({ projectId, title: manualTitle.trim(), topic: manualTitle.trim(), contentType: manualType }); setManualTitle(""); setManualOpen(false); setOpenPiece(id); toast.success("Content created"); }}>Create</Button></div></div>
+        </DialogContent>
+      </Dialog>
       {pieces.length === 0 ? (
         <ModuleEmpty
           icon={FileText}
@@ -948,6 +958,7 @@ function PieceEditor({
   const topics = useQuery(api.contentPlanning.listTopics, { projectId }) ?? [];
   const saveDoc = useMutation(api.contentPlanning.saveDoc);
   const update = useMutation(api.content.update);
+  const updateTopic = useMutation(api.contentPlanning.updateTopic);
   const editSelectionAi = useAction(api.ai.editSelection);
   const generateContentAi = useAction(api.ai.generateContent);
 
@@ -985,6 +996,14 @@ function PieceEditor({
       (h) =>
         `- [${h.source}] ${h.title}${h.snippet ? `: ${h.snippet.slice(0, 120)}` : ""}`,
     );
+  const [sourceTitle, setSourceTitle] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const addSource = async () => {
+    if (!topic || !sourceTitle.trim()) return;
+    await updateTopic({ id: topic._id, research: [...(topic.research ?? []), { source: "user", title: sourceTitle.trim(), url: sourceUrl.trim() || undefined }] });
+    setSourceTitle(""); setSourceUrl("");
+    toast.success("Source added");
+  };
 
   const runAiEdit = async ({
     op,
@@ -1081,6 +1100,13 @@ function PieceEditor({
         </div>
       </div>
 
+      {doc ? (
+        <div className="grid gap-2 rounded-md border bg-card p-3">
+          <div className="flex items-center justify-between"><p className="font-mono text-caption font-medium">Sources for this piece</p><span className="font-mono text-caption text-muted-foreground">{topic?.research?.length ?? 0} saved</span></div>
+          {topic?.research?.length ? <div className="grid gap-1">{topic.research.map((h, i) => <a key={`${h.title}-${i}`} href={h.url ?? "#"} target="_blank" rel="noreferrer" className="truncate font-mono text-caption text-terminal-blue hover:underline">[{h.source}] {h.title}</a>)}</div> : <p className="font-mono text-caption text-muted-foreground">Research this topic first, or add your own source below.</p>}
+          <div className="flex flex-wrap gap-2"><Input value={sourceTitle} onChange={(e) => setSourceTitle(e.target.value)} placeholder="Source title" className="min-w-48 flex-1" /><Input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://… (optional)" className="min-w-48 flex-1" /><Button size="sm" variant="outline" onClick={() => void addSource()} disabled={!sourceTitle.trim()}><Plus className="size-3.5" /> Add source</Button></div>
+        </div>
+      ) : null}
       {doc ? (
         <ContentEditor
           doc={doc}

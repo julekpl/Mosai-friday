@@ -39,6 +39,7 @@ async function complete(
     promptVersion: "v1",
     autonomy: "draft",
     contextSources: ["build.context", "request.context"],
+    provider: "openrouter",
     model: "gpt-4o-mini",
     messages: [
       { role: "system" as const, content: system },
