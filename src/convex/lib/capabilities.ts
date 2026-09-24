@@ -528,6 +528,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/stripe": "internal",
   "lib/billingCatalog": "internal",
   "lib/billingReconcile": "internal",
+  "lib/websiteScan": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {

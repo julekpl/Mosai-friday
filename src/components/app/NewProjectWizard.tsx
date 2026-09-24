@@ -335,6 +335,7 @@ export function NewProjectWizard() {
   const [businessSuggestions, setBusinessSuggestions] = useState<BusinessSuggestion[]>([]);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const [businessSearchState, setBusinessSearchState] = useState<BusinessSearchState>("idle");
+  const [businessSearchError, setBusinessSearchError] = useState("");
   const [ignoreRobots, setIgnoreRobots] = useState(false);
   const [competitors, setCompetitors] = useState<CompetitorEntry[]>([]);
   const [industry, setIndustry] = useState("");
@@ -375,11 +376,13 @@ export function NewProjectWizard() {
         if (!current) return;
         setBusinessSuggestions(suggestions);
         setActiveSuggestionIndex(-1);
+        setBusinessSearchError("");
         setBusinessSearchState(suggestions.length ? "results" : "empty");
-      }).catch(() => {
+      }).catch((error: unknown) => {
         if (!current) return;
         setBusinessSuggestions([]);
         setActiveSuggestionIndex(-1);
+        setBusinessSearchError(error instanceof Error ? error.message : "Search is temporarily unavailable.");
         setBusinessSearchState("error");
       });
     }, 600);
@@ -637,6 +640,7 @@ export function NewProjectWizard() {
                     setSelectedBusiness(null);
                     setBusinessSuggestions([]);
                     setActiveSuggestionIndex(-1);
+                    setBusinessSearchError("");
                     setBusinessSearchState("idle");
                   }}
                   onKeyDown={(event) => {
@@ -676,7 +680,7 @@ export function NewProjectWizard() {
                 <div id="np-gmb-search-status" role="status" aria-live="polite" className="font-mono text-caption text-muted-foreground">
                   {businessSearchState === "loading" && "Searching Google Maps…"}
                   {businessSearchState === "empty" && "No matches found. Try adding a city or checking the spelling."}
-                  {businessSearchState === "error" && "Couldn’t load suggestions. You can still continue with this search and review the result."}
+                  {businessSearchState === "error" && `${businessSearchError || "Couldn’t load suggestions."} You can still continue with this search and review the result.`}
                 </div>
                 {selectedBusiness && <div className="flex items-start gap-2 rounded-md border border-terminal-green/30 bg-terminal-green-soft p-3 font-mono text-caption" role="status">
                   <Check className="mt-0.5 size-4 shrink-0 text-terminal-green" aria-hidden="true" />
