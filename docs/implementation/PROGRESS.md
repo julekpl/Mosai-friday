@@ -524,3 +524,20 @@ the existing `.env.keys` secret scan finding (value redacted; unchanged). The
 session audit could not write its central proposal under `~/.hermes`.
 `rtk git diff --check` passed. Status is `implemented_unverified`, not
 complete.
+
+**Chat 5 = BP-02 live-auth unblock — verification (blocked), 24 September
+2026.** Report:
+`docs/implementation/reports/BP-02-live-auth-verification.md`. Verified
+**without reading or printing any secret value** via `bun convex env list`
+(names only): the linked Convex deployment does **not** have
+`EMAIL_OTP_API_KEY` configured — confirming the preview error at
+`old-paths-carry.freebuff.dev/auth` is exactly the missing server-side
+variable, not a code defect and not the unrelated browser warnings. Live
+sign-in stays **blocked on O2** (newly issued provider key + verified sending
+domain + step-up policy; the previously exposed key must not be reused).
+No source changes; documentation only. Gates re-run: auth-lifecycle 9/9,
+tsc exit 0, audit:functions exit 0, lint 0 errors, check:codegen exit 0;
+`scan:secrets` exit 1 kept red at the pre-existing tracked `.env.keys`
+finding (D-01) — `check` not claimed green. BP-02 remains
+`implemented_unverified` with the operational level explicitly blocked; the
+copy-ready prompt for the next chat is in the report §7.
