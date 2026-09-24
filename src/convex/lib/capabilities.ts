@@ -469,6 +469,9 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   storefront: "sell",
   insights: "grow",
   connections: "grow",
+  "google/insights": "grow",
+  "google/oauth": "grow",
+  "google/sync": "grow",
 
   // ── base spine ──
   projects: "base",
@@ -508,6 +511,9 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "ads/credentialActions": "internal",
   "ads/credentials": "internal",
   "ads/platforms": "internal",
+  "google/config": "internal",
+  "google/credentials": "internal",
+  "google/tokens": "internal",
   "social/adapters": "internal",
   "social/credentialActions": "internal",
   "social/copilotData": "internal",
@@ -528,6 +534,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/stripe": "internal",
   "lib/billingCatalog": "internal",
   "lib/billingReconcile": "internal",
+  "lib/websiteScan": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {

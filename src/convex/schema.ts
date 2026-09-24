@@ -1050,6 +1050,155 @@ const schema = defineSchema(
       .index("by_state", ["state"])
       .index("by_user", ["createdBy"]),
 
+    // ── Grow: one Google connection per project (GA4, Search Console, Ads) ──
+
+    // OAuth tokens + the resources the signed-in Google account can reach.
+    // Tokens are server-only: public queries project explicit safe fields.
+    // `status` is written only by the OAuth callback / refresh bookkeeping.
+    googleConnections: defineTable({
+      projectId: v.id("projects"),
+      accessToken: v.string(),
+      refreshToken: v.optional(v.string()),
+      expiresAt: v.optional(v.number()),
+      scope: v.optional(v.string()),
+      accountEmail: v.optional(v.string()),
+      status: v.union(v.literal("connected"), v.literal("needs_reconnect")),
+      tokenVersion: v.optional(v.number()),
+      refreshLeaseId: v.optional(v.string()),
+      refreshLeaseUntil: v.optional(v.number()),
+      connectedBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      // Resource lists from the last successful listing (bounded).
+      resourcesListedAt: v.optional(v.number()),
+      ga4Properties: v.optional(
+        v.array(v.object({ id: v.string(), name: v.string(), account: v.optional(v.string()) })),
+      ),
+      gscSites: v.optional(
+        v.array(v.object({ siteUrl: v.string(), permission: v.optional(v.string()) })),
+      ),
+      adsCustomers: v.optional(
+        v.array(
+          v.object({
+            id: v.string(),
+            name: v.optional(v.string()),
+            currency: v.optional(v.string()),
+            manager: v.optional(v.boolean()),
+            usable: v.boolean(),
+          }),
+        ),
+      ),
+      resourceErrors: v.optional(
+        v.array(
+          v.object({
+            source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+            state: v.union(v.literal("needs_setup"), v.literal("error")),
+            code: v.optional(v.string()),
+            message: v.string(),
+          }),
+        ),
+      ),
+      // What the owner picked. Validated against the listed resources.
+      ga4PropertyId: v.optional(v.string()),
+      ga4PropertyName: v.optional(v.string()),
+      gscSiteUrl: v.optional(v.string()),
+      adsCustomerId: v.optional(v.string()),
+      adsCustomerName: v.optional(v.string()),
+    }).index("by_project", ["projectId"]),
+
+    // One sync job (AGENTS.md rule 13 states). Each source records its own
+    // outcome; errors are plain-language plus an enum-like provider code.
+    googleSyncRuns: defineTable({
+      projectId: v.id("projects"),
+      trigger: v.union(v.literal("manual"), v.literal("cron"), v.literal("connect")),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("succeeded"),
+        v.literal("partially_succeeded"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+      idempotencyKey: v.string(),
+      requestedBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      startedAt: v.optional(v.number()),
+      finishedAt: v.optional(v.number()),
+      sources: v.array(
+        v.object({
+          source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+          status: v.union(v.literal("succeeded"), v.literal("failed"), v.literal("skipped")),
+          rows: v.number(),
+          code: v.optional(v.string()),
+          message: v.optional(v.string()),
+        }),
+      ),
+      message: v.optional(v.string()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_created", ["projectId", "createdAt"])
+      .index("by_idempotency", ["idempotencyKey"]),
+
+    // Daily totals per source (56 days: the last 28 plus the 28 before).
+    // Money is integer micros of `currency`.
+    googleMetricsDaily: defineTable({
+      projectId: v.id("projects"),
+      source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+      resourceId: v.string(),
+      date: v.string(), // YYYY-MM-DD in the provider's reporting timezone
+      sessions: v.optional(v.number()),
+      users: v.optional(v.number()),
+      keyEvents: v.optional(v.number()),
+      engagementRate: v.optional(v.number()),
+      clicks: v.optional(v.number()),
+      impressions: v.optional(v.number()),
+      ctr: v.optional(v.number()),
+      position: v.optional(v.number()),
+      costMicros: v.optional(v.number()),
+      conversions: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      syncedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_source_date", ["projectId", "source", "date"]),
+
+    // Period totals (first run is the headline pair: current vs previous 28
+    // days) and bounded top lists (queries, pages, landing pages, channels,
+    // campaigns) for the last 28 days.
+    googleTopItems: defineTable({
+      projectId: v.id("projects"),
+      source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+      kind: v.union(
+        v.literal("totals_current"),
+        v.literal("totals_previous"),
+        v.literal("query"),
+        v.literal("page"),
+        v.literal("landing_page"),
+        v.literal("channel"),
+        v.literal("campaign"),
+      ),
+      rank: v.number(),
+      label: v.string(),
+      key: v.optional(v.string()),
+      status: v.optional(v.string()),
+      sessions: v.optional(v.number()),
+      users: v.optional(v.number()),
+      keyEvents: v.optional(v.number()),
+      engagementRate: v.optional(v.number()),
+      clicks: v.optional(v.number()),
+      impressions: v.optional(v.number()),
+      ctr: v.optional(v.number()),
+      position: v.optional(v.number()),
+      costMicros: v.optional(v.number()),
+      conversions: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      periodStart: v.string(),
+      periodEnd: v.string(),
+      syncedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_source", ["projectId", "source"]),
+
     // Ad accounts discovered for each connected platform.
     adsAccounts: defineTable({
       projectId: v.id("projects"),

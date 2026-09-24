@@ -99,6 +99,11 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   oauthStates: { ...global("OAuth callback state", "Short-lived callback state expires", true), accountCleanup: [{ kind: "index", index: "by_user", field: "createdBy", source: "user" }] },
   adsAccounts: project("guards.requireProject"), adsCampaigns: project("guards.requireProject"),
   adsMetrics: project("guards.requireProject"), adsChangeRequests: project("guards.requireProject"),
+  // Grow — Google (GA4 / Search Console / Ads). Tokens are never exported.
+  googleConnections: project("moduleQuery/moduleMutation grow → access.requireProject", "excluded"),
+  googleSyncRuns: project("moduleQuery grow → access.ownedProject", "excluded"),
+  googleMetricsDaily: project("moduleQuery grow → access.ownedProject"),
+  googleTopItems: project("moduleQuery grow → access.ownedProject"),
   adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),
   appSettings: global("Server-managed settings", "Shared server configuration is retained"),
   platformAdmins: user("userId", "guards.requirePlatformAdmin", "excluded", "by_user"),
