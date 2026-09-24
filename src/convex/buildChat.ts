@@ -17,6 +17,7 @@ import {
   modelComplete,
 } from "./lib/modelGateway";
 import { normalizeSitePath } from "./lib/sitePaths";
+import { isAiBudgetReached } from "./lib/aiBudget";
 import {
   BLOCK_REGISTRY,
   getBlockDef,
@@ -587,7 +588,9 @@ Latest instruction: ${message}`,
         buildId,
         projectId: build.projectId,
         role: "assistant",
-        content: "I couldn't produce a valid site this time, so nothing was changed. Try rephrasing.",
+        content: isAiBudgetReached(error)
+          ? "Your AI budget for this period is used up, so nothing was changed. See Plan & billing for usage and upgrade options."
+          : "I couldn't produce a valid site this time, so nothing was changed. Try rephrasing.",
         mode: "build",
       });
       throw error;
@@ -797,7 +800,9 @@ User request: ${message}`,
         buildId,
         projectId: build.projectId,
         role: "assistant",
-        content: `I couldn't apply that edit to ${target.fullPath}${detail}. Nothing was changed.`,
+        content: isAiBudgetReached(error)
+          ? "Your AI budget for this period is used up, so nothing was changed. See Plan & billing for usage and upgrade options."
+          : `I couldn't apply that edit to ${target.fullPath}${detail}. Nothing was changed.`,
         mode: "build",
       });
       if (lastErrors.length) {
