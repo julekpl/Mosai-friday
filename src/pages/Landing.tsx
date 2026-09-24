@@ -84,10 +84,10 @@ const components = [
 /* ── Small demonstration: one believable task, labelled as an example ─── */
 
 const demoSteps = [
-  { label: "Your business" },
-  { label: "Your audience" },
+  { label: "Business" },
+  { label: "Audience" },
   { label: "Draft it" },
-  { label: "Review & save" },
+  { label: "Review" },
   { label: "Social media" },
   { label: "Ads" },
   { label: "Email" },
