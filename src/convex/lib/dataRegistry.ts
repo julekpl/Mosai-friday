@@ -87,6 +87,9 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   collections: project("guards.requireProject"), commerceEvents: project("guards.requireProject"),
   insights: project("guards.requireProject"), builds: project("guards.requireProject"),
   buildReleaseAudits: project("guards.requireProject", "excluded"), buildDeployments: project("guards.requireProject", "excluded"),
+  // Public site address (slug). Written by siteHosting internal mutations
+  // only; read through siteHosting.status (build.view). Freed with the project.
+  publicSites: project("moduleQuery build → access.requireProject"),
   buildPages: project("guards.requireProject"),
   buildMessages: { scope: "project", tenantField: "buildId", authorization: "parent builds project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "builds", parentIndex: "by_project", childIndex: "by_build", childField: "buildId" } },
   buildVersions: { scope: "project", tenantField: "buildId", authorization: "parent builds project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "builds", parentIndex: "by_project", childIndex: "by_build", childField: "buildId" } },

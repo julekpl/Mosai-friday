@@ -147,3 +147,57 @@ export async function hasVerifiedDeployment(
 ): Promise<DeliveryGate> {
   return selectConfirmedRelease(ctx, projectId);
 }
+
+/** One route of a release's frozen route snapshot. */
+export type ReleaseRoute = {
+  revisionId: Id<"pageRevisions">;
+  title?: string;
+  seo?: { title?: string; metaDescription?: string; noindex?: boolean; ogImageUrl?: string };
+};
+
+/**
+ * The route snapshot of ONE audit, whatever its phase. The public readers
+ * only ever pass the confirmed release (`selectConfirmedRelease`); the
+ * self-host deployment verifier (`siteHosting`) passes the candidate release
+ * it is about to confirm, so verification renders through exactly the code
+ * path the public route uses afterwards.
+ */
+export function releaseRouteMap(
+  audit: Doc<"buildReleaseAudits">,
+): Map<string, ReleaseRoute> {
+  const routes = new Map<string, ReleaseRoute>();
+  for (const r of audit.routes ?? []) {
+    routes.set(r.fullPath, { revisionId: r.revisionId, title: r.title, seo: r.seo });
+  }
+  return routes;
+}
+
+/** True when an audit carries a complete route snapshot (compatibility rule above). */
+export function hasCompleteRouteSnapshot(audit: Doc<"buildReleaseAudits">): boolean {
+  return audit.routes !== undefined && audit.routes.every((route) => !!route.title);
+}
+
+/**
+ * Resolve one normalized path through a release's route snapshot: the pinned
+ * revision (still in a promoted state) plus the frozen metadata, or null.
+ * Never reads the mutable `publishedRevisionId` pointer or live page rows.
+ */
+export async function resolveReleaseRoute(
+  ctx: Pick<QueryCtx, "db">,
+  routesByPath: Map<string, ReleaseRoute>,
+  fullPath: string,
+): Promise<{ route: ReleaseRoute & { title: string }; revision: Doc<"pageRevisions"> } | null> {
+  const path = fullPath === "" ? "/" : fullPath;
+  const route = routesByPath.get(path);
+  if (!route?.revisionId || !route.title) return null;
+  const revision = await ctx.db.get(route.revisionId);
+  // Accepts the legacy `published` name during the rename transition; the
+  // receipt-pinned route is what actually authorizes serving.
+  if (
+    !revision ||
+    (revision.state !== "release_prepared" && revision.state !== "published")
+  ) {
+    return null;
+  }
+  return { route: { ...route, title: route.title }, revision };
+}

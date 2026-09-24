@@ -843,12 +843,31 @@ const schema = defineSchema(
       // Public projection resolves through this receipt field, never a
       // caller-supplied site/project id.
       publicHostname: v.optional(v.string()),
+      // Safe, user-facing failure reason (no provider secrets or env values).
+      error: v.optional(v.string()),
+      finishedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
       .index("by_build", ["buildId"])
       .index("by_project", ["projectId"])
-      .index("by_public_hostname", ["publicHostname"]),
+      .index("by_public_hostname", ["publicHostname"])
+      // Idempotency: one logical deployment per release audit (siteHosting).
+      .index("by_release_audit", ["releaseAuditId"]),
+
+    // MOSAI-hosted public site addresses (owner decision, 24 Sep 2026):
+    // `/s/<slug>-website`. Allocated once on the first deploy from the
+    // project name and stable afterwards (a rename never moves the URL).
+    // Written only by siteHosting's internal mutations.
+    publicSites: defineTable({
+      projectId: v.id("projects"),
+      kind: v.union(v.literal("website"), v.literal("app")),
+      slug: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_slug", ["slug"])
+      .index("by_project_kind", ["projectId", "kind"])
+      .index("by_project", ["projectId"]),
 
     // One page/screen of a build. Strategy-first: every page declares which
     // persona it speaks to and which journey stage it answers, so the
