@@ -49,6 +49,31 @@ export function resetCompletionStub() {
   hasMalformedContent = false;
 }
 
+/** Offline OpenRouter adapter used by unit tests that choose that provider. */
+export function openRouterFetch(_input: RequestInfo | URL, init?: RequestInit): Response {
+  let request: { model?: unknown; messages?: unknown; max_tokens?: unknown; temperature?: unknown } = {};
+  try {
+    request = JSON.parse(String(init?.body ?? "{}")) as typeof request;
+  } catch {
+    return new Response("invalid fixture request", { status: 400 });
+  }
+  const messages = Array.isArray(request.messages)
+    ? request.messages as Array<{ role: string; content: string }>
+    : [];
+  completionCalls.push({
+    model: typeof request.model === "string" ? request.model : "",
+    messages,
+    maxTokens: typeof request.max_tokens === "number" ? request.max_tokens : undefined,
+    temperature: typeof request.temperature === "number" ? request.temperature : undefined,
+  });
+  if (nextError) return new Response(JSON.stringify({ error: nextError }), { status: 500 });
+  const content = hasMalformedContent ? nextMalformedContent : nextContent;
+  return new Response(JSON.stringify({
+    choices: [{ message: { content } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
 type CompletionResult = {
   success: boolean;
   data?: { choices: Array<{ message: { content: string } }> };

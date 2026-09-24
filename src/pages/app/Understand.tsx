@@ -63,6 +63,14 @@ function PersonaForm({
   const [evidence, setEvidence] = useState("");
   const [country, setCountry] = useState("");
   const [demographics, setDemographics] = useState("");
+  const [culturalContext, setCulturalContext] = useState("");
+  const [bigFive, setBigFive] = useState<{
+    openness: number;
+    conscientiousness: number;
+    extraversion: number;
+    agreeableness: number;
+    neuroticism: number;
+  } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // Seed once loaded when editing
@@ -74,6 +82,8 @@ function PersonaForm({
     setEvidence(existing.evidence ?? "");
     setCountry(existing.country ?? "");
     setDemographics(existing.demographics ?? "");
+    setCulturalContext(existing.culturalContext ?? "");
+    setBigFive(existing.bigFive ?? null);
   }
 
   const split = (s: string) =>
@@ -91,6 +101,8 @@ function PersonaForm({
         evidence: evidence.trim() || undefined,
         country: country.trim() || undefined,
         demographics: demographics.trim() || undefined,
+        culturalContext: culturalContext.trim() || undefined,
+        bigFive: bigFive ?? undefined,
       };
       if (personaId) {
         await update({ id: personaId, ...payload });
@@ -159,7 +171,50 @@ function PersonaForm({
       <details className="rounded-md border p-3">
         <summary className="cursor-pointer font-mono text-caption">Advanced personality (Big Five, optional)</summary>
         <p className="mt-2 font-mono text-caption text-muted-foreground">Add only if it helps your decisions. Scores are 0–100 and are hypotheses, not clinical assessments.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {([
+            ["openness", "Openness"],
+            ["conscientiousness", "Conscientiousness"],
+            ["extraversion", "Extraversion"],
+            ["agreeableness", "Agreeableness"],
+            ["neuroticism", "Emotional sensitivity"],
+          ] as const).map(([key, label]) => (
+            <div className="grid gap-1" key={key}>
+              <Label htmlFor={`pf-bigfive-${key}`}>{label} (0–100)</Label>
+              <Input
+                id={`pf-bigfive-${key}`}
+                type="number"
+                min={0}
+                max={100}
+                value={bigFive?.[key] ?? ""}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (!Number.isFinite(value) || value < 0 || value > 100) return;
+                  setBigFive((current) => ({
+                    openness: current?.openness ?? 50,
+                    conscientiousness: current?.conscientiousness ?? 50,
+                    extraversion: current?.extraversion ?? 50,
+                    agreeableness: current?.agreeableness ?? 50,
+                    neuroticism: current?.neuroticism ?? 50,
+                    [key]: value,
+                  }));
+                }}
+                placeholder="Optional"
+              />
+            </div>
+          ))}
+        </div>
       </details>
+      <div className="grid gap-2">
+        <Label htmlFor="pf-culture">Language &amp; cultural context (optional)</Label>
+        <Textarea
+          id="pf-culture"
+          value={culturalContext}
+          onChange={(event) => setCulturalContext(event.target.value)}
+          rows={2}
+          placeholder="Use observed or owner-provided market details; avoid assumptions based only on nationality."
+        />
+      </div>
       <div className="grid gap-2">
         <Label htmlFor="pf-ev">Evidence</Label>
         <Textarea
@@ -215,6 +270,7 @@ function AiPersonaDialog({
         country: p.country,
         demographics: p.demographics,
         bigFive: p.bigFive,
+        culturalContext: p.culturalContext,
         evidence: p.evidence,
       });
       toast.success(`Persona "${p.name}" created`, {
@@ -530,6 +586,16 @@ export default function Understand({
                     ))}
                   </div>
                 </>
+              )}
+              {(p.country || p.demographics || p.culturalContext || p.bigFive) && (
+                <div className="mt-3 grid gap-1 font-mono text-caption text-muted-foreground">
+                  {p.country && <p>market: {p.country}</p>}
+                  {p.demographics && <p>context: {p.demographics}</p>}
+                  {p.culturalContext && <p>language &amp; culture: {p.culturalContext}</p>}
+                  {p.bigFive && (
+                    <p>Big Five hypotheses: openness {p.bigFive.openness}, conscientiousness {p.bigFive.conscientiousness}, extraversion {p.bigFive.extraversion}, agreeableness {p.bigFive.agreeableness}, emotional sensitivity {p.bigFive.neuroticism} / 100</p>
+                  )}
+                </div>
               )}
               {p.evidence && (
                 <p className="mt-3 font-mono text-caption text-muted-foreground">

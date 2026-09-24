@@ -94,6 +94,22 @@ describe("ModelGateway S1", () => {
     });
   });
 
+  it("uses the namespaced OpenRouter model id and records the request in the offline adapter", async () => {
+    const { ctx } = mockContext();
+    stubCompletionContent("openrouter draft");
+
+    const result = await modelComplete(request(ctx, {
+      provider: "openrouter",
+      model: "openai/gpt-4o-mini",
+    }));
+
+    expect(result.text).toBe("openrouter draft");
+    expect(completionCalls[0]).toMatchObject({
+      model: "openai/gpt-4o-mini",
+      maxTokens: 900,
+    });
+  });
+
   it("persists metadata-only running and terminal states through internal mutations", async () => {
     const t = newBackend();
     const alice = await seedUser(t);

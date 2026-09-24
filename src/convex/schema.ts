@@ -248,6 +248,7 @@ const schema = defineSchema(
       channels: v.optional(v.array(v.string())),
       country: v.optional(v.string()),
       demographics: v.optional(v.string()),
+      culturalContext: v.optional(v.string()),
       bigFive: v.optional(v.object({
         openness: v.number(),
         conscientiousness: v.number(),
@@ -311,6 +312,7 @@ const schema = defineSchema(
         v.literal("disconnected"),
         v.literal("unsupported"),
       ),
+      authorizationStartedAt: v.optional(v.number()),
       accountLabel: v.optional(v.string()),
       providerAccountId: v.optional(v.string()),
       lastSyncedAt: v.optional(v.number()),

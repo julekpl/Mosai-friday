@@ -139,10 +139,12 @@ export function Stat({
 
 export function ConfirmDelete({
   what,
+  description,
   onConfirm,
   trigger,
 }: {
   what: string;
+  description?: string;
   onConfirm: () => Promise<void>;
   trigger: React.ReactNode;
 }) {
@@ -172,7 +174,7 @@ export function ConfirmDelete({
             Delete {what}?
           </DialogTitle>
           <DialogDescription className="font-mono text-caption">
-            This cannot be undone.
+            {description ?? "This cannot be undone."}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

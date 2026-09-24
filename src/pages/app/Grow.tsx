@@ -186,6 +186,7 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
           const status = connection?.status ?? "available";
           const isConnected = status === "connected";
           const isAuthorizing = status === "authorizing";
+          const authorizationTimedOut = connection?.detail?.startsWith("Authorization timed out") ?? false;
           return (
             <button
               key={p.id}
@@ -216,6 +217,7 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
                     : "text-muted-foreground",
               )}
               aria-pressed={isConnected}
+              aria-label={`${p.label}: ${authorizationTimedOut ? "authorization timed out, activate to retry" : isConnected ? "connected" : isAuthorizing ? "authorizing" : "not connected, activate to configure"}`}
               title={connection?.detail ?? p.detail}
             >
               {isConnected ? (
@@ -227,6 +229,7 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
               )}
               {p.label}
               {isAuthorizing && " · authorizing"}
+              {authorizationTimedOut && " · timed out — retry"}
             </button>
           );
         })}

@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { NavLink, useLocation, useNavigate } from "react-router";
@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Trash2,
   TrendingUp,
   Users,
   Blocks,
@@ -56,16 +57,18 @@ import {
   useModuleEntitlements,
 } from "@/hooks/use-module-entitlements";
 import { cn } from "@/lib/utils";
+import { ConfirmDelete } from "@/components/app/module-kit";
+import { toast } from "sonner";
 
 const modules = [
-  { to: "understand", label: "Understand", icon: Search },
-  { to: "journeys", label: "Journeys", icon: Route },
-  { to: "create", label: "Create", icon: PenTool },
-  { to: "build", label: "Build", icon: Blocks },
-  { to: "customers", label: "Customers", icon: Users },
-  { to: "promote", label: "Promote", icon: Megaphone },
-  { to: "sell", label: "Sell", icon: ShoppingBag },
-  { to: "grow", label: "Grow", icon: TrendingUp },
+  { to: "understand", label: "Understand", description: "Organize project facts and customer personas.", icon: Search },
+  { to: "journeys", label: "Journeys", description: "Map the steps customers take to reach their goals.", icon: Route },
+  { to: "create", label: "Create", description: "Find content gaps, research topics and write content.", icon: PenTool },
+  { to: "build", label: "Build", description: "Plan and create websites and apps for your project.", icon: Blocks },
+  { to: "customers", label: "Customers", description: "Manage customer relationships and follow-ups.", icon: Users },
+  { to: "promote", label: "Promote", description: "Prepare campaigns and social posts for review.", icon: Megaphone },
+  { to: "sell", label: "Sell", description: "Manage products, storefront content and feeds.", icon: ShoppingBag },
+  { to: "grow", label: "Grow", description: "Connect data sources and review performance insights.", icon: TrendingUp },
 ] as const;
 
 export function AppShell({
@@ -78,6 +81,7 @@ export function AppShell({
   const { user, signOut } = useAuth();
   const admin = useQuery(api.admin.me);
   const projects = useQuery(api.projects.list) ?? [];
+  const removeProject = useMutation(api.projects.remove);
   const navigate = useNavigate();
   const location = useLocation();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -139,20 +143,31 @@ export function AppShell({
                 </p>
               )}
               {projects.map((p) => (
-                <button
-                  key={p._id}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left font-mono text-small hover:bg-accent ease-terminal",
-                    current?._id === p._id && "bg-accent",
+                <div key={p._id} className={cn("flex items-center gap-1 rounded-sm px-1", current?._id === p._id && "bg-accent")}>
+                  <button
+                    className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left font-mono text-small hover:bg-accent ease-terminal"
+                    onClick={() => {
+                      setSwitcherOpen(false);
+                      navigate(`/app/${p._id}`);
+                    }}
+                  >
+                    <span className="size-1.5 shrink-0 rounded-full bg-terminal-green" />
+                    <span className="truncate">{p.name}</span>
+                  </button>
+                  {p.ownerId === user?._id && (
+                    <ConfirmDelete
+                      what={`project “${p.name}”`}
+                      description="MOSAI will queue this project and its saved data for deletion. This cannot be undone."
+                      onConfirm={async () => {
+                        await removeProject({ id: p._id });
+                        toast.success("Project deletion queued", { description: "The project and its saved data will be removed." });
+                        setSwitcherOpen(false);
+                        if (current?._id === p._id) navigate("/dashboard");
+                      }}
+                      trigger={<Button variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:text-destructive" aria-label={`Delete project ${p.name}`}><Trash2 className="size-3.5" /></Button>}
+                    />
                   )}
-                  onClick={() => {
-                    setSwitcherOpen(false);
-                    navigate(`/app/${p._id}`);
-                  }}
-                >
-                  <span className="size-1.5 shrink-0 rounded-full bg-terminal-green" />
-                  <span className="truncate">{p.name}</span>
-                </button>
+                </div>
               ))}
               <Separator className="my-1" />
               <button
@@ -191,8 +206,9 @@ export function AppShell({
                         ),
                   )}
                 />
-                <span className={cn(locked && "text-muted-foreground/50")}>
-                  {m.label}
+                <span className={cn("min-w-0 flex-1", locked && "text-muted-foreground/50")}>
+                  <span className="block">{m.label}</span>
+                  <span className="block whitespace-normal font-sans text-caption leading-snug text-muted-foreground">{m.description}</span>
                 </span>
                 {locked && state && (
                   <Badge
@@ -315,20 +331,30 @@ export function AppShell({
                 workspace
               </p>
               {projects.map((project) => (
-                <SheetClose asChild key={project._id}>
-                  <NavLink
-                    to={`/app/${project._id}`}
-                    end
-                    className={({ isActive }) =>
-                      cn(
-                        "mt-1 block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        isActive && "bg-accent font-medium",
-                      )
-                    }
-                  >
-                    {project.name}
-                  </NavLink>
-                </SheetClose>
+                <div key={project._id} className="mt-1 flex items-center gap-1">
+                  <SheetClose asChild>
+                    <NavLink
+                      to={`/app/${project._id}`}
+                      end
+                      className={({ isActive }) => cn("block min-h-11 min-w-0 flex-1 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", isActive && "bg-accent font-medium")}
+                    >
+                      {project.name}
+                    </NavLink>
+                  </SheetClose>
+                  {project.ownerId === user?._id && (
+                    <ConfirmDelete
+                      what={`project “${project.name}”`}
+                      description="MOSAI will queue this project and its saved data for deletion. This cannot be undone."
+                      onConfirm={async () => {
+                        await removeProject({ id: project._id });
+                        toast.success("Project deletion queued", { description: "The project and its saved data will be removed." });
+                        setMobileMenuOpen(false);
+                        if (current?._id === project._id) navigate("/dashboard");
+                      }}
+                      trigger={<Button variant="ghost" size="icon" className="size-10 shrink-0 text-muted-foreground hover:text-destructive" aria-label={`Delete project ${project.name}`}><Trash2 className="size-4" /></Button>}
+                    />
+                  )}
+                </div>
               ))}
               <SheetClose asChild>
                 <NavLink
@@ -372,7 +398,10 @@ export function AppShell({
                         )}
                         aria-hidden="true"
                       />
-                      <span>{module.label}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block">{module.label}</span>
+                        <span className="block whitespace-normal font-sans text-caption leading-snug text-muted-foreground">{module.description}</span>
+                      </span>
                       {locked && state && (
                         <Badge
                           variant="outline"
@@ -392,7 +421,10 @@ export function AppShell({
                       className="size-4 shrink-0"
                       aria-hidden="true"
                     />
-                    <span>{module.label}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block">{module.label}</span>
+                      <span className="block whitespace-normal font-sans text-caption leading-snug text-muted-foreground">{module.description}</span>
+                    </span>
                   </div>
                 );
               })}

@@ -20,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   displayDomain,
@@ -194,7 +193,6 @@ export function NewProjectWizard() {
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [websiteInput, setWebsiteInput] = useState("");
-  const [hasGmb, setHasGmb] = useState(false);
   const [gmbName, setGmbName] = useState("");
   const [ignoreRobots, setIgnoreRobots] = useState(false);
   const [competitors, setCompetitors] = useState<CompetitorEntry[]>([]);
@@ -237,7 +235,7 @@ export function NewProjectWizard() {
     scanSources.business === "succeeded" ? "a Google Business result" : null,
   ].filter((label): label is string => label !== null).join(" and ");
 
-  /* Run scraper + SerpApi GMB lookup, then prefill the "what" step. */
+  /* Scan the supplied website and search for an optional Google Business listing. */
   const runScan = async () => {
     const jobs: Promise<void>[] = [];
     let scraped = false;
@@ -277,7 +275,7 @@ export function NewProjectWizard() {
       );
     }
 
-    if (hasGmb && gmbName.trim()) {
+    if (gmbName.trim()) {
       jobs.push(
         lookupGmb({ name: gmbName.trim() })
           .then((g) => {
@@ -304,7 +302,7 @@ export function NewProjectWizard() {
     await Promise.allSettled(jobs);
     const sources = {
       website: normalizedUrl ? (scraped ? "succeeded" : "failed") : "not_requested",
-      business: hasGmb ? (gmbFound ? "needs_review" : "failed") : "not_requested",
+      business: gmbName.trim() ? (gmbFound ? "needs_review" : "failed") : "not_requested",
     } as const;
     setScanSources(sources);
     setScanStatus(summarizeProjectScan(sources));
@@ -313,11 +311,7 @@ export function NewProjectWizard() {
 
   const handleBasicsContinue = async () => {
     if (!name.trim()) return;
-    if (hasGmb && !gmbName.trim()) {
-      toast.warning("Enter the business name to look up, or turn off Google Business lookup.");
-      return;
-    }
-    if (!normalizedUrl && !hasGmb) {
+    if (!normalizedUrl && !gmbName.trim()) {
       setScanResult(null);
       setBusinessCandidate(null);
       setScanSources({ website: "not_requested", business: "not_requested" });
@@ -421,7 +415,7 @@ export function NewProjectWizard() {
           <div>
             <h1 className="font-mono text-h1">New project</h1>
             <p className="mt-1 font-mono text-caption text-muted-foreground">
-              Give us your website — any format — and we'll scan it for you.
+              Start with your website, Google Business listing, or both. We’ll gather what we can and let you review it before it shapes your project.
             </p>
           </div>
           <div className="grid gap-2">
@@ -441,7 +435,7 @@ export function NewProjectWizard() {
               id="np-url"
               value={websiteInput}
               onChange={(e) => setWebsiteInput(e.target.value)}
-              placeholder="wp.pl · www.wp.pl · https://wp.pl — all fine"
+              placeholder="example.com or https://yourbusiness.com"
             />
             {websiteInput.trim() !== "" && (
               <p className="font-mono text-caption text-muted-foreground">
@@ -458,32 +452,24 @@ export function NewProjectWizard() {
             )}
           </div>
 
-          <label className="flex items-center gap-3 rounded-md border bg-card p-3">
-            <MapPin className="size-4 shrink-0 text-terminal-green" />
-            <span className="min-w-0 flex-1">
-              <span className="block font-mono text-small font-medium">
-                Google Business profile
-              </span>
-              <span className="block font-mono text-caption text-muted-foreground">
-                We'll fetch extra data (address, rating, hours) via SerpApi
-              </span>
-            </span>
-            <Switch checked={hasGmb} onCheckedChange={setHasGmb} />
-          </label>
-          {hasGmb && (
-            <div className="grid gap-2">
-              <Label htmlFor="np-gmb">Business name on Google</Label>
+          <div className="grid gap-2">
+            <Label htmlFor="np-gmb">Google Business listing (optional)</Label>
+            <div className="flex items-center gap-2">
+              <MapPin className="size-4 shrink-0 text-terminal-green" />
               <Input
                 id="np-gmb"
                 value={gmbName}
                 onChange={(e) => setGmbName(e.target.value)}
-                placeholder="e.g. Nord Coffee Roasters Kraków"
+                placeholder="Business name and city, e.g. Nord Coffee Roasters, Kraków"
               />
             </div>
-          )}
+            <p className="font-mono text-caption text-muted-foreground">
+              We’ll show the matching listing for you to confirm before using its details.
+            </p>
+          </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="np-comp">Competitors — websites or business names</Label>
+            <Label htmlFor="np-comp">Competitors (optional)</Label>
             <ChipInput
               values={competitors.map((c) => c.value)}
               onChange={(next) => {
@@ -496,7 +482,7 @@ export function NewProjectWizard() {
                 });
                 setCompetitors(nextEntries);
               }}
-              placeholder="shopify.com, Local Coffee Bar — Enter to add"
+              placeholder="example.com or @Business Name, city — press Enter to add"
               renderChip={(v) => {
                 const entry = competitors.find(
                   (c) => c.value.toLowerCase() === v.toLowerCase(),
