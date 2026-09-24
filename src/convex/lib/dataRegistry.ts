@@ -1,21 +1,11 @@
 /**
- * Schema / data registry (MOSAI pack T2.1 seed; T2.5 expands it to every table).
- *
- * AGENTS.md rule 12: every table is registered for authorization, export,
- * retention and deletion. Today the deletion-completeness regression derives
- * *project-scoped* tables from `schema.ts` automatically; the organization
- * tables added in T2.1 are not project-scoped, so this registry is where their
- * tenancy field and lifecycle policy are declared. T2.5 replaces this with the
- * full data registry, the unified export/deletion engine and the finalizer.
- *
- * Keep this declarative and dependency-free — it is read by tests and, later,
- * by the export/deletion jobs.
+ * Canonical privacy registry. New Convex tables must declare authorization,
+ * export, retention and deletion policy here; `audit:data-registry` checks the
+ * registry against the executable schema.
  */
 
 export type TableScope = "project" | "organization" | "user" | "global";
-
 export type ExportPolicy = "included" | "excluded";
-
 export type RetentionPolicy =
   | "cascade-with-project"
   | "cascade-with-organization"
@@ -23,127 +13,116 @@ export type RetentionPolicy =
   | "kept-until-revoked"
   | "ephemeral";
 
+export type DeletionPolicy =
+  | { kind: "project-cascade"; index: "by_project"; field: "projectId" }
+  | { kind: "account-index"; index: string; field: string }
+  | { kind: "account-parent"; parentTable: string; parentIndex: string; childIndex: string; childField: string }
+  | { kind: "organization-policy"; index: "by_organization"; field: "organizationId" }
+  | { kind: "organization-links"; agencyIndex: "by_agency"; clientIndex: "by_client"; agencyField: "agencyId"; clientField: "clientId" }
+  | { kind: "sole-owner"; index: "by_owner"; field: "ownerId" }
+  | { kind: "subject" }
+  | { kind: "retain"; reason: string }
+  | { kind: "ephemeral"; reason: string };
+
+export type AccountCleanupChild = { table: string; index: string; field: string };
+export type AccountCleanupRule =
+  | { kind: "index"; index: string; field: string; source: "user" | "email" }
+  | { kind: "parent-children"; parentIndex: string; parentField: "userId"; children: AccountCleanupChild[] }
+  | { kind: "export-jobs"; parentIndex: string; parentField: "userId"; parentKindField: "kind"; parentKinds: string[]; childIndex: string; childField: "jobId" }
+  | { kind: "lifecycle"; reason: string };
+
 export interface TableRegistryEntry {
-  /** What the row belongs to — the boundary authorization checks against. */
   scope: TableScope;
-  /** Field carrying the tenant id used to authorize a row. */
   tenantField: string;
-  /** How reads/writes are authorized (which guard enforces it). */
   authorization: string;
   export: ExportPolicy;
   retention: RetentionPolicy;
+  deletion: DeletionPolicy;
+  accountCleanup?: AccountCleanupRule[];
 }
 
+const project = (authorization: string, exportPolicy: ExportPolicy = "included"): TableRegistryEntry => ({
+  scope: "project", tenantField: "projectId", authorization, export: exportPolicy,
+  retention: "cascade-with-project", deletion: { kind: "project-cascade", index: "by_project", field: "projectId" },
+});
+const organization = (authorization: string, exportPolicy: ExportPolicy = "included"): TableRegistryEntry => ({
+  scope: "organization", tenantField: "organizationId", authorization, export: exportPolicy,
+  retention: "cascade-with-organization", deletion: { kind: "organization-policy", index: "by_organization", field: "organizationId" },
+});
+const user = (field: string, authorization: string, exportPolicy: ExportPolicy = "excluded", index = field): TableRegistryEntry => ({
+  scope: "user", tenantField: field, authorization, export: exportPolicy,
+  retention: "cascade-with-user", deletion: { kind: "account-index", index, field },
+});
+const global = (authorization: string, reason: string, ephemeral = false): TableRegistryEntry => ({
+  scope: "global", tenantField: "_id", authorization, export: "excluded",
+  retention: ephemeral ? "ephemeral" : "kept-until-revoked",
+  deletion: ephemeral ? { kind: "ephemeral", reason } : { kind: "retain", reason },
+});
+
 export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
-  organizations: {
-    scope: "organization",
-    tenantField: "_id",
-    authorization: "guards.requireOrganization (active membership)",
-    export: "excluded",
-    retention: "cascade-with-user",
-  },
-  memberships: {
-    scope: "organization",
-    tenantField: "organizationId",
-    authorization: "guards.requireOrganization / guards.requireOrgRole",
-    export: "excluded",
-    retention: "cascade-with-organization",
-  },
-  invitations: {
-    scope: "organization",
-    tenantField: "organizationId",
-    authorization: "guards.requireOrganization / membership.invite capability",
-    export: "excluded",
-    retention: "ephemeral",
-  },
-  roles: {
-    scope: "global",
-    tenantField: "_id",
-    authorization: "seeded server-side; read through organizations.members",
-    export: "excluded",
-    retention: "kept-until-revoked",
-  },
-  agencyClientLinks: {
-    scope: "organization",
-    tenantField: "agencyId",
-    authorization: "guards.requireOrgRole (agency.link / agency.unlink)",
-    export: "excluded",
-    retention: "kept-until-revoked",
-  },
+  // Convex Auth. Credentials, codes, sessions and rate limits are never
+  // exported. Account deletion removes the user-owned auth rows explicitly.
+  users: { scope: "user", tenantField: "_id", authorization: "guards.requireUser (self)", export: "included", retention: "cascade-with-user", deletion: { kind: "subject" }, accountCleanup: [{ kind: "lifecycle", reason: "Deleted last after every registry cleanup phase" }] },
+  authSessions: { ...user("userId", "Convex Auth session ownership", "excluded", "userId"), accountCleanup: [{ kind: "parent-children", parentIndex: "userId", parentField: "userId", children: [{ table: "authRefreshTokens", index: "sessionId", field: "sessionId" }] }] },
+  authAccounts: { ...user("userId", "Convex Auth account ownership", "excluded", "userIdAndProvider"), accountCleanup: [{ kind: "parent-children", parentIndex: "userIdAndProvider", parentField: "userId", children: [{ table: "authVerificationCodes", index: "accountId", field: "accountId" }] }] },
+  authRefreshTokens: { scope: "user", tenantField: "sessionId", authorization: "Convex Auth session ownership", export: "excluded", retention: "cascade-with-user", deletion: { kind: "account-parent", parentTable: "authSessions", parentIndex: "userId", childIndex: "sessionId", childField: "sessionId" }, accountCleanup: [{ kind: "lifecycle", reason: "Deleted child-first by the authSessions account cleanup rule" }] },
+  authVerificationCodes: { scope: "user", tenantField: "accountId", authorization: "Convex Auth account ownership", export: "excluded", retention: "ephemeral", deletion: { kind: "account-parent", parentTable: "authAccounts", parentIndex: "userIdAndProvider", childIndex: "accountId", childField: "accountId" }, accountCleanup: [{ kind: "lifecycle", reason: "Deleted child-first by the authAccounts account cleanup rule" }] },
+  authVerifiers: { scope: "global", tenantField: "_id", authorization: "Convex Auth ephemeral verifier cleanup", export: "excluded", retention: "ephemeral", deletion: { kind: "ephemeral", reason: "OAuth verifiers expire and are removed by the auth provider" }, accountCleanup: [{ kind: "lifecycle", reason: "OAuth verifiers are ephemeral and removed by the auth provider" }] },
+  authRateLimits: global("Convex Auth rate limiter", "Rate limits expire by policy", true),
 
-  // ── T2.4: platform operators and billing ─────────────────────────────────
-  platformAdmins: {
-    scope: "user",
-    tenantField: "userId",
-    authorization: "guards.requirePlatformAdmin (server-only; never client-grantable)",
-    export: "excluded",
-    retention: "kept-until-revoked",
-  },
-  adminAuditLog: {
-    scope: "global",
-    tenantField: "_id",
-    authorization: "guards.requirePlatformAdmin (read); written by guarded admin mutations",
-    export: "excluded",
-    retention: "kept-until-revoked",
-  },
-  billingCustomers: {
-    scope: "organization",
-    tenantField: "organizationId",
-    authorization: "guards.requireOrganization (billing.subscription) / internal billing helpers",
-    export: "included",
-    retention: "cascade-with-organization",
-  },
-  subscriptions: {
-    scope: "organization",
-    tenantField: "organizationId",
-    authorization: "guards.requireOrganization (billing.subscription) / internal webhook + reconciliation",
-    export: "included",
-    retention: "cascade-with-organization",
-  },
-  billingEvents: {
-    scope: "global",
-    tenantField: "_id",
-    authorization: "guards.requirePlatformAdmin (admin.billingEvents) / written only by the verified webhook",
-    export: "excluded",
-    retention: "kept-until-revoked",
-  },
-  billingReceipts: {
-    scope: "organization",
-    tenantField: "organizationId",
-    authorization: "written only by the verified webhook; read through the admin panel",
-    export: "included",
-    retention: "kept-until-revoked",
-  },
-  billingInvoices: {
-    scope: "organization",
-    tenantField: "organizationId",
-    authorization: "guards.requireOrganization (billing.subscription) / internal webhook",
-    export: "included",
-    retention: "kept-until-revoked",
-  },
-  reconciliationRuns: {
-    scope: "global",
-    tenantField: "_id",
-    authorization: "guards.requirePlatformAdmin (admin.reconciliation)",
-    export: "excluded",
-    retention: "kept-until-revoked",
-  },
+  organizations: { scope: "organization", tenantField: "_id", authorization: "guards.requireOrganization", export: "excluded", retention: "cascade-with-user", deletion: { kind: "sole-owner", index: "by_owner", field: "ownerId" }, accountCleanup: [{ kind: "lifecycle", reason: "Shared organizations transfer to one successor; sole-owned organizations cascade child-first" }] },
+  memberships: { scope: "organization", tenantField: "organizationId", authorization: "guards.requireOrganization / requireOrgRole", export: "excluded", retention: "cascade-with-organization", deletion: { kind: "organization-policy", index: "by_organization", field: "organizationId" }, accountCleanup: [{ kind: "index", index: "by_user", field: "userId", source: "user" }] },
+  invitations: { ...organization("guards.requireOrgRole", "excluded"), accountCleanup: [{ kind: "index", index: "by_email", field: "email", source: "email" }, { kind: "index", index: "by_invited_by", field: "invitedBy", source: "user" }] },
+  roles: global("Seeded role registry", "Canonical role definitions are shared"),
+  agencyClientLinks: { scope: "organization", tenantField: "agencyId", authorization: "guards.requireOrgRole", export: "excluded", retention: "cascade-with-organization", deletion: { kind: "organization-links", agencyIndex: "by_agency", clientIndex: "by_client", agencyField: "agencyId", clientField: "clientId" }, accountCleanup: [{ kind: "lifecycle", reason: "Organization links are removed only when their sole-owned organization is deleted" }] },
+  projects: { ...user("ownerId", "guards.requireProject (owner)", "included", "by_owner"), accountCleanup: [{ kind: "lifecycle", reason: "Project data is cascaded or ownership is transferred before account cleanup" }] },
 
-  // ── T0.4: per-user AI budget ────────────────────────────────────────────
-  aiRateLimits: {
-    scope: "user",
-    tenantField: "userId",
-    authorization:
-      "internal guards.consumeAiQuota (server-only; called by AI actions after the record is authorized)",
-    export: "excluded",
-    retention: "ephemeral",
-  },
-  aiRuns: {
-    scope: "user",
-    tenantField: "userId",
-    authorization:
-      "internal AI gateway mutations; project calls follow their action's ownership/capability guard",
-    export: "excluded",
-    retention: "cascade-with-user",
-  },
+  personas: project("guards.requireProject"), contentPieces: project("guards.requireProject"),
+  connections: project("guards.requireProject", "excluded"), contacts: project("guards.requireProject"),
+  campaigns: project("guards.requireProject"), posts: project("guards.requireProject"),
+  socialCredentials: project("guards.requireProject", "excluded"), products: project("guards.requireProject"),
+  productVariants: project("guards.requireProject"),
+  productMedia: { scope: "project", tenantField: "productId", authorization: "parent products project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "products", parentIndex: "by_project", childIndex: "by_product", childField: "productId" } },
+  collections: project("guards.requireProject"), commerceEvents: project("guards.requireProject"),
+  insights: project("guards.requireProject"), builds: project("guards.requireProject"),
+  buildReleaseAudits: project("guards.requireProject", "excluded"), buildDeployments: project("guards.requireProject", "excluded"),
+  buildPages: project("guards.requireProject"),
+  buildMessages: { scope: "project", tenantField: "buildId", authorization: "parent builds project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "builds", parentIndex: "by_project", childIndex: "by_build", childField: "buildId" } },
+  buildVersions: { scope: "project", tenantField: "buildId", authorization: "parent builds project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "builds", parentIndex: "by_project", childIndex: "by_build", childField: "buildId" } },
+  projectFiles: project("guards.requireProject"),
+  journeyMaps: project("guards.requireProject"), contentGaps: project("guards.requireProject"),
+  contentTopics: project("guards.requireProject"),
+  contentDocs: { scope: "project", tenantField: "pieceId", authorization: "parent contentPieces project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "contentPieces", parentIndex: "by_project", childIndex: "by_piece", childField: "pieceId" } },
+  personaMessages: { scope: "project", tenantField: "projectId", authorization: "guards.requireProject", export: "included", retention: "cascade-with-project", deletion: { kind: "account-index", index: "by_project_persona", field: "projectId" } },
+  communications: project("guards.requireProject"), adsCredentials: project("guards.requireProject", "excluded"),
+  oauthStates: { ...global("OAuth callback state", "Short-lived callback state expires", true), accountCleanup: [{ kind: "index", index: "by_user", field: "createdBy", source: "user" }] },
+  adsAccounts: project("guards.requireProject"), adsCampaigns: project("guards.requireProject"),
+  adsMetrics: project("guards.requireProject"), adsChangeRequests: project("guards.requireProject"),
+  adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),
+  appSettings: global("Server-managed settings", "Shared server configuration is retained"),
+  platformAdmins: user("userId", "guards.requirePlatformAdmin", "excluded", "by_user"),
+  adminAuditLog: global("guards.requirePlatformAdmin", "Operator audit records are retained"),
+  billingCustomers: { ...organization("Verified Stripe webhook / billing access"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
+  subscriptions: { ...organization("Verified Stripe webhook / reconciliation"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
+  billingEvents: global("Verified Stripe webhook", "Provider event ledger is retained"),
+  billingReceipts: { scope: "organization", tenantField: "organizationId", authorization: "guards.requirePlatformAdmin / verified Stripe webhook", export: "excluded", retention: "kept-until-revoked", deletion: { kind: "retain", reason: "Financial receipts remain available for legal and audit retention" }, accountCleanup: [{ kind: "lifecycle", reason: "Retained under the financial receipt retention policy" }] },
+  billingInvoices: { ...organization("Verified Stripe webhook / billing access", "excluded"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only with the verified sole-owned organization cascade" }] },
+  reconciliationRuns: global("guards.requirePlatformAdmin", "Billing reconciliation evidence is retained"),
+  sites: project("guards.requireProject"), cmsPages: project("guards.requireProject"),
+  pageRevisions: project("guards.requireProject"), cmsAssets: project("guards.requireProject"),
+  cmsNavigations: project("guards.requireProject"), cmsRedirects: project("guards.requireProject"),
+  aiRateLimits: { ...user("userId", "Internal AI quota guard", "excluded", "by_user_window"), accountCleanup: [{ kind: "index", index: "by_user_window", field: "userId", source: "user" }] },
+  // A run may have a projectId or be user-only. Project deletion clears the
+  // former; account cleanup clears either form through the user index.
+  aiRuns: { ...project("Internal AI gateway; project actions require project authorization", "excluded"), accountCleanup: [{ kind: "index", index: "by_user_created", field: "userId", source: "user" }] },
+  privacyJobs: { scope: "global", tenantField: "_id", authorization: "self-scoped job reads / internal finalizer / operator report", export: "excluded", retention: "kept-until-revoked", deletion: { kind: "retain", reason: "Minimal deletion-job receipt supports audit and retry history" } },
+  privacyExportChunks: { scope: "user", tenantField: "jobId", authorization: "parent privacyJobs owner", export: "excluded", retention: "cascade-with-user", deletion: { kind: "account-parent", parentTable: "privacyJobs", parentIndex: "by_user", childIndex: "by_job_sequence", childField: "jobId" }, accountCleanup: [{ kind: "export-jobs", parentIndex: "by_user", parentField: "userId", parentKindField: "kind", parentKinds: ["account_export", "project_export"], childIndex: "by_job_sequence", childField: "jobId" }] },
 };
+
+// Account-scoped rows that are directly owned by a user are explicit policies;
+// T2.5's registry audit rejects user/organization rows without a cleanup rule.
+DATA_REGISTRY.platformAdmins.accountCleanup = [{ kind: "index", index: "by_user", field: "userId", source: "user" }];
+
+export const ACCOUNT_DELETION_GRACE_DAYS = 30;
+export const ACCOUNT_DELETION_GRACE_MS = ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000;
+export const SUBSCRIPTION_VERIFICATION_MAX_AGE_MS = 24 * 60 * 60 * 1000;

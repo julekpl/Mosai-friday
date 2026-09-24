@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { api } from "@/convex/_generated/api";
+import { api, internal } from "@/convex/_generated/api";
 import schema from "@/convex/schema";
 import { DATA_REGISTRY } from "@/convex/lib/dataRegistry";
+import { ACCOUNT_DELETION_GRACE_MS } from "@/convex/modules/privacy/deletionJobs";
 import { newBackend, seedUser } from "./helpers";
 
 /**
@@ -453,10 +454,12 @@ describe("R10 — deleting a project leaves nothing behind", () => {
     // Guards against two fixtures for the same table hiding a missing one.
     expect(new Set(fixtureTables).size).toBe(fixtureTables.length);
     expect(DATA_REGISTRY.aiRuns).toMatchObject({
-      scope: "user",
-      tenantField: "userId",
+      scope: "project",
+      tenantField: "projectId",
       export: "excluded",
-      retention: "cascade-with-user",
+      retention: "cascade-with-project",
+      deletion: { kind: "project-cascade", index: "by_project" },
+      accountCleanup: [{ kind: "index", index: "by_user_created", field: "userId" }],
     });
   });
 
@@ -492,7 +495,13 @@ describe("R10 — deleting a project leaves nothing behind", () => {
       expect(rows.length, `${table} should have a seeded row`).toBeGreaterThan(0);
     }
 
-    await alice.as.mutation(api.projects.remove, { id: projectId });
+    const deletion = await alice.as.mutation(api.projects.remove, { id: projectId });
+    expect(deletion.status).toBe("queued");
+    const jobId = deletion.jobId;
+    for (let step = 0; step < expectedTables.length * 12 + 20; step += 1) {
+      const result = await t.mutation(internal.modules.privacy.deletionJobs.processProjectDeletion, { jobId });
+      if ((result as { completed?: boolean }).completed) break;
+    }
 
     for (const table of expectedTables) {
       const rows = await t.run((ctx) => loose(ctx).db.query(table).collect());
@@ -536,7 +545,25 @@ describe("R10 — deleting a project leaves nothing behind", () => {
       });
     });
 
-    await alice.as.mutation(api.billing.deleteAccount, {});
+    const request = await alice.as.mutation(api.billing.deleteAccount, {});
+    expect(request.status).toBe("queued");
+    expect(request.effectiveAt - request.requestedAt).toBe(ACCOUNT_DELETION_GRACE_MS);
+    await t.run(async (ctx) => {
+      expect(await loose(ctx).db.query("aiRuns").collect()).toHaveLength(1);
+      expect(await loose(ctx).db.query("aiRateLimits").collect()).toHaveLength(1);
+      expect(await ctx.db.get(alice.userId)).toBeTruthy();
+    });
+
+    let terminal = false;
+    for (let step = 0; step < 2000; step += 1) {
+      const result = await t.mutation(internal.modules.privacy.deletionJobs.finalizeUser, {
+        userId: alice.userId,
+        now: request.effectiveAt + 1,
+      });
+      if (result.status === "succeeded") { terminal = true; break; }
+      if (result.status === "waiting_for_user") throw new Error(result.reason);
+    }
+    expect(terminal).toBe(true);
 
     await t.run(async (ctx) => {
       expect(await loose(ctx).db.query("aiRuns").collect()).toEqual([]);

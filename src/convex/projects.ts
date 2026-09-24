@@ -1,9 +1,11 @@
 import { internalQuery, mutation } from "./_generated/server";
+import { anyApi } from "convex/server";
 import { v } from "convex/values";
 import { orgMutation, orgQuery, requireUser } from "./guards";
 import type { Doc } from "./_generated/dataModel";
-import { cascadeDeleteProject } from "./dal";
 import { getOrCreatePersonalOrganization } from "./organizations";
+
+const privacyInternal = anyApi.modules.privacy;
 
 /**
  * The projects the caller may open: every project owned by one of their active
@@ -252,8 +254,20 @@ export const exportPack = orgQuery({
 export const remove = orgMutation({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }, access) => {
-    await access.requireProject(id);
-    // One shared cascade (dal.ts) — never maintain a second table list here.
-    await cascadeDeleteProject(ctx, id);
+    const { userId } = await access.requireProject(id);
+    const idempotencyKey = `project-deletion:${id}`;
+    const existing = await ctx.db.query("privacyJobs")
+      .withIndex("by_idempotency", (q) => q.eq("idempotencyKey", idempotencyKey))
+      .first();
+    if (existing && ["queued", "running"].includes(existing.status)) {
+      return { jobId: existing._id, status: existing.status };
+    }
+    const jobId = await ctx.db.insert("privacyJobs", {
+      kind: "project_deletion", userId, status: "queued", idempotencyKey,
+      requestedAt: Date.now(), cursor: JSON.stringify({ projectId: id, cascade: null }),
+      completedCount: 0, lastServedAt: Date.now(), createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, privacyInternal.deletionJobs.processProjectDeletion, { jobId });
+    return { jobId, status: "queued" as const };
   },
 });

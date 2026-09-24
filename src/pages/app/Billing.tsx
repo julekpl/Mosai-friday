@@ -52,12 +52,23 @@ const RETURN_URL = () =>
 export default function Billing() {
   const billing = useQuery(api.billing.currentPlan);
   const organization = useQuery(api.billing.currentOrganization);
+  const deletion = (billing as typeof billing & {
+    deletion?: {
+      requested: boolean;
+      requestedAt: number | null;
+      effectiveAt: number | null;
+      status: string | null;
+      blockedReason: string | null;
+      canCancel: boolean;
+    };
+  } | null | undefined)?.deletion;
   const organizationId = organization?.organizationId;
   const billingState = useQuery(
     api.billing.subscription,
     organizationId ? { organizationId } : "skip",
   );
   const loadCatalog = useAction(api.billing.catalog);
+  const cancelDeletion = useMutation(api.billing.cancelAccountDeletion);
   const startCheckout = useAction(api.billing.startCheckout);
   const openPortal = useAction(api.billing.openPortal);
   const cancelSubscription = useAction(api.billing.cancelSubscriptionAtPeriodEnd);
@@ -202,12 +213,38 @@ export default function Billing() {
     }
     try {
       await deleteAccount();
-      toast.success("Account deleted");
-      window.location.assign("/");
+      toast.success("Deletion scheduled", {
+        description: "Your account remains available during the 30-day grace period.",
+      });
     } catch (e) {
       toast.error("Deletion failed", {
         description: e instanceof Error ? e.message : "Try again.",
       });
+    }
+  };
+
+  const doCancelDeletion = async () => {
+    setBusy("deletion-cancel");
+    try {
+      const result = await cancelDeletion();
+      if (result?.canceled) toast.success("Account deletion canceled");
+      else toast.error("Deletion can no longer be canceled", { description: result?.reason ?? "Finalization has started." });
+    } catch (e) {
+      toast.error("Could not cancel deletion", { description: e instanceof Error ? e.message : "Try again." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doRetryDeletion = async () => {
+    setBusy("deletion-retry");
+    try {
+      await deleteAccount();
+      toast.success("Deletion check queued", { description: "The account will be checked again shortly." });
+    } catch (e) {
+      toast.error("Could not retry deletion", { description: e instanceof Error ? e.message : "Try again." });
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -445,9 +482,32 @@ export default function Billing() {
           Delete account
         </p>
         <p className="mt-0.5 font-mono text-caption text-muted-foreground">
-          Permanently removes your account and every project, persona, contact
-          and artifact. Cannot be undone.
+          Schedules account deletion after a 30-day grace period. You can cancel
+          before finalization begins. Paid subscriptions and unresolved shared
+          ownership must be resolved before deletion can finish.
         </p>
+        {deletion?.requested && (
+          <div role="status" className="mt-3 rounded-md border bg-muted/40 p-3 font-mono text-caption">
+            <p>Deletion status: {deletion.status}</p>
+            {deletion.effectiveAt && <p className="text-muted-foreground">Eligible after {new Date(deletion.effectiveAt).toLocaleString()}</p>}
+            {deletion.blockedReason && <p className="mt-1 text-terminal-amber">{deletion.blockedReason}</p>}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {deletion.blockedReason?.toLowerCase().includes("subscription") && (
+                <Button size="sm" variant="outline" disabled={!billingState?.hasCustomer || busy === "portal"} onClick={doPortal}>
+                  Open Stripe billing portal
+                </Button>
+              )}
+              {deletion.status === "waiting_for_user" && (
+                <Button size="sm" variant="outline" disabled={busy === "deletion-retry"} onClick={doRetryDeletion}>Retry after resolving</Button>
+              )}
+              {deletion.canCancel ? (
+                <Button size="sm" variant="ghost" disabled={busy === "deletion-cancel"} onClick={doCancelDeletion}>Cancel deletion request</Button>
+              ) : (
+                <p className="self-center text-muted-foreground">Cancellation is unavailable after finalization begins or the grace period ends.</p>
+              )}
+            </div>
+          </div>
+        )}
         <div className="mt-3">
           <Dialog>
             <DialogTrigger asChild>
@@ -479,8 +539,8 @@ function DeleteAccountBody({
           Delete this account?
         </DialogTitle>
         <DialogDescription className="font-mono text-caption">
-          This permanently removes all projects and data. Type DELETE to
-          confirm.
+          This schedules account deletion after 30 days. You can cancel during
+          the grace period. Type DELETE to confirm the request.
         </DialogDescription>
       </DialogHeader>
       <Input
@@ -503,7 +563,7 @@ function DeleteAccountBody({
           }}
         >
           {busy && <Loader2 className="size-4 animate-spin" />}
-          Permanently delete
+          Schedule deletion
         </Button>
       </DialogFooter>
     </>

@@ -48,10 +48,13 @@ const schema = defineSchema(
       ),
       stripeCustomerId: v.optional(v.string()),
       deletionRequestedAt: v.optional(v.number()),
+      deletionBlockedReason: v.optional(v.string()),
       // Platform operator flag (T2.4 admin). Set by the allow-list resolution
       // in `lib/platformAdmin.ts`; never grantable from the client.
       isPlatformAdmin: v.optional(v.boolean()),
-    }).index("email", ["email"]), // index for the email. do not remove or modify
+    })
+      .index("email", ["email"]) // index for the email. do not remove or modify
+      .index("by_deletion_requested", ["deletionRequestedAt"]),
 
     // ── MOSAI: organizations, memberships, roles and invitations (T2.1) ──
     // Tenancy starts here. Every project belongs to exactly one organization;
@@ -98,7 +101,9 @@ const schema = defineSchema(
     })
       .index("by_organization", ["organizationId"])
       .index("by_user", ["userId"])
-      .index("by_organization_user", ["organizationId", "userId"]),
+      .index("by_organization_user", ["organizationId", "userId"])
+      .index("by_organization_status_user", ["organizationId", "status", "userId"])
+      .index("by_organization_status_role_user", ["organizationId", "status", "role", "userId"]),
 
     invitations: defineTable({
       organizationId: v.id("organizations"),
@@ -121,6 +126,7 @@ const schema = defineSchema(
     })
       .index("by_organization", ["organizationId"])
       .index("by_email", ["email"])
+      .index("by_invited_by", ["invitedBy"])
       .index("by_token", ["token"]),
 
     // Canonical role registry, seeded idempotently from lib/roles.ts. Code
@@ -951,7 +957,9 @@ const schema = defineSchema(
       platform: v.string(),
       createdBy: v.id("users"),
       createdAt: v.number(),
-    }).index("by_state", ["state"]),
+    })
+      .index("by_state", ["state"])
+      .index("by_user", ["createdBy"]),
 
     // Ad accounts discovered for each connected platform.
     adsAccounts: defineTable({
@@ -1146,10 +1154,14 @@ const schema = defineSchema(
       dunningStage: v.number(),
       lastEventCreated: v.number(),
       lastEventId: v.optional(v.string()),
+      // Set only by a successful provider reconciliation or a verified
+      // subscription webhook. Deletion fails closed when this is stale.
+      lastVerifiedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
       .index("by_organization", ["organizationId"])
+      .index("by_organization_status", ["organizationId", "status"])
       .index("by_subscription", ["subscriptionId"])
       .index("by_status", ["status"]),
 
@@ -1230,6 +1242,53 @@ const schema = defineSchema(
       ),
       createdAt: v.number(),
     }).index("by_started", ["startedAt"]),
+
+    // Durable privacy work. A deletion request is not a transient cron
+    // argument: the job survives retries and records its effective date and
+    // progress. Export payloads are stored in bounded chunks.
+    privacyJobs: defineTable({
+      kind: v.union(v.literal("account_deletion"), v.literal("project_deletion"), v.literal("account_export"), v.literal("project_export")),
+      userId: v.id("users"),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("waiting_for_user"),
+        v.literal("succeeded"),
+        v.literal("partially_succeeded"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+      idempotencyKey: v.string(),
+      requestedAt: v.number(),
+      effectiveAt: v.optional(v.number()),
+      exportProjectId: v.optional(v.id("projects")),
+      // Scheduler fairness marker: an omitted value means the job has not yet
+      // received a worker turn. Updated atomically with each export step.
+      lastServedAt: v.optional(v.number()),
+      cursor: v.optional(v.string()),
+      completedCount: v.number(),
+      blockedReason: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_user_kind", ["userId", "kind"])
+      .index("by_status_effective", ["status", "effectiveAt"])
+      .index("by_status_kind_effective", ["status", "kind", "effectiveAt"])
+      .index("by_status_kind_served", ["status", "kind", "lastServedAt"])
+      .index("by_idempotency", ["idempotencyKey"]),
+
+    privacyExportChunks: defineTable({
+      jobId: v.id("privacyJobs"),
+      exportProjectId: v.optional(v.id("projects")),
+      sequence: v.number(),
+      json: v.string(),
+      bytes: v.number(),
+      createdAt: v.number(),
+      expiresAt: v.number(),
+    })
+      .index("by_job_sequence", ["jobId", "sequence"])
+      .index("by_expires", ["expiresAt"]),
 
     // ── Website / CMS module (W1 foundation) — see WEBSITE-ARCHITECTURE.md ─
     // Canonical ownership: CMS owns layout/presentation. Products, prices,

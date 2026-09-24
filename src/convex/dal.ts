@@ -14,15 +14,15 @@
  * organizations / agency workspaces land, these helpers gain org scoping —
  * call sites should not change.
  *
- * `cascadeDeleteProject` is the ONE project deletion path. `projects.remove`
- * and `billing.deleteAccount` both call it; never maintain a second table
- * list (review finding: the two old lists had drifted apart and both missed
- * the CMS, commerce-variant and Build tables).
+ * `cascadeDeleteProjectStep` is the ONE bounded project deletion engine.
+ * User-facing project deletion and account deletion both resume it from a
+ * durable privacy job; never maintain a second table list.
  */
 
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireUser } from "./guards";
+import { DATA_REGISTRY } from "./lib/dataRegistry";
 
 // ── Authorized context helpers ─────────────────────────────────────────────
 
@@ -50,64 +50,47 @@ export async function projectCtx(
   return { userId, project };
 }
 
-// ── Project deletion cascade (single source of truth) ─────────────────────
+/** Bounded project pagination for the account privacy export worker. */
+export async function ownedProjectExportPage(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  cursor: string | null,
+) {
+  return await ctx.db
+    .query("projects")
+    .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+    .paginate({ numItems: 1, cursor });
+}
 
-/** Project-scoped tables with a `by_project` index, children first. */
-const PROJECT_TABLES = [
-  "contentGaps",
-  "contentTopics",
-  "communications",
-  "insights",
-  "contacts",
-  "connections",
-  "campaigns",
-  "posts",
-  "socialCredentials",
-  "collections",
-  "commerceEvents",
-  "adsAccounts",
-  "adsCampaigns",
-  "adsMetrics",
-  "adsCopilotMessages",
-  "adsChangeRequests",
-  "adsExecutions",
-  "adsCredentials",
-  "aiRuns",
-  "projectFiles",
-  "buildPages",
-  "builds",
-  "productVariants",
-  "products",
-  "personas",
-  "contentPieces",
-  "pageRevisions",
-  "cmsPages",
-  "cmsNavigations",
-  "cmsRedirects",
-  "cmsAssets",
-  "sites",
-  "journeyMaps",
-  // BP-03: server-written release-preparation audit trail (both tables have
-  // a by_project index). No client writer exists for either.
-  "buildReleaseAudits",
-  "buildDeployments",
-] as const;
+/** Ownerless internal export access is allowed only for a durable authorized job. */
+export async function projectForExportJob(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
+  return await ctx.db.get(projectId);
+}
+
+/** Internal workers re-authorize a project against the durable job owner. */
+export async function ownedProjectForJob(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  ownerId: Id<"users">,
+) {
+  const project = await ctx.db.get(projectId);
+  return project?.ownerId === ownerId ? project : null;
+}
+
+// ── Project deletion cascade (single source of truth) ─────────────────────
 
 /**
  * Deletes every row that hangs off a project, then the project itself.
  *
- * Tables without a `by_project` index are cleaned via their parent:
- * contentDocs → piece, buildMessages → build, buildVersions → build,
- * productMedia → product, personaMessages → compound (projectId, personaId)
- * index. `oauthStates` rows are short-lived CSRF state with no project index —
- * they expire on their own; not deleted here (known, accepted gap).
+ * All table and index selection comes from `DATA_REGISTRY`. Child rows are
+ * cleared through their declared parent before parent rows. `oauthStates`
+ * stays ephemeral because it has no project index and expires on its own.
  *
  * The queries inside are deliberately loosely typed (local `any` handle):
  * this list must be able to name any table in schema.ts, including ones
  * added after the last codegen run, and union-of-tables generics fight the
- * generated data model. Correctness is enforced by Convex at runtime — the
- * index names ("by_project", "by_build", …) and field names are validated
- * against the live schema, so a typo fails loudly in tests.
+ * generated data model. Correctness is enforced by the registry audit and by
+ * Convex at runtime.
  */
 
 /** Loose shape for the untyped `db.query(table).withIndex(...)` callback.
@@ -116,96 +99,80 @@ const PROJECT_TABLES = [
  *  without an `any` escape hatch. */
 type IndexQuery = { eq(field: string, value: unknown): IndexQuery };
 
-export async function cascadeDeleteProject(
+export type ProjectCascadeCursor = {
+  stage: "children" | "direct" | "project";
+  ruleIndex: number;
+  parentCursor: string | null;
+  parentId: string | null;
+};
+
+export const EMPTY_PROJECT_CASCADE_CURSOR: ProjectCascadeCursor = {
+  stage: "children", ruleIndex: 0, parentCursor: null, parentId: null,
+};
+
+/** Advances a project cascade with at most one row deletion per transaction. */
+export async function cascadeDeleteProjectStep(
   ctx: MutationCtx,
   projectId: Id<"projects">,
-) {
+  cursor: ProjectCascadeCursor = EMPTY_PROJECT_CASCADE_CURSOR,
+): Promise<{ cursor: ProjectCascadeCursor; done: boolean }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = ctx.db as any;
-  const del = (id: Id<"projects">) => ctx.db.delete(id);
-  const byProject = (table: string) =>
-    db
-      .query(table)
-      .withIndex("by_project", (q: IndexQuery) => q.eq("projectId", projectId))
-      .collect();
+  const projectEntries = Object.entries(DATA_REGISTRY).filter(([, entry]) => entry.scope === "project");
+  const childEntries = projectEntries.filter(([, entry]) => entry.deletion.kind === "account-parent");
+  const directEntries = projectEntries.filter(([, entry]) => entry.deletion.kind === "project-cascade" || entry.deletion.kind === "account-index");
 
-  // 1. Child tables keyed to a parent row (no by_project index).
-  for (const piece of await byProject("contentPieces")) {
-    for (const doc of await db
-      .query("contentDocs")
-      .withIndex("by_piece", (q: IndexQuery) => q.eq("pieceId", piece._id))
-      .collect()) {
-      await del(doc._id);
+  if (cursor.stage === "children") {
+    const [table, entry] = childEntries[cursor.ruleIndex] ?? [];
+    if (!table || !entry || entry.deletion.kind !== "account-parent") {
+      return { cursor: { stage: "direct", ruleIndex: 0, parentCursor: null, parentId: null }, done: false };
     }
-  }
-  for (const build of await byProject("builds")) {
-    for (const msg of await db
-      .query("buildMessages")
-      .withIndex("by_build", (q: IndexQuery) => q.eq("buildId", build._id))
-      .collect()) {
-      await del(msg._id);
+    const rule = entry.deletion;
+    if (cursor.parentId) {
+      const child = await db.query(table)
+        .withIndex(rule.childIndex, (q: IndexQuery) => q.eq(rule.childField, cursor.parentId))
+        .first();
+      if (child) {
+        await ctx.db.delete(child._id);
+        return { cursor, done: false };
+      }
+      return { cursor: { ...cursor, parentId: null }, done: false };
     }
-    // `buildVersions` is project-scoped but declares only `by_build` — reaching
-    // it through the parent build is the same pattern as `buildMessages`.
-    // (Deleting a project used to throw here: the cascade asked for a
-    // `by_project` index that the schema never declared. Found by the T1.7
-    // deletion-completeness regression.)
-    for (const version of await db
-      .query("buildVersions")
-      .withIndex("by_build", (q: IndexQuery) => q.eq("buildId", build._id))
-      .collect()) {
-      await del(version._id);
+    const parentPage = await db.query(rule.parentTable)
+      .withIndex(rule.parentIndex, (q: IndexQuery) => q.eq("projectId", projectId))
+      .paginate({ numItems: 1, cursor: cursor.parentCursor });
+    if (parentPage.page[0]) {
+      return {
+        cursor: { ...cursor, parentId: parentPage.page[0]._id, parentCursor: parentPage.continueCursor },
+        done: false,
+      };
     }
-  }
-  for (const product of await byProject("products")) {
-    for (const media of await db
-      .query("productMedia")
-      .withIndex("by_product", (q: IndexQuery) => q.eq("productId", product._id))
-      .collect()) {
-      await del(media._id);
+    if (!parentPage.isDone) {
+      return { cursor: { ...cursor, parentCursor: parentPage.continueCursor }, done: false };
     }
-  }
-  for (const row of await db
-    .query("personaMessages")
-    .withIndex("by_project_persona", (q: IndexQuery) => q.eq("projectId", projectId))
-    .collect()) {
-      await del(row._id);
+    return { cursor: { ...cursor, ruleIndex: cursor.ruleIndex + 1, parentCursor: null }, done: false };
   }
 
-  // 2. Storage blobs behind projectFiles rows (metadata deleted in step 3).
-  const files = await byProject("projectFiles");
-
-  // 3. Everything with a by_project index.
-  for (const table of PROJECT_TABLES) {
-    for (const row of await byProject(table)) {
-      await del(row._id);
+  if (cursor.stage === "direct") {
+    const [table, entry] = directEntries[cursor.ruleIndex] ?? [];
+    if (!table || !entry || (entry.deletion.kind !== "project-cascade" && entry.deletion.kind !== "account-index")) {
+      return { cursor: { stage: "project", ruleIndex: 0, parentCursor: null, parentId: null }, done: false };
     }
+    const rule = entry.deletion;
+    if (rule.kind !== "project-cascade" && rule.kind !== "account-index") {
+      return { cursor: { ...cursor, ruleIndex: cursor.ruleIndex + 1 }, done: false };
+    }
+    const row = await db.query(table)
+      .withIndex(rule.index, (q: IndexQuery) => q.eq(rule.field, projectId))
+      .first();
+    if (row) {
+      if (table === "projectFiles") await ctx.storage.delete(row.storageId);
+      await ctx.db.delete(row._id);
+      return { cursor, done: false };
+    }
+    return { cursor: { ...cursor, ruleIndex: cursor.ruleIndex + 1 }, done: false };
   }
 
-  // 4. The uploaded bytes themselves.
-  for (const file of files) {
-    await ctx.storage.delete(file.storageId);
-  }
-
-  // 5. The project row.
-  await del(projectId);
-}
-
-/** Remove user-owned AI usage rows that have no project to cascade with. */
-export async function cascadeDeleteAiUserData(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-) {
-  for (const run of await ctx.db
-    .query("aiRuns")
-    .withIndex("by_user_created", (q) => q.eq("userId", userId))
-    .collect()) {
-    await ctx.db.delete(run._id);
-  }
-  for (const bucket of await ctx.db
-    .query("aiRateLimits")
-    .withIndex("by_user_window", (q) => q.eq("userId", userId))
-    .collect()) {
-    await ctx.db.delete(bucket._id);
-  }
+  await ctx.db.delete(projectId);
+  return { cursor, done: true };
 }

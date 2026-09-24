@@ -177,6 +177,9 @@ jobs:
       - name: Module capability audit
         run: bun run audit:capabilities
 
+      - name: Privacy data registry audit
+        run: bun run audit:data-registry
+
       - name: Dependency audit (high and above)
         run: bun audit --audit-level=high
 

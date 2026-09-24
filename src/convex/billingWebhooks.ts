@@ -234,6 +234,7 @@ async function upsertSubscription(
     dunningStage: existing?.dunningStage ?? 0,
     lastEventCreated: input.eventCreated,
     lastEventId: input.eventId,
+    lastVerifiedAt: now,
     updatedAt: now,
   };
 
@@ -572,6 +573,16 @@ export const applyReconciliation = internalMutation({
     });
 
     const now = Date.now();
+    // A verified provider row refreshes this subscription's verification age
+    // even when the audit detects drift. Missing rows are never marked fresh.
+    for (const providerRow of args.providerRows) {
+      const local = await ctx.db.query("subscriptions")
+        .withIndex("by_subscription", (q) => q.eq("subscriptionId", providerRow.subscriptionId))
+        .first();
+      if (local && String(local.organizationId) === providerRow.organizationId) {
+        await ctx.db.patch(local._id, { lastVerifiedAt: now });
+      }
+    }
     await ctx.db.insert("reconciliationRuns", {
       source: args.source,
       startedAt: args.startedAt ?? now,

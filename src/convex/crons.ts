@@ -1,7 +1,8 @@
-import { cronJobs } from "convex/server";
+import { anyApi, cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
+const privacyInternal = anyApi.modules.privacy;
 
 // Social queue executor: publish any due scheduled posts, every 2 minutes.
 crons.interval(
@@ -27,6 +28,30 @@ crons.interval(
   "billing-wind-down-sweep",
   { hours: 6 },
   internal.billingWebhooks.windDownSweep,
+  {},
+);
+
+// Account/project deletion is explicit and resumable. Each mutation advances
+// one bounded item; this interval recovers a scheduled step after failures.
+crons.interval(
+  "privacy-account-deletion-finalizer",
+  { minutes: 5 },
+  privacyInternal.deletionJobs.finalizeDue,
+  {},
+);
+
+// Export work and expiry are separate bounded jobs. Export chunks are
+// downloadable for seven days after generation and then removed.
+crons.interval(
+  "privacy-account-export-worker",
+  { minutes: 15 },
+  privacyInternal.exportJobs.processBatch,
+  {},
+);
+crons.daily(
+  "privacy-export-expiry",
+  { hourUTC: 3, minuteUTC: 30 },
+  privacyInternal.exportJobs.expireCompletedExports,
   {},
 );
 

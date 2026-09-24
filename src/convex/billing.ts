@@ -10,7 +10,8 @@ import type { ActionCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { userCtx, cascadeDeleteProject, cascadeDeleteAiUserData } from "./dal";
+import { userCtx } from "./dal";
+import { startDeletionRequest, cancelDeletionRequest, ACCOUNT_DELETION_GRACE_MS } from "./modules/privacy/deletionJobs";
 import { orgAction, orgQuery, type OrgAccess } from "./guards";
 import { roleCan } from "./lib/roles";
 import {
@@ -68,6 +69,9 @@ export const currentPlan = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
     const user = await ctx.db.get(userId);
+    const deletionJob = user?.deletionRequestedAt
+      ? await ctx.db.query("privacyJobs").withIndex("by_idempotency", (q) => q.eq("idempotencyKey", `account-deletion:${userId}:${user.deletionRequestedAt}`)).first()
+      : null;
     const plan = (user?.plan && isPlan(user.plan) ? user.plan : DEFAULT_PLAN) satisfies Plan;
     return {
       plan,
@@ -77,6 +81,14 @@ export const currentPlan = query({
       modules: [...modulesForPlan(plan)],
       stripeCustomerId: user?.stripeCustomerId,
       selfServePlanChanges: SELF_SERVE_PLAN_CHANGES,
+      deletion: {
+        requested: Boolean(user?.deletionRequestedAt),
+        requestedAt: user?.deletionRequestedAt ?? null,
+        effectiveAt: deletionJob?.effectiveAt ?? null,
+        status: deletionJob?.status ?? null,
+        blockedReason: user?.deletionBlockedReason ?? deletionJob?.blockedReason ?? null,
+        canCancel: Boolean(deletionJob && deletionJob.status === "queued" && deletionJob.completedCount === 0 && Date.now() < (deletionJob.effectiveAt ?? deletionJob.requestedAt + ACCOUNT_DELETION_GRACE_MS)),
+      },
     };
   },
 });
@@ -312,7 +324,7 @@ export const subscription = orgQuery({
     const invoices = await ctx.db
       .query("billingInvoices")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
-      .collect();
+      .take(100);
     const customer = await ctx.db
       .query("billingCustomers")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
@@ -335,6 +347,7 @@ export const subscription = orgQuery({
             dunningStage: governing.dunningStage,
           }
         : null,
+      recordsCapped: invoices.length === 100,
       dunning: invoices
         .filter((invoice) => invoice.status === "open" || invoice.status === "uncollectible")
         .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -382,6 +395,8 @@ export const startCheckout = orgAction({
     access: OrgAccess,
   ): Promise<{ url: string }> => {
     const scope = await access.requireOrganization(organizationId);
+    const pendingDeletion = await ctx.runQuery(internal.billing.pendingDeletionForUser, { userId: scope.userId });
+    if (pendingDeletion) throw new Error("Billing changes are unavailable while account deletion is pending. Cancel the deletion request first.");
     if (!roleCan(scope.membership.role, "organization.update")) {
       throw new Error("Your role in this organization does not allow billing changes.");
     }
@@ -594,7 +609,7 @@ export const requestAccountDeletion = mutation({
   args: {},
   handler: async (ctx) => {
     const { userId } = await userCtx(ctx);
-    await ctx.db.patch(userId, { deletionRequestedAt: Date.now() });
+    return await startDeletionRequest(ctx, userId);
   },
 });
 
@@ -602,26 +617,17 @@ export const cancelAccountDeletion = mutation({
   args: {},
   handler: async (ctx) => {
     const { userId } = await userCtx(ctx);
-    await ctx.db.patch(userId, { deletionRequestedAt: undefined });
+    return await cancelDeletionRequest(ctx, userId);
   },
 });
 
-/** Hard delete: every project goes through the ONE shared cascade, then the
- *  user record. (Review finding: the old inline list had drifted from
- *  projects.remove and missed the CMS, variants, media and Build tables.) */
+/** Compatibility entry point: account deletion now always enters the same
+ * durable, grace-period lifecycle. It cannot perform an immediate hard delete. */
 export const deleteAccount = mutation({
   args: {},
   handler: async (ctx) => {
     const { userId } = await userCtx(ctx);
-    const projects = await ctx.db
-      .query("projects")
-      .withIndex("by_owner", (q) => q.eq("ownerId", userId))
-      .collect();
-    for (const p of projects) {
-      await cascadeDeleteProject(ctx, p._id);
-    }
-    await cascadeDeleteAiUserData(ctx, userId);
-    await ctx.db.delete(userId);
+    return await startDeletionRequest(ctx, userId);
   },
 });
 
@@ -700,6 +706,11 @@ export const recordPeriodEndCancellation = internalMutation({
       createdAt: Date.now(),
     });
   },
+});
+
+export const pendingDeletionForUser = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => Boolean((await ctx.db.get(userId))?.deletionRequestedAt),
 });
 
 /** Persist a freshly created provider customer. */

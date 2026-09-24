@@ -18,12 +18,13 @@
     "check:codegen": "node scripts/check-convex-codegen.mjs",
     "audit:functions": "node scripts/audit-public-functions.mjs",
     "audit:capabilities": "bun scripts/audit-module-capabilities.mjs",
+    "audit:data-registry": "bun scripts/audit-data-registry.mjs",
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "check": "bun run typecheck && bun run lint && bun run test:unit && bun run scan:secrets && bun run audit:functions && bun run audit:capabilities"
+    "check": "bun run typecheck && bun run lint && bun run test:unit && bun run scan:secrets && bun run audit:functions && bun run audit:capabilities && bun run audit:data-registry"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",
