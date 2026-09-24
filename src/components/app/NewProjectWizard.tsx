@@ -27,8 +27,19 @@ import {
   looksLikeUrl,
   normalizeWebsiteUrl,
 } from "@/lib/url";
+import { summarizeProjectScan, type ProjectScanSourceStatus } from "@/lib/project-scan-status";
 
 type CompetitorEntry = { type: "website" | "gmb"; value: string };
+type BusinessListing = {
+  title?: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  rating?: number;
+  reviews?: number;
+  category?: string;
+  openHours?: string;
+};
 
 const steps = [
   { key: "basics", label: "1. basics" },
@@ -198,6 +209,11 @@ export function NewProjectWizard() {
   const [scanStatus, setScanStatus] = useState<
     "idle" | "scanning" | "scraped" | "partial" | "failed"
   >("idle");
+  const [scanSources, setScanSources] = useState<{
+    website: ProjectScanSourceStatus;
+    business: ProjectScanSourceStatus;
+  }>({ website: "not_requested", business: "not_requested" });
+  const [businessCandidate, setBusinessCandidate] = useState<BusinessListing | null>(null);
 
   // scan results kept locally until project creation, then persisted
   const [scanResult, setScanResult] = useState<{
@@ -206,16 +222,7 @@ export function NewProjectWizard() {
     metaDescription?: string;
     headings?: string[];
     productsServices?: string[];
-    gmb?: {
-      title?: string;
-      address?: string;
-      phone?: string;
-      website?: string;
-      rating?: number;
-      reviews?: number;
-      category?: string;
-      openHours?: string;
-    };
+    gmb?: BusinessListing;
   } | null>(null);
 
   const create = useMutation(api.projects.create);
@@ -225,15 +232,21 @@ export function NewProjectWizard() {
   const navigate = useNavigate();
 
   const normalizedUrl = normalizeWebsiteUrl(websiteInput);
+  const sourceLabels = [
+    scanSources.website === "succeeded" ? "your website" : null,
+    scanSources.business === "succeeded" ? "a Google Business result" : null,
+  ].filter((label): label is string => label !== null).join(" and ");
 
   /* Run scraper + SerpApi GMB lookup, then prefill the "what" step. */
   const runScan = async () => {
     const jobs: Promise<void>[] = [];
     let scraped = false;
     let gmbFound = false;
+    setScanStatus("scanning");
+    setScanResult(null);
+    setBusinessCandidate(null);
 
     if (normalizedUrl) {
-      setScanStatus("scanning");
       jobs.push(
         scanWebsite({ url: normalizedUrl, ignoreRobots })
           .then((r) => {
@@ -269,21 +282,16 @@ export function NewProjectWizard() {
         lookupGmb({ name: gmbName.trim() })
           .then((g) => {
             gmbFound = true;
-            setScanResult((prev) => ({
-              ...prev,
-              gmb: {
-                title: g.title,
-                address: g.address,
-                phone: g.phone,
-                website: g.website,
-                rating: g.rating,
-                reviews: g.reviews,
-                category: g.category,
-                openHours: g.openHours,
-              },
-            }));
-            if (!description && g.title) setDescription(g.title);
-            if (!industry && g.category) setIndustry(g.category);
+            setBusinessCandidate({
+              title: g.title,
+              address: g.address,
+              phone: g.phone,
+              website: g.website,
+              rating: g.rating,
+              reviews: g.reviews,
+              category: g.category,
+              openHours: g.openHours,
+            });
           })
           .catch((e) => {
             toast.warning("Google Business lookup failed", {
@@ -294,14 +302,26 @@ export function NewProjectWizard() {
     }
 
     await Promise.allSettled(jobs);
-    if (!normalizedUrl && !hasGmb) return true;
-    setScanStatus(scraped || gmbFound ? "scraped" : "failed");
+    const sources = {
+      website: normalizedUrl ? (scraped ? "succeeded" : "failed") : "not_requested",
+      business: hasGmb ? (gmbFound ? "needs_review" : "failed") : "not_requested",
+    } as const;
+    setScanSources(sources);
+    setScanStatus(summarizeProjectScan(sources));
     return scraped || gmbFound;
   };
 
   const handleBasicsContinue = async () => {
     if (!name.trim()) return;
+    if (hasGmb && !gmbName.trim()) {
+      toast.warning("Enter the business name to look up, or turn off Google Business lookup.");
+      return;
+    }
     if (!normalizedUrl && !hasGmb) {
+      setScanResult(null);
+      setBusinessCandidate(null);
+      setScanSources({ website: "not_requested", business: "not_requested" });
+      setScanStatus("idle");
       setStep(1); // nothing to scan
       return;
     }
@@ -324,6 +344,11 @@ export function NewProjectWizard() {
 
   const handleFinish = async () => {
     if (!name.trim()) return;
+    if (scanSources.business === "needs_review") {
+      toast.warning("Confirm the Google Business listing or skip it before creating this project.");
+      setStep(1);
+      return;
+    }
     try {
       const id = await create({
         name: name.trim(),
@@ -333,7 +358,7 @@ export function NewProjectWizard() {
         description: description.trim() || undefined,
         competitors: competitors.map((c) => c.value),
         competitorEntries: competitors.length ? competitors : undefined,
-        googleBusinessName: hasGmb && gmbName.trim() ? gmbName.trim() : undefined,
+        googleBusinessName: scanSources.business === "succeeded" && gmbName.trim() ? gmbName.trim() : undefined,
         productsServices: productsServices.length ? productsServices : undefined,
         goals: goals.length ? goals : undefined,
         kpis: undefined,
@@ -510,14 +535,37 @@ export function NewProjectWizard() {
           <div>
             <h1 className="font-mono text-h1">What does the business do?</h1>
             <p className="mt-1 font-mono text-caption text-muted-foreground">
-              Pre-filled from your website scan{scanResult?.gmb ? " and Google Business data" : ""} — edit freely.
+              {scanResult
+                ? `Based on ${sourceLabels}. Review and edit every detail before using it.`
+                : "No scan details were added. Describe your business in your own words."}
             </p>
           </div>
 
-          {scanStatus === "scraped" && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-terminal-green/30 bg-terminal-green-soft p-3 font-mono text-caption text-terminal-green">
+          {(scanStatus === "scraped" || scanStatus === "partial" || scanStatus === "failed") && (
+            <div role="status" className={cn(
+              "flex flex-wrap items-center gap-2 rounded-md border p-3 font-mono text-caption",
+              scanStatus === "scraped"
+                ? "border-terminal-green/30 bg-terminal-green-soft text-terminal-green"
+                : "border-terminal-amber/30 bg-terminal-amber-soft text-terminal-amber",
+            )}>
               <ScanSearch className="size-4" />
-              scan complete
+              {scanStatus === "scraped"
+                ? "Requested sources loaded"
+                : scanStatus === "partial"
+                  ? "Some source details need your review. You can continue with the available details."
+                  : "Sources could not be loaded. You can enter the details yourself."}
+              {scanSources.website !== "not_requested" && (
+                <span>Website: {scanSources.website === "succeeded" ? "loaded" : "unavailable"}</span>
+              )}
+              {scanSources.business !== "not_requested" && (
+                <span>Google Business: {scanSources.business === "succeeded"
+                  ? "confirmed"
+                  : scanSources.business === "needs_review"
+                    ? "confirm match"
+                    : scanSources.business === "skipped"
+                      ? "skipped"
+                      : "unavailable"}</span>
+              )}
               {scanResult?.sitemapUrls?.length ? (
                 <Badge variant="outline" className="font-mono text-caption">
                   {scanResult.sitemapUrls.length} sitemap URLs
@@ -528,6 +576,34 @@ export function NewProjectWizard() {
                   GMB {scanResult.gmb.rating}★ ({scanResult.gmb.reviews ?? 0})
                 </Badge>
               )}
+            </div>
+          )}
+
+          {businessCandidate && scanSources.business === "needs_review" && (
+            <div className="rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-3 font-mono text-caption">
+              <p className="font-medium">Is this your Google Business listing?</p>
+              <p className="mt-1">{businessCandidate.title ?? "Unnamed listing"}</p>
+              {businessCandidate.address && <p className="text-muted-foreground">{businessCandidate.address}</p>}
+              {businessCandidate.website && <p className="text-muted-foreground">{businessCandidate.website}</p>}
+              <p className="mt-2 text-muted-foreground">We will use this listing only if you confirm it.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => {
+                  setScanResult((prev) => ({ ...prev, gmb: businessCandidate }));
+                  if (!businessName.trim() && businessCandidate.title) setBusinessName(businessCandidate.title);
+                  if (!description.trim() && businessCandidate.title) setDescription(businessCandidate.title);
+                  if (!industry.trim() && businessCandidate.category) setIndustry(businessCandidate.category);
+                  const next = { ...scanSources, business: "succeeded" as const };
+                  setScanSources(next);
+                  setScanStatus(summarizeProjectScan(next));
+                  setBusinessCandidate(null);
+                }}>Use this listing</Button>
+                <Button size="sm" variant="outline" onClick={() => {
+                  const next = { ...scanSources, business: "skipped" as const };
+                  setScanSources(next);
+                  setScanStatus(summarizeProjectScan(next));
+                  setBusinessCandidate(null);
+                }}>Not my business</Button>
+              </div>
             </div>
           )}
 

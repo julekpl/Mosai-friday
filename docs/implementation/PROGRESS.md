@@ -74,7 +74,7 @@ its slice boundary — it never continues into the next package.
 | 12 | **BP-09/S2**† ContextPack/ContextInspector (finishes T0.4 → unblocks red test R4) | B | T2.10 | BP-09/S1 | not_started |
 | 13 | **BP-09/S3**† prompt versioning, golden tests, eval floors | B | T2.11 | BP-09/S1; needs `07-ai-agent-config.md` (missing, see B1) | not_started |
 | 14 | **BP-10** accurate ingestion & transparent research | C | E3.1 (part) | Order B (safeFetch/guards exist already) | not_started |
-| 15 | **BP-11** projects, personas, content, journeys | C | E3.1 | BP-10 (facts/evidence links) | not_started |
+| 15 | **BP-11** projects, personas, content, journeys | C | E3.1 | BP-10 (facts/evidence links) | in_progress (journey-origin and onboarding source-review slices implemented_unverified; report: `docs/implementation/reports/BP-11-source-review-onboarding.md`; full fact-linked persona/journey/content flow and provider proof remain open) |
 | 16 | **BP-12/S1** event/consent contract | C | T2.14 | BP-07 (envelope), BP-08 (connections seam) | not_started |
 | 17 | **BP-12/S2** GA4/GSC account selection & ingestion | C | E3.7 | BP-12/S1; provider accounts (owner input O7) | not_started |
 | 18 | **BP-12/S3** Matomo/PostHog | C | E3.7 | BP-12/S1 | not_started |
