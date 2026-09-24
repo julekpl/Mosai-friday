@@ -18,10 +18,8 @@ import { SkipLink } from "@/components/SkipLink";
 import { resolveAuthReturnTo } from "@/lib/auth-return-to";
 
 import { useAuth } from "@/hooks/use-auth";
-import {
-  FloatingTiles,
-  MosaicMark,
-} from "@/components/mosaic";
+import { MosaicMark } from "@/components/mosaic";
+import { LazyMosaicField } from "@/components/fx";
 import { ArrowRight, Loader2, Mail } from "lucide-react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -241,25 +239,34 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden">
+    <div className="relative isolate flex min-h-screen flex-col overflow-hidden bg-background">
       <SkipLink />
       {/* Async progress for screen readers; visually hidden. */}
       <p role="status" aria-live="polite" className="sr-only">
         {status}
       </p>
 
-      {/* Ambient mosaic backdrop */}
-      <FloatingTiles />
-      <div className="bg-dots pointer-events-none absolute inset-0 opacity-60" />
+      {/* Ambient mosaic backdrop (decorative, aria-hidden). The scrim keeps
+          everything on top at WCAG 2.2 AA contrast whatever the field shows;
+          the card itself is near-opaque. */}
+      <LazyMosaicField variant="ambient" className="-z-20" />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10"
+        style={{
+          backgroundImage:
+            "radial-gradient(ellipse 60% 60% at 50% 50%, var(--background) 0%, color-mix(in oklab, var(--background) 85%, transparent) 50%, color-mix(in oklab, var(--background) 45%, transparent) 100%)",
+        }}
+      />
 
       {/* Auth Content */}
       <main
         id="main-content"
         tabIndex={-1}
-        className="relative flex flex-1 items-center justify-center"
+        className="relative flex flex-1 items-center justify-center px-4 py-10"
       >
-        <div className="animate-mosaic-in flex h-full flex-col items-center justify-center">
-        <Card className="min-w-[350px] border pb-0 shadow-pop">
+        <div className="animate-mosaic-in flex h-full w-full flex-col items-center justify-center">
+        <Card className="w-full max-w-sm gap-5 overflow-hidden border bg-card/95 pb-0 shadow-float backdrop-blur-md">
           {connectionStalled && (
             <div
               role="alert"
@@ -368,7 +375,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     <p
                       id="auth-error"
                       role="alert"
-                      className="mt-2 text-sm text-red-500"
+                      className="mt-2 text-sm text-destructive"
                     >
                       {error}
                     </p>
@@ -433,7 +440,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     <p
                       id="auth-error"
                       role="alert"
-                      className="mt-2 text-sm text-red-500 text-center"
+                      className="mt-2 text-center text-sm text-destructive"
                     >
                       {error}
                     </p>
@@ -502,7 +509,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
             </>
           )}
 
-          <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-muted border-t rounded-b-lg">
+          <div className="border-t bg-muted px-6 py-4 text-center text-xs text-muted-foreground">
             Secured by{" "}
             <a
               href="https://freebuff.com"
@@ -514,6 +521,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
             </a>
           </div>
         </Card>
+        <p className="mt-5 max-w-sm text-center font-mono text-caption text-muted-foreground">
+          We email you a 6-digit code — no password to remember.
+        </p>
         </div>
       </main>
     </div>
