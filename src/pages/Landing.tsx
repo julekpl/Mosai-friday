@@ -263,7 +263,7 @@ function Demo() {
               aria-current={step === i ? "step" : undefined}
               onClick={() => setStep(i)}
               className={cn(
-                "flex h-full w-full flex-col items-center justify-center gap-1.5 px-2 py-2.5 text-center transition-colors duration-150 ease-terminal sm:px-3",
+                "flex h-full w-full flex-col items-start justify-center gap-1.5 px-2 py-2.5 text-left transition-colors duration-150 ease-terminal sm:px-3",
                 step === i
                   ? "bg-terminal-green-soft"
                   : "hover:bg-accent focus-visible:bg-accent",
