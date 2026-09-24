@@ -115,7 +115,26 @@ export async function cascadeDeleteProjectStep(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   cursor: ProjectCascadeCursor = EMPTY_PROJECT_CASCADE_CURSOR,
-): Promise<{ cursor: ProjectCascadeCursor; done: boolean }> {
+): Promise<{ cursor: ProjectCascadeCursor; done: boolean; blockedReason?: string }> {
+  // The execution claim and this guard share Convex's transaction boundary:
+  // if an ad operation is active, retain every project row until its execution
+  // result is durably recorded. The by_project_status index keeps this probe
+  // bounded to one row.
+  const activeAdChange = await ctx.db
+    .query("adsChangeRequests")
+    .withIndex("by_project_status", (q) =>
+      q.eq("projectId", projectId).eq("status", "executing"),
+    )
+    .first();
+  if (activeAdChange) {
+    return {
+      cursor,
+      done: false,
+      blockedReason:
+        "Project deletion is waiting for an ads change to finish and record its execution receipt.",
+    };
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = ctx.db as any;
   const projectEntries = Object.entries(DATA_REGISTRY).filter(([, entry]) => entry.scope === "project");

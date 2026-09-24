@@ -115,6 +115,9 @@ export const execute = moduleAction("promote", {
       internal.ads.control.claimExecution,
       { changeId: id },
     );
+    if (claim.status === "deletion_pending") {
+      throw new Error("No ad change was executed because project or account deletion is pending.");
+    }
     if (claim.status !== "claimed") {
       throw new Error("This approved change is already claimed or no longer executable");
     }
@@ -230,6 +233,31 @@ export const claimExecution = internalMutation({
     if (!change) return { status: "missing" as const };
     if (change.status !== "approved" || !change.idempotencyKey) {
       return { status: "already_claimed" as const };
+    }
+    const project = await ctx.db.get(change.projectId);
+    if (!project) return { status: "missing" as const };
+    const owner = await ctx.db.get(project.ownerId);
+    const accountDeletion = await ctx.db
+      .query("privacyJobs")
+      .withIndex("by_user_kind", (q) =>
+        q.eq("userId", project.ownerId).eq("kind", "account_deletion"),
+      )
+      .order("desc")
+      .first();
+    const projectDeletion = await ctx.db
+      .query("privacyJobs")
+      .withIndex("by_idempotency", (q) =>
+        q.eq("idempotencyKey", `project-deletion:${change.projectId}`),
+      )
+      .first();
+    if (
+      owner?.deletionRequestedAt ||
+      (accountDeletion &&
+        ["queued", "running", "waiting_for_user"].includes(accountDeletion.status)) ||
+      (projectDeletion &&
+        ["queued", "running", "waiting_for_user"].includes(projectDeletion.status))
+    ) {
+      return { status: "deletion_pending" as const };
     }
     // Convex mutations guarantee seeded Math.random() and deterministic
     // Date.now(), while crypto.randomUUID() is not covered by that guarantee.

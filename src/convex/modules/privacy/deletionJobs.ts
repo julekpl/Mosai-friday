@@ -132,8 +132,11 @@ export const retry = mutation({
 async function saveDeletionProgress(ctx: MutationCtx, job: Doc<"privacyJobs">, cursor: DeletionCursor, now: number, completed = false) {
   await ctx.db.patch(job._id, {
     status: "running", cursor: JSON.stringify(cursor),
-    completedCount: job.completedCount + (completed ? 1 : 0), updatedAt: now,
+    completedCount: job.completedCount + (completed ? 1 : 0),
+    blockedReason: undefined,
+    updatedAt: now,
   });
+  await ctx.db.patch(job.userId, { deletionBlockedReason: undefined });
   await scheduleDeletion(ctx);
 }
 
@@ -165,6 +168,16 @@ async function processDeletion(ctx: MutationCtx, userId: Id<"users">, now: numbe
   if (cursor.phase === "projects" || cursor.phase === "organizations") {
     if (cursor.projectId) {
       const result = await cascadeDeleteProjectStep(ctx, cursor.projectId as Id<"projects">, cursor.projectCascade ?? EMPTY_PROJECT_CASCADE_CURSOR);
+      if (result.blockedReason) {
+        await ctx.db.patch(job._id, {
+          status: "running",
+          blockedReason: result.blockedReason,
+          updatedAt: now,
+        });
+        await ctx.db.patch(userId, { deletionBlockedReason: result.blockedReason });
+        await ctx.scheduler.runAfter(30_000, privacyInternal.deletionJobs.finalizeDue, {});
+        return { status: "running" as const, blockedReason: result.blockedReason };
+      }
       const projectDone = result.done;
       cursor = { ...cursor, projectId: projectDone ? undefined : cursor.projectId, projectCascade: projectDone ? undefined : result.cursor };
       await saveDeletionProgress(ctx, job, cursor, now, projectDone);
@@ -258,12 +271,21 @@ async function processProjectDeletionStep(ctx: MutationCtx, jobId: Id<"privacyJo
     }
     const result = await cascadeDeleteProjectStep(ctx, state.projectId, state.cascade ?? EMPTY_PROJECT_CASCADE_CURSOR);
     const now = Date.now();
+    if (result.blockedReason) {
+      await ctx.db.patch(jobId, {
+        status: "running",
+        blockedReason: result.blockedReason,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(30_000, privacyInternal.deletionJobs.processProjectDeletion, { jobId });
+      return { processed: true, completed: false, blockedReason: result.blockedReason };
+    }
     if (result.done) {
-      await ctx.db.patch(jobId, { status: "succeeded", cursor: undefined, completedCount: job.completedCount + 1, updatedAt: now });
+      await ctx.db.patch(jobId, { status: "succeeded", cursor: undefined, blockedReason: undefined, completedCount: job.completedCount + 1, updatedAt: now });
       await ctx.scheduler.runAfter(0, privacyInternal.deletionJobs.finalizeDue, {});
       return { processed: true, completed: true };
     }
-    await ctx.db.patch(jobId, { status: "running", cursor: JSON.stringify({ ...state, cascade: result.cursor }), updatedAt: now });
+    await ctx.db.patch(jobId, { status: "running", cursor: JSON.stringify({ ...state, cascade: result.cursor }), blockedReason: undefined, updatedAt: now });
     await ctx.scheduler.runAfter(0, privacyInternal.deletionJobs.processProjectDeletion, { jobId });
     return { processed: true, completed: false };
 }
