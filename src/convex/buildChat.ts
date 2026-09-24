@@ -46,7 +46,7 @@ async function complete(
     autonomy: "draft",
     contextSources: ["build.context", "request.context"],
     provider: "openrouter",
-    model: "openai/gpt-4o-mini",
+    // Model: resolved by the gateway from the operator allow-list.
     messages: [
       {
         role: "system" as const,
@@ -277,7 +277,7 @@ Rules: specific benefit-led headings, no lorem ipsum, no invented statistics, co
       `${await siteContext(ctx, build.projectId, userId)}
 Idea: ${build.idea ?? message}
 Latest instruction: ${message}`,
-      { temperature: 0.7, maxTokens: 3000, validateOutput: validateGeneratedSitePlan },
+      { temperature: 0.7, maxTokens: 6000, validateOutput: validateGeneratedSitePlan },
     );
     const plan = parseJson<{
       pages?: {

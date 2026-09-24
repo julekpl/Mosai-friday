@@ -173,7 +173,9 @@ ${contextBlock}`;
 
     // 2. Call the shared gateway with the admin-selected OpenRouter model.
     const modelRow = await ctx.runQuery(internal.ads.copilot.model, {});
-    const model = modelRow ?? copilotDefaultModel();
+    // A copilot-specific model (legacy ads setting) wins; otherwise the
+    // gateway resolves the operator-configured project model.
+    const model = modelRow ?? undefined;
     const completion = await modelComplete({
       ctx,
       userId,

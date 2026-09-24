@@ -247,6 +247,25 @@ export const update = orgMutation({
   },
 });
 
+/** Choose the project's AI model from the operator's enabled list, or clear
+ *  the choice (null) to follow the platform default. */
+export const setAiModel = orgMutation({
+  args: { id: v.id("projects"), modelId: v.union(v.string(), v.null()) },
+  handler: async (ctx, { id, modelId }, access) => {
+    await access.requireProject(id);
+    if (modelId === null) {
+      await ctx.db.patch(id, { aiModelId: undefined });
+      return;
+    }
+    const row = await ctx.db
+      .query("aiModels")
+      .withIndex("by_model", (q) => q.eq("modelId", modelId))
+      .unique();
+    if (!row?.enabled) throw new Error("That AI model isn't available. Pick one from the list.");
+    await ctx.db.patch(id, { aiModelId: modelId });
+  },
+});
+
 /* ── Business understanding (lib/businessProfile.ts) ─────────────────── */
 
 const businessProfileArgs = v.object(businessProfileFields);

@@ -483,6 +483,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "modules/privacy/obligations": "base",
   billingWebhooks: "base",
   admin: "base",
+  aiModels: "base",
   organizations: "base",
   http: "base",
   crons: "base",
@@ -537,6 +538,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/websiteScan": "internal",
   "lib/googleMaps": "internal",
   "lib/businessProfile": "internal",
+  "lib/aiModelCatalog": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {

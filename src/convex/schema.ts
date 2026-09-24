@@ -233,6 +233,8 @@ const schema = defineSchema(
       // The owner's own marketing problems ("high ad costs"). Kept apart from
       // customerPains so they never become the audience's problems in prompts.
       marketingChallenges: v.optional(v.array(v.string())),
+      // The project's chosen AI model (one of the operator-enabled aiModels).
+      aiModelId: v.optional(v.string()),
       // The reviewed "what this business is" statement every AI prompt is
       // grounded in (lib/businessProfile.ts). Drafted by AI on the server,
       // confirmed by the owner in project settings.
@@ -1379,6 +1381,22 @@ const schema = defineSchema(
 
     // Every operator action is recorded (T2.4). Full cross-tenant access is
     // powerful; the trail is what makes it reviewable.
+    // Operator-managed allow-list of OpenRouter models (aiModels.ts). Global:
+    // no tenant data. The gateway resolves the model from here.
+    aiModels: defineTable({
+      modelId: v.string(), // e.g. "anthropic/claude-sonnet-5"
+      label: v.string(),
+      description: v.optional(v.string()),
+      enabled: v.boolean(),
+      isDefault: v.boolean(),
+      contextLength: v.optional(v.number()),
+      promptUsdPerMillion: v.optional(v.number()),
+      completionUsdPerMillion: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      updatedBy: v.id("users"),
+    }).index("by_model", ["modelId"]),
+
     adminAuditLog: defineTable({
       actorId: v.id("users"),
       actorEmail: v.optional(v.string()),

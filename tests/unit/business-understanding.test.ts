@@ -131,10 +131,9 @@ describe("business profile lifecycle", () => {
     let project = await t.run((ctx) => ctx.db.get(projectId));
     expect(project?.businessProfile?.status).toBe("ai_draft");
 
-    const { status: _s, updatedAt: _u, confirmedAt: _c, ...editable } = project!.businessProfile!;
     await owner.as.mutation(api.projects.saveBusinessProfile, {
       id: projectId,
-      profile: { ...editable, summary: "Owner-corrected summary" },
+      profile: { ...parseBusinessProfile(JSON.stringify(ARCHITECT_PROFILE)), summary: "Owner-corrected summary" },
       confirm: true,
     });
 

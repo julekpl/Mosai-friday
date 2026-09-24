@@ -209,6 +209,17 @@ export async function projectAccessFor(
   return project ? hasProjectAccess(ctx, project, userId) : false;
 }
 
+/** The project's chosen AI model id (unvalidated; aiModels.resolveModelId
+ *  checks it against the operator allow-list). Server-internal: callers have
+ *  already authorized the project for the request being made. */
+export async function projectAiModelChoice(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<string | undefined> {
+  const project = await ctx.db.get(projectId);
+  return project?.aiModelId;
+}
+
 /** The authorized project scope returned by the helpers below. */
 export type ProjectScope = {
   userId: Id<"users">;

@@ -436,6 +436,68 @@ function CustomersForm({ project }: { project: Project }) {
   );
 }
 
+/* ── AI model: one of the operator-enabled models ────────────────────────── */
+
+const DEFAULT_CHOICE = "__platform_default__";
+
+function AiModelPicker({ project }: { project: Project }) {
+  const uid = useId();
+  const models = useQuery(api.aiModels.listAvailable, {});
+  const setModel = useMutation(api.projects.setAiModel);
+  const [saving, setSaving] = useState(false);
+  const current = project.aiModelId ?? DEFAULT_CHOICE;
+  const defaultModel = models?.find((model) => model.isDefault);
+  const unavailable = project.aiModelId && models && !models.some((m) => m.modelId === project.aiModelId);
+
+  const choose = async (value: string) => {
+    setSaving(true);
+    try {
+      await setModel({ id: project._id, modelId: value === DEFAULT_CHOICE ? null : value });
+      toast.success("AI model updated");
+    } catch (error) {
+      toast.error("Couldn’t change the model", { description: errorText(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2 rounded-md border bg-card p-3">
+      <Label htmlFor={`${uid}-model`} className="font-mono text-small font-medium">AI model for this project</Label>
+      <p id={`${uid}-model-help`} className="font-mono text-caption text-muted-foreground">
+        Used for customer profiles, journeys, content and your website. Your administrator decides which models are offered.
+      </p>
+      {models === undefined ? (
+        <p className="flex items-center gap-2 font-mono text-caption text-muted-foreground" role="status">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading models…
+        </p>
+      ) : (
+        <Select value={current} onValueChange={choose} disabled={saving}>
+          <SelectTrigger id={`${uid}-model`} aria-describedby={`${uid}-model-help`} className="w-full sm:w-96">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={DEFAULT_CHOICE}>
+              Recommended{defaultModel ? ` — ${defaultModel.label}` : ""}
+            </SelectItem>
+            {models.map((model) => (
+              <SelectItem key={model.modelId} value={model.modelId}>
+                {model.label}
+                {model.description ? ` — ${model.description}` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {unavailable ? (
+        <p className="font-mono text-caption text-terminal-amber" role="status">
+          The model chosen earlier is no longer offered, so the recommended one is used.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /* ── Details: name, website, industry, offer, competitors, re-scan ───────── */
 
 function DetailsForm({ project }: { project: Project }) {
@@ -534,6 +596,8 @@ function DetailsForm({ project }: { project: Project }) {
           Save details
         </Button>
       </div>
+
+      <AiModelPicker project={project} />
 
       <div className="grid gap-2 rounded-md border bg-card p-3">
         <p className="font-mono text-small font-medium">Website scan</p>

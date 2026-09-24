@@ -107,6 +107,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),
   appSettings: global("Server-managed settings", "Shared server configuration is retained"),
   platformAdmins: user("userId", "guards.requirePlatformAdmin", "excluded", "by_user"),
+  aiModels: global("guards.requirePlatformAdmin (writes); any signed-in user reads enabled models", "Operator configuration; no tenant data"),
   adminAuditLog: global("guards.requirePlatformAdmin", "Operator audit records are retained"),
   billingCustomers: { ...organization("Verified Stripe webhook / billing access"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
   subscriptions: { ...organization("Verified Stripe webhook / reconciliation"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },

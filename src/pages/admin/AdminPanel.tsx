@@ -33,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AiModelsTab } from "./AiModelsTab";
 
 const PLAN_IDS = ["free", "starter", "growth", "scale"] as const;
 type PlanId = (typeof PLAN_IDS)[number];
@@ -145,7 +146,12 @@ export default function AdminPanel() {
           <TabsTrigger value="organizations">Organizations</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="audit">Audit</TabsTrigger>
+          <TabsTrigger value="ai-models">AI models</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="ai-models" className="mt-4">
+          <AiModelsTab />
+        </TabsContent>
 
         <TabsContent value="billing" className="mt-4 space-y-4">
           <Card>
