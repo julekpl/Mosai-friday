@@ -83,10 +83,8 @@ describe("BP-07/S1 ads execution claim and receipt", () => {
   it("stops before the provider write if promote.spend is removed during refresh", async () => {
     const { t, owner, projectId, changeId } = await approvedChange();
     const refreshUrl = "https://oauth2.googleapis.com/token";
-    const savedClientId = process.env.GOOGLE_ADS_CLIENT_ID;
-    const savedClientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
-    process.env.GOOGLE_ADS_CLIENT_ID = "test-google-client-id";
-    process.env.GOOGLE_ADS_CLIENT_SECRET = "test-google-client-secret";
+    vi.stubEnv("GOOGLE_ADS_CLIENT_ID", "test-google-client-id");
+    vi.stubEnv("GOOGLE_ADS_CLIENT_SECRET", "test-google-client-secret");
 
     await t.run((ctx) =>
       ctx.db.insert("adsCredentials", {
@@ -136,10 +134,7 @@ describe("BP-07/S1 ads execution claim and receipt", () => {
       expect(executions[0]?.errorDetail).toMatch(/does not include "promote"/);
     } finally {
       vi.unstubAllGlobals();
-      if (savedClientId === undefined) delete process.env.GOOGLE_ADS_CLIENT_ID;
-      else process.env.GOOGLE_ADS_CLIENT_ID = savedClientId;
-      if (savedClientSecret === undefined) delete process.env.GOOGLE_ADS_CLIENT_SECRET;
-      else process.env.GOOGLE_ADS_CLIENT_SECRET = savedClientSecret;
+      vi.unstubAllEnvs();
     }
   });
 });
