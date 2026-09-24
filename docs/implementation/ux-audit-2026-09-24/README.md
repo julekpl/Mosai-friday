@@ -1,0 +1,14 @@
+# MOSAI first-run preview audit — 24 September 2026
+
+Scope: the public landing page, its fictional four-step walkthrough, and the sign-in entry at `https://old-paths-carry.freebuff.dev/`, viewed in the in-app browser at a 704 px-wide viewport. These screenshots were captured during this audit. Freebuff had sampled file parity with GitHub `f5a68aa`, but its local Vly history also had WIP/merge entries; this report does not assert full-tree or production parity.
+
+| Step | Screenshot | Health | Observation |
+| --- | --- | --- | --- |
+| 1. Land | [01-landing.png](01-landing.png) | Clear entry | The page gives a plain outcome, a prominent workspace action, a walkthrough link and an explicit free-plan start. It does not yet prove that a real new user can reach the promised outcome. |
+| 2. Business context example | [02-demo.png](02-demo.png) | Understandable example | The fictional bakery label is visible. The four steps are easy to scan, but this is a presentation, not a functioning project setup. |
+| 3. Audience example | [03-audience.png](03-audience.png) | Clear but ungrounded | Goals and frustrations are legible. The example has no source or confidence cue, so a visitor cannot see how MOSAI distinguishes verified business facts from AI assumptions. |
+| 4. Draft example | [04-draft.png](04-draft.png) | Clear draft status | “Not yet saved” is explicit. The text says the draft is editable, but this walkthrough provides no editing control; the visitor cannot try the review action here. |
+| 5. Review example | [05-review.png](05-review.png) | Truthful publication label; weak interaction | The draft label and “Saving is not publishing” distinction are good. The screen says “You trimmed one sentence” even though no edit was possible in this walkthrough. Treat that as narration of a fictional example, not evidence of a working edit/save journey. |
+| 6. Sign-in entry | [06-auth.png](06-auth.png) | Accessible entry, unverified completion | The CTA reaches an email-code form; the accessibility tree exposes “Email address” and “Send sign-in code.” The “Secured by freebuff.com” footer introduces a second brand at the trust-sensitive step. The code-send, recovery and first-project journey were not exercised because no authorized test inbox/deployment was available. |
+
+Highest-impact follow-ups: demonstrate a real edit/review action or describe the walkthrough explicitly as non-interactive; show where extracted facts and assumptions are reviewed before they shape personas/content; verify the complete email-code → project → first useful draft journey with a test inbox. Review the sign-in footer branding and privacy explanation before a customer release. Authenticated desktop/mobile flows, 375 px reflow, keyboard operation, screen-reader output and color contrast were not established by these screenshots. The BP-19 benchmark still needs at least five observed nontechnical users, as specified in the blueprint.
