@@ -81,7 +81,7 @@ export function ContentEditor({
   const editor = useEditor(
     {
       extensions: [
-        StarterKit.configure({ link: false, history: false }),
+        StarterKit.configure({ link: false, undoRedo: false }),
         Highlight,
         Link.configure({ openOnClick: false }),
         Placeholder.configure({
