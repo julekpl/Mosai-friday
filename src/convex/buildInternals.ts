@@ -288,6 +288,7 @@ export const saveDraftInternal = internalMutation({
 export const applyEditWithSnapshot = internalMutation({
   args: {
     projectId: v.id("projects"),
+    buildId: v.id("builds"),
     versionLabel: v.string(),
     snapshotPages: v.array(
       v.object({
@@ -299,18 +300,17 @@ export const applyEditWithSnapshot = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { projectId, versionLabel, snapshotPages }) => {
+  handler: async (ctx, { projectId, buildId, versionLabel, snapshotPages }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
     if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
       throw new Error("Not found");
     }
 
-    const build = await ctx.db
-      .query("builds")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .first();
-    if (!build) throw new Error("Build not found");
+    // Version the build the caller is working in, not whichever build of the
+    // project happens to come first.
+    const build = await ctx.db.get(buildId);
+    if (!build || build.projectId !== projectId) throw new Error("Build not found");
 
     const existing = await ctx.db
       .query("buildVersions")

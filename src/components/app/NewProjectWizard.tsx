@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { ScanResult } from "@/convex/scraping";
@@ -335,6 +335,7 @@ export function NewProjectWizard() {
   const [businessSuggestions, setBusinessSuggestions] = useState<BusinessSuggestion[]>([]);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const [businessSearchState, setBusinessSearchState] = useState<BusinessSearchState>("idle");
+  const suggestionCache = useRef(new Map<string, BusinessSuggestion[]>());
   const [ignoreRobots, setIgnoreRobots] = useState(false);
   const [competitors, setCompetitors] = useState<CompetitorEntry[]>([]);
   const [industry, setIndustry] = useState("");
@@ -369,9 +370,19 @@ export function NewProjectWizard() {
     if (query.length < 3 || selectedBusiness) return;
 
     let current = true;
+    const cacheKey = query.toLowerCase();
+    const cached = suggestionCache.current.get(cacheKey);
+    if (cached) {
+      setBusinessSuggestions(cached);
+      setActiveSuggestionIndex(-1);
+      setBusinessSearchState(cached.length ? "results" : "empty");
+      return;
+    }
     const timeout = window.setTimeout(() => {
       setBusinessSearchState("loading");
       void suggestGmb({ query }).then((suggestions) => {
+        // Every search is a paid lookup: never repeat one the user already ran.
+        suggestionCache.current.set(cacheKey, suggestions);
         if (!current) return;
         setBusinessSuggestions(suggestions);
         setActiveSuggestionIndex(-1);
@@ -382,7 +393,7 @@ export function NewProjectWizard() {
         setActiveSuggestionIndex(-1);
         setBusinessSearchState("error");
       });
-    }, 600);
+    }, 700);
 
     return () => {
       current = false;

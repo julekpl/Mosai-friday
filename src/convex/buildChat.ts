@@ -338,6 +338,7 @@ Latest instruction: ${message}`,
       internal.buildInternals.applyEditWithSnapshot,
       {
         projectId: build.projectId,
+        buildId,
         snapshotPages,
         versionLabel: message.slice(0, 80) || "Initial build",
       },
@@ -373,6 +374,20 @@ export const editPage = moduleAction("build", {
   handler: async (ctx, { buildId, message, pageId }) => {
     const build = await requireOwnedBuild(ctx, buildId);
     const userId = await requireActionUser(ctx);
+
+    // resolve target page: explicit, else homepage/first page. An explicit
+    // page must belong to the build's project — authorizing the build alone
+    // is not authorization for an arbitrary page id (AGENTS.md rule 2).
+    let target: Doc<"cmsPages"> | null = null;
+    if (pageId) {
+      target = (await ctx.runQuery(internal.buildInternals.getPageById, {
+        id: pageId,
+      })) as Doc<"cmsPages"> | null;
+      if (!target || target.projectId !== build.projectId) {
+        throw new Error("Page not found");
+      }
+    }
+
     await consumeAiQuotaForAction(ctx, userId);
 
     await ctx.runMutation(internal.buildInternals.insertMessage, {
@@ -383,13 +398,6 @@ export const editPage = moduleAction("build", {
       mode: "build",
     });
 
-    // resolve target page: explicit, else homepage/first page
-    let target: Doc<"cmsPages"> | null = null;
-    if (pageId) {
-      target = (await ctx.runQuery(internal.buildInternals.getPageById, {
-        id: pageId,
-      })) as Doc<"cmsPages"> | null;
-    }
     if (!target) {
       const site = (await ctx.runQuery(
         internal.buildInternals.getSiteByProject,
@@ -481,6 +489,7 @@ Return ONLY valid JSON:
       internal.buildInternals.applyEditWithSnapshot,
       {
         projectId: build.projectId,
+        buildId,
         snapshotPages,
         versionLabel: message.slice(0, 80) || "Chat edit",
       },

@@ -55,6 +55,7 @@ import type * as lib_contextPack from "../lib/contextPack.js";
 import type * as lib_dataLifecycle from "../lib/dataLifecycle.js";
 import type * as lib_dataRegistry from "../lib/dataRegistry.js";
 import type * as lib_deliveryGate from "../lib/deliveryGate.js";
+import type * as lib_googleMaps from "../lib/googleMaps.js";
 import type * as lib_modelGateway from "../lib/modelGateway.js";
 import type * as lib_oauthBaseUrl from "../lib/oauthBaseUrl.js";
 import type * as lib_platformAdmin from "../lib/platformAdmin.js";
@@ -145,6 +146,7 @@ declare const fullApi: ApiFromModules<{
   "lib/dataLifecycle": typeof lib_dataLifecycle;
   "lib/dataRegistry": typeof lib_dataRegistry;
   "lib/deliveryGate": typeof lib_deliveryGate;
+  "lib/googleMaps": typeof lib_googleMaps;
   "lib/modelGateway": typeof lib_modelGateway;
   "lib/oauthBaseUrl": typeof lib_oauthBaseUrl;
   "lib/platformAdmin": typeof lib_platformAdmin;

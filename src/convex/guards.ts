@@ -1552,6 +1552,41 @@ export const consumeAiQuota = internalMutation({
   },
 });
 
+export const LOOKUP_QUOTA_WINDOW_MS = 10 * 60_000;
+export const LOOKUP_QUOTA_LIMITS: Record<string, number> = { google_maps: 60 };
+
+/** Per-user budget for paid lookup providers (SerpApi). Throws when spent. */
+export const consumeLookupQuota = internalMutation({
+  args: { userId: v.id("users"), kind: v.string() },
+  handler: async (ctx, { userId, kind }) => {
+    const limit = LOOKUP_QUOTA_LIMITS[kind];
+    if (limit === undefined) throw new Error(`Unknown lookup quota: ${kind}`);
+    const windowStart =
+      Math.floor(Date.now() / LOOKUP_QUOTA_WINDOW_MS) * LOOKUP_QUOTA_WINDOW_MS;
+    const bucket = await ctx.db
+      .query("lookupRateLimits")
+      .withIndex("by_user_kind_window", (q) =>
+        q.eq("userId", userId).eq("kind", kind).eq("windowStart", windowStart),
+      )
+      .unique();
+    if (bucket) {
+      if (bucket.count >= limit) {
+        throw new Error("Too many searches in a short time — wait a few minutes and try again.");
+      }
+      await ctx.db.patch(bucket._id, { count: bucket.count + 1 });
+      return;
+    }
+    await ctx.db.insert("lookupRateLimits", { userId, kind, windowStart, count: 1 });
+    const stale = await ctx.db
+      .query("lookupRateLimits")
+      .withIndex("by_user_kind_window", (q) =>
+        q.eq("userId", userId).eq("kind", kind).lt("windowStart", windowStart - 60 * 60_000),
+      )
+      .collect();
+    for (const row of stale) await ctx.db.delete(row._id);
+  },
+});
+
 /** Action-side quota gate. Call it AFTER the project is authorized (so a
  *  foreign caller's refused request writes nothing) and BEFORE the provider
  *  call (so a runaway loop is stopped before it costs money). */

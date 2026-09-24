@@ -113,6 +113,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   pageRevisions: project("guards.requireProject"), cmsAssets: project("guards.requireProject"),
   cmsNavigations: project("guards.requireProject"), cmsRedirects: project("guards.requireProject"),
   aiRateLimits: { ...user("userId", "Internal AI quota guard", "excluded", "by_user_window"), accountCleanup: [{ kind: "index", index: "by_user_window", field: "userId", source: "user" }] },
+  lookupRateLimits: { ...user("userId", "Internal paid-lookup quota guard", "excluded", "by_user_kind_window"), accountCleanup: [{ kind: "index", index: "by_user_kind_window", field: "userId", source: "user" }] },
   // A run may have a projectId or be user-only. Project deletion clears the
   // former; account cleanup clears either form through the user index.
   aiRuns: { ...project("Internal AI gateway; project actions require project authorization", "excluded"), accountCleanup: [{ kind: "index", index: "by_user_created", field: "userId", source: "user" }] },

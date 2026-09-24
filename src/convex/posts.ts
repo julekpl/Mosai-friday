@@ -58,21 +58,14 @@ export const update = moduleMutation("promote", {
     mediaUrl: v.optional(v.string()),
     campaignId: v.optional(v.id("campaigns")),
     scheduledFor: v.optional(v.number()),
-    status: v.optional(
-      v.union(
-        v.literal("draft"),
-        v.literal("scheduled"),
-        v.literal("published"),
-        v.literal("failed"),
-      ),
-    ),
   },
   handler: async (ctx, { id, ...patch }, access) => {
     const doc = await access.ownedRow(await ctx.db.get(id));
     if (!doc) throw new Error("Not found");
-    // Status transitions that touch real publishing go through the executor
-    // (schedule / publishNow); direct status writes stay for drafts/edits.
-    if (patch.status && doc.status !== "draft") {
+    // Status is never client-writable: "scheduled" needs promote.publish via
+    // executor.schedule and "published" needs a provider receipt (AGENTS.md
+    // rule 5). Only content edits of drafts are allowed here.
+    if (doc.status !== "draft") {
       throw new Error(
         "Use Schedule / Publish now / Pull back for posts that are scheduled, published or failed.",
       );

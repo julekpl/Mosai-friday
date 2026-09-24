@@ -1549,6 +1549,16 @@ const schema = defineSchema(
       count: v.number(),
     }).index("by_user_window", ["userId", "windowStart"]),
 
+    // Per-user budget for paid lookup APIs (SerpApi Google Maps search while
+    // typing, business-listing confirmation). Separate from the AI quota so
+    // typing in a search box never eats the user's AI requests.
+    lookupRateLimits: defineTable({
+      userId: v.id("users"),
+      kind: v.string(), // e.g. "google_maps"
+      windowStart: v.number(), // epoch ms, aligned to LOOKUP_QUOTA_WINDOW_MS
+      count: v.number(),
+    }).index("by_user_kind_window", ["userId", "kind", "windowStart"]),
+
     // Safe AI usage telemetry only: no prompt, output, or provider error text.
     // One row records one model request; userId is the data owner even when a
     // project reference is present. Project/account deletion removes the row.
