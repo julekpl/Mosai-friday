@@ -11,8 +11,11 @@ app builds save an initial draft brief and skip the website plan action and
 CMS page creation path. Website creation and the website workspace continue
 through their existing flow. App context is selected explicitly from records
 in the same project; the workspace displays saved provenance and makes clear
-that a source record is not verification evidence. Switching between app
-builds remounts the editor so unsaved local text cannot carry across builds.
+that a source record is not verification evidence. The customer sees source
+names, type and saved time; the internal version fingerprint stays on the
+server for staleness checks instead of appearing as an opaque code. Switching
+between app builds remounts the editor so unsaved local text cannot carry
+across builds.
 
 Every new app brief requires an explicit audience: customer-facing, internal
 team, or both. Existing app records without a requirements brief show an empty

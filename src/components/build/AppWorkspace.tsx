@@ -28,6 +28,7 @@ type Build = {
     coreWorkflows: string[];
     constraints: string[];
     sourceRefs: SourceRef[];
+    editedAt: number;
     reviewedAt?: number;
     reviewedBy?: Id<"users">;
   };
@@ -142,7 +143,7 @@ export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => vo
             <span className="font-semibold">{source.label}</span><span className="text-muted-foreground">{source.detail}</span>
           </label>;
         })}
-        {build.appRequirements?.sourceRefs.length ? <div className="grid gap-1 font-mono text-caption text-muted-foreground"><p>Saved provenance snapshots:</p>{build.appRequirements.sourceRefs.map((ref) => <p key={`${ref.kind}:${ref.id}`}>{ref.label} · {ref.kind} · {ref.sourceVersion}</p>)}</div> : null}
+        {build.appRequirements?.sourceRefs.length ? <div className="grid gap-1 font-mono text-caption text-muted-foreground"><p>Sources saved with this brief on {new Date(build.appRequirements.editedAt).toLocaleString()}:</p>{build.appRequirements.sourceRefs.map((ref) => <p key={`${ref.kind}:${ref.id}`}>{ref.label} · {ref.kind === "journeyMap" ? "Journey" : ref.kind === "contentPiece" ? "Content" : "Persona"}</p>)}</div> : null}
       </section>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <div><p className="font-mono text-caption text-muted-foreground">Review status: <strong>{reviewed ? "Reviewed" : "Draft"}</strong>{reviewed && build.appRequirements?.reviewedAt ? ` · ${new Date(build.appRequirements.reviewedAt).toLocaleString()}` : ""}</p>{hasUnsavedChanges ? <p role="status" className="font-mono text-caption text-terminal-amber">Unsaved changes. Save this brief before review.</p> : null}</div>

@@ -82,6 +82,7 @@ type BuildRow = {
       | { kind: "journeyMap"; id: Id<"journeyMaps">; label: string; sourceVersion: string }
       | { kind: "contentPiece"; id: Id<"contentPieces">; label: string; sourceVersion: string }
     >;
+    editedAt: number;
     reviewedAt?: number;
     reviewedBy?: Id<"users">;
   };
