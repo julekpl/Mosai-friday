@@ -26,6 +26,7 @@ import {
 } from "@/components/app/module-kit";
 import { SitePanel } from "@/components/cms/SitePanel";
 import { BuildWorkspace } from "@/components/build/BuildWorkspace";
+import { AppWorkspace } from "@/components/build/AppWorkspace";
 import { ContextInspector } from "@/components/app/ContextInspector";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,6 +70,21 @@ type BuildRow = {
     }>;
     generatedAt: number;
   };
+  appRequirements?: {
+    state: "draft" | "reviewed";
+    audience: "customer_facing" | "internal_team" | "both";
+    goal: string;
+    targetUsers: string;
+    coreWorkflows: string[];
+    constraints: string[];
+    sourceRefs: Array<
+      | { kind: "persona"; id: Id<"personas">; label: string; sourceVersion: string }
+      | { kind: "journeyMap"; id: Id<"journeyMaps">; label: string; sourceVersion: string }
+      | { kind: "contentPiece"; id: Id<"contentPieces">; label: string; sourceVersion: string }
+    >;
+    reviewedAt?: number;
+    reviewedBy?: Id<"users">;
+  };
   seoReady?: boolean;
   wcagReady?: boolean;
   createdAt: number;
@@ -103,11 +119,13 @@ function NewBuildForm({
   const plan = useAction(api.buildPlan.generateBuildPlan);
   const update = useMutation(api.builds.update);
   const createPage = useMutation(api.buildPages.create);
+  const saveAppRequirements = useMutation(api.builds.saveAppRequirements);
   const personas = (useQuery(api.personas.list, { projectId }) ?? []) as PersonaRow[];
   const journeys = (useQuery(api.journeys.list, { projectId }) ?? []) as JourneyRow[];
 
   const [name, setName] = useState("");
   const [kind, setKind] = useState<(typeof KINDS)[number]>("website");
+  const [appAudience, setAppAudience] = useState<"" | "customer_facing" | "internal_team" | "both">("");
   const [idea, setIdea] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -120,9 +138,30 @@ function NewBuildForm({
         name: name.trim(),
         kind,
         idea: idea.trim(),
-        personaIds: personas.map((p) => p._id),
-        journeyMapIds: journeys.map((j) => j._id),
+        ...(kind === "website" ? {
+          personaIds: personas.map((p) => p._id),
+          journeyMapIds: journeys.map((j) => j._id),
+        } : {}),
       });
+
+      if (kind === "app") {
+        await saveAppRequirements({
+          buildId,
+          requirements: {
+            audience: appAudience as "customer_facing" | "internal_team" | "both",
+            goal: idea.trim(),
+            targetUsers: "",
+            coreWorkflows: [],
+            constraints: [],
+            sourceRefs: [],
+          },
+        });
+        toast.success("App workspace created", {
+          description: "Your app brief is ready to edit and review. No code was generated or run.",
+        });
+        onDone();
+        return;
+      }
 
       // Strategy-first: generate the plan immediately from idea + personas
       // + journeys, then persist positioning/goals/differentiators/pages.
@@ -202,18 +241,35 @@ function NewBuildForm({
           ))}
         </select>
       </div>
+      {kind === "app" && (
+        <div className="grid gap-2">
+          <Label htmlFor="nb-audience">Who is this app for?</Label>
+          <select
+            id="nb-audience"
+            className="h-9 cursor-pointer rounded-md border bg-card px-3 font-mono text-small"
+            value={appAudience}
+            onChange={(e) => setAppAudience(e.target.value as typeof appAudience)}
+          >
+            <option value="">Choose an audience</option>
+            <option value="customer_facing">Customers</option>
+            <option value="internal_team">Internal team</option>
+            <option value="both">Customers and internal team</option>
+          </select>
+        </div>
+      )}
       <div className="grid gap-2">
         <Label htmlFor="nb-idea">The idea</Label>
         <Textarea
           id="nb-idea"
           value={idea}
           onChange={(e) => setIdea(e.target.value)}
-          placeholder="What is this website/app for? What should it achieve for the business and the customer?"
+          placeholder={kind === "app" ? "What should this app help its users do?" : "What should this website achieve for the business and its visitors?"}
           rows={4}
         />
         <p className="font-mono text-caption text-muted-foreground">
-          The AI plans the build from this idea + your personas and journeys —
-          positioning, pages and differentiators first, code later.
+          {kind === "app"
+            ? "This creates an editable app requirements brief. Choose its audience explicitly; app generation, execution and deployment are not available yet."
+            : "The plan uses this idea with your personas and journeys to outline positioning, pages and differentiators before website content."}
         </p>
       </div>
       {personas.length === 0 && (
@@ -227,14 +283,14 @@ function NewBuildForm({
         </Button>
         <Button
           onClick={handleSave}
-          disabled={isSaving || !name.trim() || !idea.trim()}
+          disabled={isSaving || !name.trim() || !idea.trim() || (kind === "app" && !appAudience)}
         >
           {isSaving ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
             <Sparkles className="size-4" />
           )}
-          Plan build
+          {kind === "app" ? "Create app brief" : "Plan build"}
         </Button>
       </div>
     </div>
@@ -622,7 +678,7 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
 
   const selected = builds.find((b) => b._id === selectedId) ?? null;
 
-  if (selected && managing) {
+  if (selected && managing && selected.kind === "website") {
     // Classic management surface: strategy blueprint + full CMS site panel.
     return (
       <div>
@@ -663,6 +719,19 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
   }
 
   if (selected) {
+    if (selected.kind === "app") {
+      return <AppWorkspace
+        key={selected._id}
+        build={{
+          _id: selected._id,
+          projectId: selected.projectId,
+          name: selected.name,
+          idea: selected.idea,
+          appRequirements: selected.appRequirements,
+        }}
+        onBack={() => setSelectedId(null)}
+      />;
+    }
     // Lovable/Caffeine-style workspace: chat left, live preview right.
     return (
       <BuildWorkspace
@@ -695,8 +764,7 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
             <DialogHeader>
               <DialogTitle className="font-mono text-h3">New build</DialogTitle>
               <DialogDescription className="font-mono text-caption">
-                Idea → positioning → blueprint → pages. Grounded in your personas
-                and journeys, not generic templates.
+                Websites receive a strategy plan. Apps open a separate requirements workspace with an explicit audience choice; app execution and deployment are not available yet.
               </DialogDescription>
             </DialogHeader>
             <NewBuildForm projectId={projectId} onDone={() => setOpen(false)} />

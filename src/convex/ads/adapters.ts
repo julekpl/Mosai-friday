@@ -440,142 +440,18 @@ async function tiktokStatusWrite(
   return { ok: true, providerRef: campaignId };
 }
 
-/* ───────────────────────────── ChatGPT Ads ────────────────────────────── */
+/* ───────────────────────────── OpenAI Ads ──────────────────────────────── */
 
-/**
- * OpenAI's ChatGPT Ads Advertiser API is new and gated by OpenAI advertiser
- * access. The adapter below reflects the documented surface (advertiser
- * management + performance insights); it will go live for deployments that
- * hold CHATGPT_ADS_* credentials.
- */
+/** Retain the identity for existing records, but fail closed until MOSAI has
+ * a supported account-key setup and verified operations. Never guess URLs. */
 const chatgptAdapter: AdsProviderAdapter = {
-  async listAccounts(accessToken) {
-    const res = await fetch("https://api.openai.com/ads/v1/advertisers", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) {
-      throw new Error(`ChatGPT Ads advertisers failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
-    }
-    const data = (await res.json()) as {
-      data?: Array<{ id: string; name?: string; currency?: string }>;
-    };
-    return (data.data ?? []).map((a) => ({
-      accountId: a.id,
-      name: a.name ?? a.id,
-      currency: a.currency,
-    }));
-  },
-  async listCampaigns(accessToken, accountId) {
-    const res = await fetch(
-      `https://api.openai.com/ads/v1/advertisers/${accountId}/campaigns`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    if (!res.ok) {
-      throw new Error(`ChatGPT Ads campaigns failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
-    }
-    const data = (await res.json()) as {
-      data?: Array<{
-        id: string;
-        name?: string;
-        status?: string;
-        objective?: string;
-        daily_budget?: { amount?: number };
-      }>;
-    };
-    return (data.data ?? []).map((c) => ({
-      campaignId: c.id,
-      name: c.name ?? c.id,
-      status: (c.status ?? "unknown").toUpperCase(),
-      objective: c.objective,
-      dailyBudgetCents: c.daily_budget?.amount
-        ? Math.round(c.daily_budget.amount * 100)
-        : undefined,
-      lifetimeBudgetCents: undefined,
-    }));
-  },
-  async fetchDailyMetrics(accessToken, accountId, campaignId, since, until) {
-    const url = new URL(
-      `https://api.openai.com/ads/v1/advertisers/${accountId}/campaigns/${campaignId}/insights`,
-    );
-    url.searchParams.set("start_date", since);
-    url.searchParams.set("end_date", until);
-    url.searchParams.set("granularity", "daily");
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) {
-      throw new Error(`ChatGPT Ads insights failed (${res.status}): ${(await res.text()).slice(0, 200)} — the advertiser API may not yet be enabled for this deployment`);
-    }
-    const data = (await res.json()) as {
-      data?: Array<{
-        date?: string;
-        spend?: number;
-        impressions?: number;
-        clicks?: number;
-        conversions?: number;
-      }>;
-    };
-    return (data.data ?? []).map((row) => ({
-      date: (row.date ?? "").slice(0, 10),
-      spendCents: Math.round((row.spend ?? 0) * 100),
-      impressions: row.impressions ?? 0,
-      clicks: row.clicks ?? 0,
-      conversions: row.conversions ?? 0,
-    }));
-  },
-  async pauseCampaign(accessToken, accountId, campaignId) {
-    return chatgptStatus(accessToken, accountId, campaignId, "paused");
-  },
-  async resumeCampaign(accessToken, accountId, campaignId) {
-    return chatgptStatus(accessToken, accountId, campaignId, "active");
-  },
-  async setDailyBudget(accessToken, accountId, campaignId, budgetCents) {
-    const res = await fetch(
-      `https://api.openai.com/ads/v1/advertisers/${accountId}/campaigns/${campaignId}`,
-      {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ daily_budget: { amount: budgetCents / 100 } }),
-      },
-    );
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: `ChatGPT budget write failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
-      };
-    }
-    return { ok: true, providerRef: campaignId };
-  },
+  async listAccounts() { throw new Error("OpenAI Ads is unavailable"); },
+  async listCampaigns() { throw new Error("OpenAI Ads is unavailable"); },
+  async fetchDailyMetrics() { throw new Error("OpenAI Ads is unavailable"); },
+  async pauseCampaign() { return { ok: false, error: "OpenAI Ads is unavailable" }; },
+  async resumeCampaign() { return { ok: false, error: "OpenAI Ads is unavailable" }; },
+  async setDailyBudget() { return { ok: false, error: "OpenAI Ads is unavailable" }; },
 };
-
-async function chatgptStatus(
-  accessToken: string,
-  accountId: string,
-  campaignId: string,
-  status: "paused" | "active",
-): Promise<ChangeResult> {
-  const res = await fetch(
-    `https://api.openai.com/ads/v1/advertisers/${accountId}/campaigns/${campaignId}`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ status }),
-    },
-  );
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: `ChatGPT status write failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
-    };
-  }
-  return { ok: true, providerRef: campaignId };
-}
 
 /* ───────────────────────────── Registry ───────────────────────────────── */
 

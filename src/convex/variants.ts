@@ -2,6 +2,25 @@ import { v } from "convex/values";
 import { moduleMutation } from "./guards";
 import type { Doc } from "./_generated/dataModel";
 
+function requireNonnegativeInteger(value: number | undefined, label: string) {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new Error(`${label} must be a nonnegative whole number`);
+  }
+}
+
+function requireAvailabilityInventory(
+  availability: string | undefined,
+  inventoryCount: number | undefined,
+) {
+  if (inventoryCount === undefined) return;
+  if (
+    (availability === "in_stock" && inventoryCount === 0) ||
+    (availability === "out_of_stock" && inventoryCount > 0)
+  ) {
+    throw new Error("Availability must agree with the tracked inventory count");
+  }
+}
+
 /* ── M1 Variants — purchasable facts live here (M1-BLUEPRINT §1) ───────── */
 
 /** Update the default variant's facts (simple-product UX writes here). */
@@ -42,9 +61,36 @@ export const updateDefault = moduleMutation("sell", {
     const def = variants.find((v) => v.isDefault);
     if (!def) throw new Error("Default variant missing");
 
-    const clean = Object.fromEntries(
-      Object.entries(patch).filter(([, v]) => v !== undefined),
+    requireNonnegativeInteger(patch.priceCents, "Price");
+    requireNonnegativeInteger(patch.compareAtPriceCents, "Compare-at price");
+    requireNonnegativeInteger(patch.inventoryCount, "Inventory count");
+    if (patch.availabilityDate !== undefined && !Number.isSafeInteger(patch.availabilityDate)) {
+      throw new Error("Availability date must be a whole number timestamp");
+    }
+
+    const clean = { ...patch };
+    for (const key of Object.keys(clean) as Array<keyof typeof clean>) {
+      if (clean[key] === undefined) delete clean[key];
+    }
+    const effectiveInventory = patch.inventoryCount ?? def.inventoryCount;
+    const effectiveAvailability = patch.availability ?? (
+      patch.inventoryCount !== undefined &&
+      (def.availability === undefined ||
+        def.availability === "in_stock" ||
+        def.availability === "out_of_stock")
+        ? patch.inventoryCount === 0 ? "out_of_stock" : "in_stock"
+        : def.availability
     );
+    requireAvailabilityInventory(effectiveAvailability, effectiveInventory);
+    if (
+      patch.inventoryCount !== undefined &&
+      patch.availability === undefined &&
+      (def.availability === undefined ||
+        def.availability === "in_stock" ||
+        def.availability === "out_of_stock")
+    ) {
+      clean.availability = patch.inventoryCount === 0 ? "out_of_stock" : "in_stock";
+    }
     if (!Object.keys(clean).length) return;
 
     await ctx.db.patch(def._id, {
@@ -66,7 +112,10 @@ export const addExplicit = moduleMutation("sell", {
     priceCents: v.optional(v.number()),
     currency: v.optional(v.string()),
     inventoryCount: v.optional(v.number()),
-    availability: v.optional(v.string()),
+    availability: v.optional(v.union(
+      v.literal("in_stock"), v.literal("out_of_stock"),
+      v.literal("backorder"), v.literal("preorder"),
+    )),
     sku: v.optional(v.string()),
     gtin: v.optional(v.string()),
   },
@@ -75,6 +124,10 @@ export const addExplicit = moduleMutation("sell", {
       await ctx.db.get(productId),
     )) as Doc<"products"> | null;
     if (!product) throw new Error("Not found");
+
+    requireNonnegativeInteger(args.priceCents, "Price");
+    requireNonnegativeInteger(args.inventoryCount, "Inventory count");
+    requireAvailabilityInventory(args.availability, args.inventoryCount);
 
     const now = Date.now();
     const variants = await ctx.db
@@ -94,7 +147,7 @@ export const addExplicit = moduleMutation("sell", {
       priceCents: args.priceCents,
       currency: args.currency ?? "EUR",
       inventoryCount: args.inventoryCount,
-      availability: args.availability ?? "in_stock",
+      availability: args.availability ?? (args.inventoryCount === 0 ? "out_of_stock" : "in_stock"),
       sku: args.sku,
       gtin: args.gtin,
       identifierStatus: args.gtin || args.sku ? "has_identifiers" : "unknown",

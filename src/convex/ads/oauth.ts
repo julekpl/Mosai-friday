@@ -9,6 +9,7 @@ import {
   exchangeCodeForTokens,
   isPlatform,
   platformEnv,
+  chatgptAdsStatus,
   type Platform,
 } from "./platforms";
 
@@ -42,21 +43,24 @@ export const status = moduleQuery("promote", {
     return PLATFORMS.map((p) => {
       const cred = creds.find((c) => c.platform === p);
       const providerConfigured = platformEnv(p) !== null;
+      const openAiAds = p === "chatgpt";
       const configured =
         providerConfigured && appOrigin !== null && callbackOrigin !== null;
       return {
         platform: p,
-        configured,
-        setupDetail: !providerConfigured
+        configured: openAiAds ? false : configured,
+        connected: openAiAds ? false : cred !== undefined,
+        setupDetail: openAiAds
+          ? chatgptAdsStatus().note
+          : !providerConfigured
           ? "Provider client credentials are not configured for this deployment."
           : !appOrigin
             ? "The trusted MOSAI app return origin is not configured."
             : !callbackOrigin
               ? "The Convex OAuth callback origin is unavailable."
               : undefined,
-        connected: cred !== undefined,
-        accountLabel: cred?.accountLabel,
-        expiresAt: cred?.expiresAt,
+        accountLabel: openAiAds ? undefined : cred?.accountLabel,
+        expiresAt: openAiAds ? undefined : cred?.expiresAt,
       };
     });
   },

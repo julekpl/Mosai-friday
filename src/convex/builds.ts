@@ -1,6 +1,8 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import { contextVersion } from "./lib/contextPack";
 import { READINESS_RULE_VERSION, contentFingerprint } from "../shared/contracts/status";
 
 const blueprintStep = v.object({
@@ -64,6 +66,11 @@ export const create = moduleMutation("build", {
   },
   handler: async (ctx, args, access) => {
     await access.requireProject(args.projectId);
+    if (args.kind === "app" && (
+      args.pages !== undefined || args.positioning !== undefined ||
+      args.goals !== undefined || args.personaIds !== undefined ||
+      args.journeyMapIds !== undefined || args.differentiators !== undefined
+    )) throw new Error("App builds cannot contain website plan fields");
     const { projectId, ...rest } = args;
     const now = Date.now();
     return await ctx.db.insert("builds", {
@@ -97,11 +104,120 @@ export const update = moduleMutation("build", {
   handler: async (ctx, { id, ...patch }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
+    if (row.kind === "app" && (
+      patch.pages !== undefined || patch.positioning !== undefined ||
+      patch.goals !== undefined || patch.personaIds !== undefined ||
+      patch.journeyMapIds !== undefined || patch.differentiators !== undefined ||
+      patch.blueprint !== undefined || patch.status === "generated"
+    )) throw new Error("App builds cannot receive website plans or generated status");
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
     if (Object.keys(clean).length)
       await ctx.db.patch(id, { ...clean, updatedAt: Date.now() });
+  },
+});
+
+const appRequirementsInput = v.object({
+  audience: v.union(v.literal("customer_facing"), v.literal("internal_team"), v.literal("both")),
+  goal: v.string(),
+  targetUsers: v.string(),
+  coreWorkflows: v.array(v.string()),
+  constraints: v.array(v.string()),
+  sourceRefs: v.array(
+    v.union(
+      v.object({ kind: v.literal("persona"), id: v.id("personas") }),
+      v.object({ kind: v.literal("journeyMap"), id: v.id("journeyMaps") }),
+      v.object({ kind: v.literal("contentPiece"), id: v.id("contentPieces") }),
+    ),
+  ),
+});
+
+/** Resolve source labels on the server and keep every reference inside the build project. */
+export const saveAppRequirements = moduleMutation("build", {
+  args: { buildId: v.id("builds"), requirements: appRequirementsInput },
+  handler: async (ctx, { buildId, requirements }, access) => {
+    const build = await access.ownedRow(await ctx.db.get(buildId));
+    if (!build || build.kind !== "app") throw new Error("App build not found");
+    const boundedText = (value: string, name: string, limit: number) => {
+      if (value.length > limit) throw new Error(`${name} is too long`);
+    };
+    boundedText(requirements.goal, "Goal", 2000);
+    boundedText(requirements.targetUsers, "Target users", 1000);
+    if (requirements.coreWorkflows.length > 20 || requirements.constraints.length > 20)
+      throw new Error("Requirements allow at most 20 workflows and 20 constraints");
+    for (const item of requirements.coreWorkflows) boundedText(item, "Workflow", 500);
+    for (const item of requirements.constraints) boundedText(item, "Constraint", 500);
+    if (requirements.sourceRefs.length > 50) throw new Error("Choose at most 50 context records");
+    const uniqueRefs = new Set(requirements.sourceRefs.map((ref) => `${ref.kind}:${ref.id}`));
+    if (uniqueRefs.size !== requirements.sourceRefs.length) throw new Error("Duplicate context records are not allowed");
+    const sourceRefs: Array<
+      | { kind: "persona"; id: Id<"personas">; label: string; sourceVersion: string }
+      | { kind: "journeyMap"; id: Id<"journeyMaps">; label: string; sourceVersion: string }
+      | { kind: "contentPiece"; id: Id<"contentPieces">; label: string; sourceVersion: string }
+    > = [];
+    for (const ref of requirements.sourceRefs) {
+      if (ref.kind === "persona") {
+        const record = await ctx.db.get(ref.id);
+        if (!record || record.projectId !== build.projectId) throw new Error("Source must belong to this app project's context");
+        sourceRefs.push({ ...ref, label: record.name, sourceVersion: contextVersion(JSON.stringify(record)) });
+      } else if (ref.kind === "journeyMap") {
+        const record = await ctx.db.get(ref.id);
+        if (!record || record.projectId !== build.projectId) throw new Error("Source must belong to this app project's context");
+        sourceRefs.push({ ...ref, label: record.name, sourceVersion: contextVersion(JSON.stringify(record)) });
+      } else {
+        const record = await ctx.db.get(ref.id);
+        if (!record || record.projectId !== build.projectId) throw new Error("Source must belong to this app project's context");
+        sourceRefs.push({ ...ref, label: record.title, sourceVersion: contextVersion(JSON.stringify(record)) });
+      }
+    }
+    const now = Date.now();
+    await ctx.db.patch(buildId, {
+      appRequirements: {
+        version: 1,
+        state: "draft",
+        ...requirements,
+        sourceRefs,
+        editedAt: now,
+      },
+      updatedAt: now,
+    });
+  },
+});
+
+/** Explicit review is recorded against the authenticated actor and current requirements. */
+export const reviewAppRequirements = moduleMutation("build", {
+  args: { buildId: v.id("builds") },
+  handler: async (ctx, { buildId }, access) => {
+    const build = await access.ownedRow(await ctx.db.get(buildId));
+    if (!build || build.kind !== "app") throw new Error("App build not found");
+    if (!build.appRequirements) throw new Error("Save requirements before review");
+    const requirements = build.appRequirements;
+    if (!requirements.goal.trim() || !requirements.targetUsers.trim() ||
+      requirements.coreWorkflows.length === 0 ||
+      requirements.coreWorkflows.some((workflow) => !workflow.trim()))
+      throw new Error("Add a goal, target users, and at least one core workflow before review");
+    for (const ref of requirements.sourceRefs) {
+      if (ref.kind === "persona") {
+        const source = await ctx.db.get(ref.id);
+        if (!source || source.projectId !== build.projectId || contextVersion(JSON.stringify(source)) !== ref.sourceVersion)
+          throw new Error("A selected source changed; save requirements again before review");
+      } else if (ref.kind === "journeyMap") {
+        const source = await ctx.db.get(ref.id);
+        if (!source || source.projectId !== build.projectId || contextVersion(JSON.stringify(source)) !== ref.sourceVersion)
+          throw new Error("A selected source changed; save requirements again before review");
+      } else {
+        const source = await ctx.db.get(ref.id);
+        if (!source || source.projectId !== build.projectId || contextVersion(JSON.stringify(source)) !== ref.sourceVersion)
+          throw new Error("A selected source changed; save requirements again before review");
+      }
+    }
+    const { userId } = await access.requireProject(build.projectId);
+    const now = Date.now();
+    await ctx.db.patch(buildId, {
+      appRequirements: { ...build.appRequirements, state: "reviewed", reviewedAt: now, reviewedBy: userId },
+      updatedAt: now,
+    });
   },
 });
 
