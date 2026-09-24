@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Users } from "lucide-react";
+import { FileUp, Loader2, Plus, Trash2, Users } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
 import { ConfirmDelete, ModuleEmpty } from "@/components/app/module-kit";
@@ -18,8 +18,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-
+import {
+  normalizeCustomerEmail,
+  isValidCustomerEmail,
+  parseCustomerCsv,
+  type ParsedCustomerCsv,
+} from "@/lib/customerCsv";
 
 function ContactForm({
   projectId,
@@ -33,7 +37,6 @@ function ContactForm({
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
   const [tags, setTags] = useState("");
-  const [consent, setConsent] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -45,10 +48,12 @@ function ContactForm({
         name: name.trim() || undefined,
         email: email.trim() || undefined,
         company: company.trim() || undefined,
-        tags: tags.split(/[,\n]/).map((t) => t.trim()).filter(Boolean),
-        consentMarketing: consent,
+        tags: tags
+          .split(/[,\n]/)
+          .map((t) => t.trim())
+          .filter(Boolean),
       });
-      toast.success("Contact added");
+      toast.success("Contact is ready");
       onDone();
     } catch (e) {
       toast.error("Save failed", {
@@ -102,10 +107,9 @@ function ContactForm({
           />
         </div>
       </div>
-      <label className="flex items-center gap-3 rounded-md border p-3">
-        <Switch checked={consent} onCheckedChange={setConsent} />
-        <span className="font-mono text-small">Marketing consent (email)</span>
-      </label>
+      <p className="text-caption text-muted-foreground">
+        Adding a contact does not subscribe them to marketing.
+      </p>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>
           Cancel
@@ -122,19 +126,282 @@ function ContactForm({
   );
 }
 
-export default function Customers({ projectId }: { projectId: Id<"projects"> }) {
+type ImportField = "name" | "email" | "company" | "tags";
+const IMPORT_FIELDS: ImportField[] = ["name", "email", "company", "tags"];
+
+function CustomerImport({
+  projectId,
+  onDone,
+}: {
+  projectId: Id<"projects">;
+  onDone: () => void;
+}) {
+  const importBatch = useMutation(api.contacts.importBatch);
+  const [parsed, setParsed] = useState<ParsedCustomerCsv | null>(null);
+  const [mapping, setMapping] = useState<Record<ImportField, string>>({
+    name: "",
+    email: "",
+    company: "",
+    tags: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState("");
+
+  const readFile = async (file?: File) => {
+    setError(null);
+    setParsed(null);
+    if (!file) return;
+    if (file.size > 128 * 1024) {
+      setError("CSV must be 128 KB or smaller.");
+      return;
+    }
+    try {
+      const result = parseCustomerCsv(await file.text());
+      setFileName(file.name);
+      setParsed(result);
+      setMapping({
+        name:
+          result.headers.find(
+            (header) => header.trim().toLowerCase() === "name",
+          ) ?? "",
+        email:
+          result.headers.find(
+            (header) => header.trim().toLowerCase() === "email",
+          ) ?? "",
+        company:
+          result.headers.find(
+            (header) => header.trim().toLowerCase() === "company",
+          ) ?? "",
+        tags:
+          result.headers.find(
+            (header) => header.trim().toLowerCase() === "tags",
+          ) ?? "",
+      });
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not read this CSV.",
+      );
+    }
+  };
+
+  const rows =
+    parsed?.rows.map((cells, index) => {
+      const value = (field: ImportField) => {
+        const column = mapping[field];
+        const cellIndex = column ? parsed.headers.indexOf(column) : -1;
+        return cellIndex < 0 ? "" : (cells[cellIndex]?.trim() ?? "");
+      };
+      const email = normalizeCustomerEmail(value("email"));
+      const valid = isValidCustomerEmail(email);
+      const priorSameFile = parsed.rows.slice(0, index).some((earlier) => {
+        const mappedIndex = mapping.email
+          ? parsed.headers.indexOf(mapping.email)
+          : -1;
+        return (
+          mappedIndex >= 0 &&
+          normalizeCustomerEmail(earlier[mappedIndex] ?? "") === email
+        );
+      });
+      return {
+        name: value("name"),
+        email,
+        company: value("company"),
+        tags: value("tags"),
+        valid,
+        duplicate: priorSameFile,
+      };
+    }) ?? [];
+  const readyCount = rows.filter((row) => row.valid && !row.duplicate).length;
+
+  const commit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const receipt = await importBatch({
+        projectId,
+        rows: rows
+          .filter((row) => row.valid && !row.duplicate)
+          .map((row) => ({
+            email: row.email,
+            name: row.name || undefined,
+            company: row.company || undefined,
+            tags: row.tags
+              .split(/[;,]/)
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+          })),
+      });
+      const fileDuplicates = rows.filter(
+        (row) => row.valid && row.duplicate,
+      ).length;
+      const fileInvalid = rows.filter((row) => !row.valid).length;
+      toast.success(
+        `Import complete: ${receipt.inserted} added, ${receipt.skipped + fileDuplicates} duplicates skipped, ${receipt.invalid + fileInvalid} invalid rows skipped.`,
+      );
+      onDone();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Import failed. No contacts were saved; try again.",
+      );
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-4">
+      <p className="text-caption text-muted-foreground">
+        Preview your CSV before importing. Repeated addresses in this file are
+        skipped in the preview. Existing project contacts are checked again when
+        you import. Imported contacts are not subscribed to marketing.
+      </p>
+      <div className="grid gap-2">
+        <Label htmlFor="customer-csv">CSV file</Label>
+        <Input
+          id="customer-csv"
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(event) => void readFile(event.target.files?.[0])}
+        />
+        {fileName && (
+          <p className="text-caption text-muted-foreground">{fileName}</p>
+        )}
+      </div>
+      {parsed && (
+        <>
+          <fieldset className="grid gap-3 rounded-md border p-3">
+            <legend className="px-1 font-medium">Map your columns</legend>
+            {IMPORT_FIELDS.map((field) => (
+              <div key={field} className="grid gap-1">
+                <Label htmlFor={`map-${field}`}>
+                  {field === "tags"
+                    ? "Tags (optional)"
+                    : field[0].toUpperCase() + field.slice(1)}
+                </Label>
+                <select
+                  id={`map-${field}`}
+                  className="rounded-md border bg-background px-3 py-2 text-small"
+                  value={mapping[field]}
+                  onChange={(event) =>
+                    setMapping((current) => ({
+                      ...current,
+                      [field]: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Do not import</option>
+                  {parsed.headers.map((header) => (
+                    <option key={header} value={header}>
+                      {header}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </fieldset>
+          <div aria-live="polite" className="grid gap-2">
+            <p className="text-small font-medium">
+              Preview: {readyCount} ready,{" "}
+              {rows.filter((row) => row.duplicate).length} duplicates skipped,{" "}
+              {rows.filter((row) => !row.valid).length} invalid rows skipped.
+            </p>
+            <div className="max-h-48 overflow-auto rounded-md border">
+              <table className="w-full text-small">
+                <thead>
+                  <tr>
+                    <th className="p-2 text-left">Email</th>
+                    <th className="p-2 text-left">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 20).map((row, index) => (
+                    <tr key={`${row.email}-${index}`} className="border-t">
+                      <td className="p-2">{row.email || "—"}</td>
+                      <td className="p-2">
+                        {!row.valid
+                          ? "Invalid email — skip"
+                          : row.duplicate
+                            ? "Repeated in this file — skip"
+                            : "Ready to import"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {rows.length > 20 && (
+              <p className="text-caption text-muted-foreground">
+                Showing first 20 of {rows.length} rows.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-small text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onDone} disabled={busy}>
+          Cancel
+        </Button>
+        <Button
+          onClick={() => void commit()}
+          disabled={!parsed || !readyCount || busy}
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <FileUp className="size-4" />
+          )}
+          Import up to {readyCount} contacts
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export default function Customers({
+  projectId,
+}: {
+  projectId: Id<"projects">;
+}) {
   const contacts = useQuery(api.contacts.list, { projectId }) ?? [];
   const remove = useMutation(api.contacts.remove);
-  const update = useMutation(api.contacts.update);
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   return (
     <div>
       <ModuleHeader
         icon={Users}
         title="Customers"
-        subtitle="Contacts, consent and segments — consent lives here, owned by you"
+        subtitle="Manage project contacts; importing does not subscribe them to marketing."
       >
+        <Dialog open={importOpen} onOpenChange={setImportOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline">
+              <FileUp className="size-4" /> Import CSV
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-mono text-h3">
+                Import contacts
+              </DialogTitle>
+              <DialogDescription className="font-mono text-caption">
+                Review the mapping and preview before anything is saved.
+              </DialogDescription>
+            </DialogHeader>
+            <CustomerImport
+              projectId={projectId}
+              onDone={() => setImportOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -143,10 +410,11 @@ export default function Customers({ projectId }: { projectId: Id<"projects"> }) 
           </DialogTrigger>
           <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="font-mono text-h3">New contact</DialogTitle>
+              <DialogTitle className="font-mono text-h3">
+                New contact
+              </DialogTitle>
               <DialogDescription className="font-mono text-caption">
-                Consent is recorded with timestamp and source — campaigns only
-                email contacts who opted in.
+                Adding a contact does not subscribe them to marketing.
               </DialogDescription>
             </DialogHeader>
             <ContactForm projectId={projectId} onDone={() => setOpen(false)} />
@@ -158,7 +426,7 @@ export default function Customers({ projectId }: { projectId: Id<"projects"> }) 
         <ModuleEmpty
           icon={Users}
           title="No contacts yet"
-          hint="Add contacts manually or import. Marketing consent is stored per contact and checked at send time by every campaign."
+          hint="Add contacts manually or import a CSV. Contacts are not subscribed to marketing by default."
           action={
             <Button onClick={() => setOpen(true)}>
               <Plus className="size-4" /> Add the first contact
@@ -189,35 +457,11 @@ export default function Customers({ projectId }: { projectId: Id<"projects"> }) 
                     {c.company ?? "—"}
                   </td>
                   <td className="px-4 py-2.5">
-                    <button
-                      className="flex items-center gap-2"
-                      onClick={async () => {
-                        const marketing = !c.consent?.marketing;
-                        try {
-                          await update({
-                            id: c._id,
-                            consentMarketing: marketing,
-                          });
-                          toast.success(
-                            marketing ? "Consent granted" : "Consent withdrawn",
-                          );
-                        } catch (e) {
-                          toast.error("Update failed", {
-                            description:
-                              e instanceof Error ? e.message : "Try again.",
-                          });
-                        }
-                      }}
-                    >
-                      <Switch
-                        checked={c.consent?.marketing ?? false}
-                        onCheckedChange={() => {}}
-                        aria-label={`Toggle marketing consent for ${c.name ?? c.email ?? "contact"}`}
-                      />
-                      <span className="text-caption text-muted-foreground">
-                        {c.consent?.source ?? "—"}
-                      </span>
-                    </button>
+                    <span className="text-caption text-muted-foreground">
+                      {c.consent?.marketing
+                        ? "Unverified legacy value — not subscribed"
+                        : "No verified opt-in"}
+                    </span>
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <ConfirmDelete
