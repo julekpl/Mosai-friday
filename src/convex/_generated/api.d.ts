@@ -61,6 +61,7 @@ import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_safeFetch from "../lib/safeFetch.js";
 import type * as lib_stripe from "../lib/stripe.js";
+import type * as lib_websiteScan from "../lib/websiteScan.js";
 import type * as media from "../media.js";
 import type * as modules_privacy_deletionJobs from "../modules/privacy/deletionJobs.js";
 import type * as modules_privacy_exportJobs from "../modules/privacy/exportJobs.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "lib/roles": typeof lib_roles;
   "lib/safeFetch": typeof lib_safeFetch;
   "lib/stripe": typeof lib_stripe;
+  "lib/websiteScan": typeof lib_websiteScan;
   media: typeof media;
   "modules/privacy/deletionJobs": typeof modules_privacy_deletionJobs;
   "modules/privacy/exportJobs": typeof modules_privacy_exportJobs;
