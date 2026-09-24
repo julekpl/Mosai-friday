@@ -13,7 +13,6 @@ import {
   Loader2,
   PanelRightClose,
   PanelRightOpen,
-  Rocket,
   Send,
   Settings2,
   Sparkles,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { PageRenderer } from "@/components/cms/PageRenderer";
+import { PublishToWeb } from "@/components/build/PublishToWeb";
 import { ReceiptBadge } from "@/components/app/ReceiptBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,8 +39,14 @@ import { cn } from "@/lib/utils";
  * Left: mode-aware chat (Plan shapes strategy, Build edits the real site).
  * Right: live draft preview rendered by the same PageRenderer the public
  * runtime uses. Every build request snapshots a version first. AI never
- * publishes — publish is an explicit user action that walks the canonical
- * revision path (draft → published, prior superseded).
+ * publishes — publish is an explicit user action.
+ *
+ * Publishing is ONE button with two server steps (owner decision,
+ * 24 Sep 2026): `buildWorkspace.publishSite` prepares the release (draft →
+ * release version, prior superseded), then `siteHosting.deployWebsite` puts
+ * that release on the web at `/s/<slug>-website`. Both are client-callable,
+ * so running them in sequence keeps the user from having to learn two
+ * concepts; "Live" is shown only when the hosting status says so.
  */
 
 type ChatRow = Doc<"buildMessages">;
@@ -459,6 +465,7 @@ export function BuildWorkspace({
 }: {
   build: {
     _id: Id<"builds">;
+    projectId: Id<"projects">;
     name: string;
     status: string;
     idea?: string;
@@ -477,7 +484,6 @@ export function BuildWorkspace({
   );
   const [activePath, setActivePath] = useState<string | null>(null);
   const [showChat, setShowChat] = useState(true);
-  const [publishing, setPublishing] = useState(false);
 
   const pages = preview?.pages ?? [];
   const activePage =
@@ -486,27 +492,10 @@ export function BuildWorkspace({
   const publishable =
     pages.filter((p) => p.doc?.blocks && p.doc.blocks.length > 0).length;
 
-  const doPublish = async () => {
-    setPublishing(true);
-    try {
-      const res = await publish({ buildId: build._id });
-      // Honest wording (BP-03): this prepared a release — it did not
-      // publish anything. A public URL arrives only with a verified
-      // deployment (BP-13).
-      toast.success(
-        `Release prepared — ${res.prepared} page${res.prepared === 1 ? "" : "s"} approved`,
-        {
-          description:
-            "Saved as a prepared release — not live yet. Deployment to a public URL arrives with hosting setup.",
-        },
-      );
-    } catch (e) {
-      toast.error("Release preparation failed", {
-        description: e instanceof Error ? e.message : "Try again.",
-      });
-    } finally {
-      setPublishing(false);
-    }
+  // Step 1 of "Publish": prepare the release. Errors propagate so the
+  // deploy (step 2, inside PublishToWeb) never runs on a failed preparation.
+  const prepareRelease = async () => {
+    await publish({ buildId: build._id });
   };
 
   /* Loading */
@@ -562,11 +551,13 @@ export function BuildWorkspace({
              * never as a green badge without a real receipt. */
             <ReceiptBadge label="requires_verification" detail="no receipt on record" />
           ) : preview.release.releaseState === "prepared" ? (
+            /* Local release state only; whether it is on the web is shown
+             * by the Publish-to-web bar below, from the hosting status. */
             <Badge
               variant="outline"
-              className="font-mono text-[10px] text-amber-600 dark:text-amber-400"
+              className="font-mono text-[10px] text-terminal-blue"
             >
-              <Globe className="mr-1 size-3" /> release prepared — not yet live
+              <Globe className="mr-1 size-3" /> release prepared
             </Badge>
           ) : preview.release.releaseState === "failed" ? (
             <ReceiptBadge
@@ -603,16 +594,16 @@ export function BuildWorkspace({
                 <PanelRightOpen className="size-3.5" />
               )}
             </Button>
-            <Button size="sm" onClick={() => void doPublish()} disabled={publishing || publishable === 0}>
-              {publishing ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Rocket className="size-3.5" />
-              )}
-              Publish
-            </Button>
           </div>
         </div>
+
+        {/* publish: prepare the release, then put it on the web */}
+        <PublishToWeb
+          projectId={build.projectId}
+          prepare={prepareRelease}
+          disabled={publishable === 0}
+          disabledReason="Add content to at least one page before publishing."
+        />
 
         {/* page tabs */}
         <div className="flex items-center gap-1 overflow-x-auto border-b px-3 py-1.5">
@@ -669,8 +660,8 @@ export function BuildWorkspace({
           <span>·</span>
           <span>{publishable} with content</span>
           <span className="ml-auto flex items-center gap-1">
-            publish approves content for release — live when hosting is set up
-            <ExternalLink className="size-3" />
+            publish prepares a release, then puts it on the web
+            <ExternalLink className="size-3" aria-hidden="true" />
           </span>
         </div>
       </div>

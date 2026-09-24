@@ -810,6 +810,7 @@ function BuildModule({ projectId }: { projectId: Id<"projects"> }) {
         key={selected._id}
         build={{
           _id: selected._id,
+          projectId: selected.projectId,
           name: selected.name,
           status: selected.status,
           idea: selected.idea,

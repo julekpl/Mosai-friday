@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { PageEditor } from "./PageEditor";
+import { PublishToWeb } from "@/components/build/PublishToWeb";
 import {
   isReleasePrepared,
   pageStatusForDisplay,
@@ -52,7 +53,10 @@ export function SitePanel({
   site: SiteDoc;
 }) {
   return (
-    <Tabs defaultValue="pages" className="gap-4">
+    <div className="grid gap-4">
+      {/* Puts the pages' prepared releases on the web at /s/<slug>-website. */}
+      <PublishToWeb projectId={projectId} compact />
+      <Tabs defaultValue="pages" className="gap-4">
       <TabsList>
         <TabsTrigger value="pages" className="font-mono text-caption">
           <FileText className="mr-1.5 size-3.5" /> Pages
@@ -85,7 +89,8 @@ export function SitePanel({
       <TabsContent value="settings">
         <SettingsTab site={site} />
       </TabsContent>
-    </Tabs>
+      </Tabs>
+    </div>
   );
 }
 
@@ -716,9 +721,9 @@ function SettingsTab({ site }: { site: SiteDoc }) {
         </div>
         <p className="flex items-center gap-2 font-mono text-caption text-muted-foreground">
           <Globe className="size-3.5" /> status:{" "}
-          {statusText(siteStatusForDisplay(site.status ?? "draft"))} · not publicly
-          served yet. Public hosting and custom domains arrive with the
-          publishing runtime (W3)
+          {statusText(siteStatusForDisplay(site.status ?? "draft"))} · whether
+          the site is on the web is shown by “Publish to web” above. Custom
+          domains arrive later
         </p>
         <a
           href={`/shop/${site.projectId}`}
