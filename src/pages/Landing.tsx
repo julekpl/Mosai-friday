@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
@@ -631,7 +632,7 @@ export default function Landing() {
                   delay={(i % 3) * 0.06}
                   className="h-full"
                 >
-                  <article className="group relative h-full overflow-hidden rounded-md border bg-card p-5 shadow-card transition-all duration-300 ease-mosaic hover:-translate-y-1 hover:border-terminal-green/40 hover:shadow-pop">
+                  <article className="group relative h-full overflow-hidden rounded-md border bg-card p-5 shadow-card transition-all duration-300 ease-mosaic focus-within:ring-2 focus-within:ring-ring hover:-translate-y-1 hover:border-terminal-green/40 hover:shadow-pop">
                     <span
                       aria-hidden="true"
                       className={cn(
@@ -650,12 +651,25 @@ export default function Landing() {
                       <m.icon className="size-5" />
                     </span>
                     <h3 className="mt-4 font-mono text-small font-semibold">
-                      {m.name}{" "}
-                      <span className="text-muted-foreground">— </span>
-                      {m.task}
+                      {/* The whole card is the link target (stretched link). */}
+                      <Link
+                        to={`/modules/${m.id}`}
+                        className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
+                      >
+                        {m.name}{" "}
+                        <span className="text-muted-foreground">— </span>
+                        {m.task}
+                      </Link>
                     </h3>
                     <p className="mt-1.5 font-mono text-caption text-muted-foreground">
                       {m.detail}
+                    </p>
+                    <p className="mt-3 inline-flex items-center gap-1 font-mono text-caption text-terminal-green">
+                      Learn more about {m.name}
+                      <ArrowRight
+                        aria-hidden="true"
+                        className="size-3.5 transition-transform group-hover:translate-x-0.5"
+                      />
                     </p>
                   </article>
                 </ScrollReveal>
@@ -663,7 +677,13 @@ export default function Landing() {
             </div>
             <ScrollReveal delay={0.12}>
               <p className="mt-5 font-mono text-caption text-muted-foreground">
-                Journeys — the steps your customers actually take — sits next to
+                <Link
+                  to="/modules/journeys"
+                  className="underline decoration-terminal-green/50 underline-offset-4 hover:text-foreground"
+                >
+                  Journeys
+                </Link>{" "}
+                — the steps your customers actually take — sits next to
                 Understand in every workspace, and feeds Create and Build.
               </p>
             </ScrollReveal>
