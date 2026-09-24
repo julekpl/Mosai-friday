@@ -1,4 +1,5 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -6,21 +7,15 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   Bot,
   ChevronsUpDown,
+  Home,
   LayoutDashboard,
   LogOut,
-  Megaphone,
   Menu,
-  PenTool,
   Plus,
-  Route,
-  Search,
+  Settings2,
   ShieldCheck,
-  ShoppingBag,
   Sparkles,
   Trash2,
-  TrendingUp,
-  Users,
-  Blocks,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -49,27 +44,16 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { MosaicMark, moduleTileBg, moduleTileText } from "@/components/mosaic";
+import { MosaicMark } from "@/components/mosaic";
+import { MOSAI_EASE, MOTION } from "@/components/motion";
 import { SkipLink } from "@/components/SkipLink";
 import { useAuth } from "@/hooks/use-auth";
-import {
-  capabilityStateLabel,
-  useModuleEntitlements,
-} from "@/hooks/use-module-entitlements";
+import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
 import { cn } from "@/lib/utils";
 import { ConfirmDelete } from "@/components/app/module-kit";
+import { ModuleNav, NAV_MODULES } from "@/components/app/ModuleNav";
 import { toast } from "sonner";
 
-const modules = [
-  { to: "understand", label: "Understand", description: "Organize project facts and customer personas.", icon: Search },
-  { to: "journeys", label: "Journeys", description: "Map the steps customers take to reach their goals.", icon: Route },
-  { to: "create", label: "Create", description: "Find content gaps, research topics and write content.", icon: PenTool },
-  { to: "build", label: "Build", description: "Plan and create websites and apps for your project.", icon: Blocks },
-  { to: "customers", label: "Customers", description: "Manage customer relationships and follow-ups.", icon: Users },
-  { to: "promote", label: "Promote", description: "Prepare campaigns and social posts for review.", icon: Megaphone },
-  { to: "sell", label: "Sell", description: "Manage products, storefront content and feeds.", icon: ShoppingBag },
-  { to: "grow", label: "Grow", description: "Connect data sources and review performance insights.", icon: TrendingUp },
-] as const;
 
 export function AppShell({
   children,
@@ -86,6 +70,7 @@ export function AppShell({
   const location = useLocation();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
 
   const current = projects.find((p) => p._id === projectId) ?? projects[0];
   // Entitlements come from the server, resolved for THIS project's
@@ -95,7 +80,7 @@ export function AppShell({
   // organization has paid for.
   const entitlements = useModuleEntitlements(projectId);
   const plan = entitlements.plan ?? "free";
-  const activeModule = modules.find((module) =>
+  const activeModule = NAV_MODULES.find((module) =>
     location.pathname.split("/").includes(module.to),
   );
   const currentLocation = location.pathname.endsWith("/billing")
@@ -108,7 +93,7 @@ export function AppShell({
     <div className="flex min-h-screen bg-background">
       <SkipLink />
       {/* Sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-sidebar lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r bg-sidebar lg:flex">
         <div className="flex h-14 items-center gap-2 border-b px-4">
           <MosaicMark size={22} interactive />
           <span className="font-mono text-small font-semibold">mosai</span>
@@ -184,77 +169,39 @@ export function AppShell({
           </Popover>
         </div>
 
-        {/* Module nav — each module wears its mosaic tile colour */}
-        <nav className="flex-1 overflow-y-auto p-2">
-          <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
-            modules
-          </p>
-          {modules.map((m) => {
-            // While the entitlement query is loading, render without locks.
-            const state = entitlements.stateOf(m.to);
-            const locked = state !== null && state !== "included";
-            const inner = (
-              <>
-                <m.icon
-                  className={cn(
-                    "size-4 shrink-0 transition-transform duration-300 ease-mosaic",
-                    locked
-                      ? "text-muted-foreground/50"
-                      : cn(
-                          moduleTileText(m.to),
-                          "group-hover/nav:scale-110 group-hover/nav:-rotate-6",
-                        ),
-                  )}
-                />
-                <span className={cn("min-w-0 flex-1", locked && "text-muted-foreground/50")}>
-                  <span className="block">{m.label}</span>
-                  <span className="block whitespace-normal font-sans text-caption leading-snug text-muted-foreground">{m.description}</span>
-                </span>
-                {locked && state && (
-                  <Badge
-                    variant="outline"
-                    className="ml-auto font-mono text-caption text-terminal-amber"
-                  >
-                    {capabilityStateLabel(state)}
-                  </Badge>
-                )}
-              </>
-            );
-            return current ? (
+        {/* Module nav — owned modules first, everything else under "Add a module" */}
+        <nav aria-label="Modules" className="flex-1 overflow-y-auto px-2 pb-3">
+          {current ? (
+            <>
               <NavLink
-                key={m.to}
-                to={locked ? "/app/billing" : `/app/${current._id}/${m.to}`}
+                to={`/app/${current._id}`}
+                end
                 className={({ isActive }) =>
                   cn(
-                    "group/nav relative mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small ease-terminal hover:bg-accent",
+                    "mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small ease-terminal hover:bg-accent",
                     isActive && "bg-accent font-medium",
                   )
                 }
               >
-                {({ isActive }) => (
-                  <Fragment>
-                    {/* Active tile dot + slide-in marker */}
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-0 top-1/2 h-[60%] w-[3px] -translate-y-1/2 rounded-full transition-all duration-300 ease-mosaic",
-                        isActive ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0",
-                        isActive ? moduleTileBg(m.to) : "",
-                      )}
-                    />
-                    {inner}
-                  </Fragment>
-                )}
+                <Home className="size-4 shrink-0 text-terminal-green" aria-hidden="true" />
+                Home
               </NavLink>
-            ) : (
-              <div
-                key={m.to}
-                className="mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small text-muted-foreground/50"
+              <NavLink
+                to={`/app/${current._id}?edit=details`}
+                className="mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small text-muted-foreground ease-terminal hover:bg-accent hover:text-foreground"
               >
-                {inner}
-              </div>
-            );
-          })}
+                <Settings2 className="size-4 shrink-0" aria-hidden="true" />
+                Edit project
+              </NavLink>
+            </>
+          ) : null}
+          <ModuleNav
+            variant="desktop"
+            projectId={current?._id}
+            loading={entitlements.loading}
+            stateOf={entitlements.stateOf}
+            userId={user?._id}
+          />
         </nav>
 
         {/* Account */}
@@ -356,6 +303,27 @@ export function AppShell({
                   )}
                 </div>
               ))}
+              {current ? (
+                <>
+                  <SheetClose asChild>
+                    <NavLink
+                      to={`/app/${current._id}`}
+                      end
+                      className="mt-1 block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Home
+                    </NavLink>
+                  </SheetClose>
+                  <SheetClose asChild>
+                    <NavLink
+                      to={`/app/${current._id}?edit=details`}
+                      className="block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Edit project
+                    </NavLink>
+                  </SheetClose>
+                </>
+              ) : null}
               <SheetClose asChild>
                 <NavLink
                   to="/app/new"
@@ -368,66 +336,15 @@ export function AppShell({
                 {plan} plan
               </p>
             </div>
-            <nav aria-label="Modules" className="flex-1 p-2">
-              <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
-                modules
-              </p>
-              {modules.map((module) => {
-                const state = entitlements.stateOf(module.to);
-                const locked = state !== null && state !== "included";
-                return current ? (
-                  <SheetClose asChild key={module.to}>
-                    <NavLink
-                      to={
-                        locked
-                          ? "/app/billing"
-                          : `/app/${current._id}/${module.to}`
-                      }
-                      className={({ isActive }) =>
-                        cn(
-                          "mb-0.5 flex min-h-11 items-center gap-2 rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          isActive && "bg-accent font-medium",
-                          locked && "text-muted-foreground/70",
-                        )
-                      }
-                    >
-                      <module.icon
-                        className={cn(
-                          "size-4 shrink-0",
-                          moduleTileText(module.to),
-                        )}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block">{module.label}</span>
-                        <span className="block whitespace-normal font-sans text-caption leading-snug text-muted-foreground">{module.description}</span>
-                      </span>
-                      {locked && state && (
-                        <Badge
-                          variant="outline"
-                          className="ml-auto font-mono text-caption text-terminal-amber"
-                        >
-                          {capabilityStateLabel(state)}
-                        </Badge>
-                      )}
-                    </NavLink>
-                  </SheetClose>
-                ) : (
-                  <div
-                    key={module.to}
-                    className="mb-0.5 flex min-h-11 items-center gap-2 rounded-sm px-2 py-2 font-mono text-small text-muted-foreground/50"
-                  >
-                    <module.icon
-                      className="size-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block">{module.label}</span>
-                      <span className="block whitespace-normal font-sans text-caption leading-snug text-muted-foreground">{module.description}</span>
-                    </span>
-                  </div>
-                );
-              })}
+            <nav aria-label="Modules" className="flex-1 px-2 pb-3">
+              <ModuleNav
+                variant="mobile"
+                projectId={current?._id}
+                loading={entitlements.loading}
+                stateOf={entitlements.stateOf}
+                userId={user?._id}
+                onNavigate={() => setMobileMenuOpen(false)}
+              />
             </nav>
             <div className="border-t p-2">
               <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
@@ -495,8 +412,22 @@ export function AppShell({
       <div className="h-12 lg:hidden" />
 
       {/* Content */}
-      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1">
-        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">{children}</div>
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={location.pathname}
+            className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 lg:py-10"
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+            transition={{
+              duration: reduceMotion ? MOTION.fast : MOTION.base,
+              ease: MOSAI_EASE,
+            }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
   );
@@ -519,7 +450,7 @@ export function ModuleHeader({
         <Icon className="size-5 text-terminal-green" />
       </span>
       <div className="min-w-0">
-        <h1 className="font-mono text-h1">{title}</h1>
+        <h1 className="font-mono text-h1 tracking-tight">{title}</h1>
         {subtitle && (
           <p className="font-mono text-caption text-muted-foreground">
             {subtitle}
@@ -539,9 +470,9 @@ export function EmptyModule({
   hint: string;
 }) {
   return (
-    <div className="rounded-md border border-dashed p-10 text-center">
+    <div className="animate-mosaic-in rounded-lg border border-dashed bg-card/40 px-6 py-12 text-center">
       <p className="font-mono text-small font-medium">{title}</p>
-      <p className="mt-1 font-mono text-caption text-muted-foreground">{hint}</p>
+      <p className="mx-auto mt-1.5 max-w-prose font-mono text-caption text-muted-foreground">{hint}</p>
     </div>
   );
 }

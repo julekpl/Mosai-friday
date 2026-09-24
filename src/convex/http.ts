@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { auth } from "./auth";
 import { oauthCallback } from "./ads/oauth";
 import { socialOauthCallback } from "./social/oauth";
+import { googleOauthCallback } from "./google/oauth";
 import { stripeWebhookSecret, verifyStripeSignature } from "./lib/stripe";
 
 const http = httpRouter();
@@ -22,6 +23,14 @@ http.route({
   path: "/api/ads/callback",
   method: "GET",
   handler: oauthCallback,
+});
+
+// OAuth 2.0 callback for the Grow Google connection (GA4, Search Console,
+// Google Ads reporting).
+http.route({
+  path: "/api/google/callback",
+  method: "GET",
+  handler: googleOauthCallback,
 });
 
 // ── Stripe webhook (T2.4) ───────────────────────────────────────────────────

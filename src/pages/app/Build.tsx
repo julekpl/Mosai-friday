@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   Blocks,
@@ -14,19 +15,20 @@ import {
   Plus,
   Sparkles,
   Target,
-  Trash2,
   Wand2,
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
-import {
-  ConfirmDelete,
-  ModuleEmpty,
-  StatusBadge,
-} from "@/components/app/module-kit";
+import { ModuleEmpty, StatusBadge } from "@/components/app/module-kit";
 import { SitePanel } from "@/components/cms/SitePanel";
+import { siteStatusForDisplay } from "@/components/cms/releaseLabels";
 import { BuildWorkspace } from "@/components/build/BuildWorkspace";
 import { AppWorkspace } from "@/components/build/AppWorkspace";
+import { BuildList } from "@/components/build/BuildList";
+import {
+  resolveBuildSelection,
+  withBuildSelection,
+} from "@/components/build/buildSelection";
 import { ContextInspector } from "@/components/app/ContextInspector";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,7 +45,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 
 const KINDS = ["website", "app"] as const;
 
@@ -670,16 +671,47 @@ function PagesTab({ build }: { build: BuildRow }) {
 /* ── Main module ───────────────────────────────────────────────────────── */
 
 export default function Build({ projectId }: { projectId: Id<"projects"> }) {
-  const builds = useQuery(api.builds.list, { projectId }) ?? [];
+  const buildsQuery = useQuery(api.builds.list, { projectId }) as BuildRow[] | undefined;
+  const builds = buildsQuery ?? [];
   const remove = useMutation(api.builds.remove);
   const [open, setOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<Id<"builds"> | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<BuildRow | null>(null);
-  const [managing, setManaging] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const selected = builds.find((b) => b._id === selectedId) ?? null;
+  // The open build is URL state (?build=<id>&view=manage): refresh, back and
+  // shared links keep it. Only ids in this project's own list resolve.
+  const selection = resolveBuildSelection(searchParams, buildsQuery);
+  const openBuild = (id: Id<"builds"> | null, managing = false) =>
+    setSearchParams(withBuildSelection(searchParams, id, managing));
 
-  if (selected && managing && selected.kind === "website") {
+  if (selection.kind === "loading") {
+    return (
+      <p className="font-mono text-caption text-muted-foreground" role="status">
+        loading build…
+      </p>
+    );
+  }
+
+  if (selection.kind === "missing") {
+    return (
+      <div>
+        <ModuleHeader icon={Blocks} title="Build" subtitle="Build not found" />
+        <ModuleEmpty
+          icon={Blocks}
+          title="This build isn't available"
+          hint="It may have been deleted, or the link belongs to another project."
+          action={
+            <Button variant="outline" onClick={() => openBuild(null)}>
+              ← All builds
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
+  const selected = selection.kind === "found" ? selection.build : null;
+
+  if (selected && selection.kind === "found" && selection.managing && selected.kind === "website") {
     // Classic management surface: strategy blueprint + full CMS site panel.
     return (
       <div>
@@ -688,8 +720,8 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
           title={`${selected.name} · manage`}
           subtitle="Blueprint, personas-grounded page plans and the full CMS surface"
         >
-          <StatusBadge status={selected.status} />
-          <Button variant="outline" size="sm" onClick={() => setManaging(false)}>
+          <StatusBadge status={siteStatusForDisplay(selected.status)} />
+          <Button variant="outline" size="sm" onClick={() => openBuild(selected._id)}>
             ← Back to workspace
           </Button>
         </ModuleHeader>
@@ -730,20 +762,21 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
           idea: selected.idea,
           appRequirements: selected.appRequirements,
         }}
-        onBack={() => setSelectedId(null)}
+        onBack={() => openBuild(null)}
       />;
     }
     // Lovable/Caffeine-style workspace: chat left, live preview right.
     return (
       <BuildWorkspace
+        key={selected._id}
         build={{
           _id: selected._id,
           name: selected.name,
           status: selected.status,
           idea: selected.idea,
         }}
-        onBack={() => setSelectedId(null)}
-        onManage={() => setManaging(true)}
+        onBack={() => openBuild(null)}
+        onManage={() => openBuild(selected._id, true)}
       />
     );
   }
@@ -773,19 +806,11 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
         </Dialog>
       </ModuleHeader>
 
-      <ConfirmDelete
-        what={pendingDelete ? `"${pendingDelete.name}"` : ""}
-        onConfirm={async () => {
-          if (!pendingDelete) return;
-          await remove({ id: pendingDelete._id });
-          toast.success("Build deleted");
-        }}
-        trigger={
-          <span className="hidden" aria-hidden />
-        }
-      />
-
-      {builds.length === 0 ? (
+      {buildsQuery === undefined ? (
+        <p className="font-mono text-caption text-muted-foreground" role="status">
+          loading builds…
+        </p>
+      ) : builds.length === 0 ? (
         <ModuleEmpty
           icon={Blocks}
           title="No builds yet"
@@ -797,57 +822,14 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
           }
         />
       ) : (
-        <div className="grid min-w-0 gap-3">
-          {builds.map((b) => (
-            <div
-              key={b._id}
-              className={cn(
-                "flex min-w-0 flex-wrap items-center gap-3 rounded-md border bg-card p-4 shadow-card transition-colors ease-terminal hover:bg-accent",
-              )}
-            >
-              <button
-                type="button"
-                className="min-w-0 flex-1 cursor-pointer text-left"
-                onClick={() => setSelectedId(b._id)}
-              >
-                <p className="break-words font-mono text-small font-medium">
-                  {b.name}{" "}
-                  <span className="text-muted-foreground">· {b.kind}</span>
-                </p>
-                {b.positioning ? (
-                  <p className="break-words font-mono text-caption text-muted-foreground">
-                    {b.positioning}
-                  </p>
-                ) : (
-                  <p className="font-mono text-caption text-muted-foreground">
-                    created {new Date(b.createdAt).toLocaleDateString()}
-                  </p>
-                )}
-              </button>
-              <Badge
-                variant="outline"
-                className="font-mono text-caption text-muted-foreground"
-              >
-                {/* BP-03: server no longer records seoReady/wcagReady client
-                    claims; show a neutral legacy label instead of a fake ok. */}
-                {b.seoReady === true
-                  ? "seo: legacy ok — verify"
-                  : "seo: —"} · {" "}
-                {b.wcagReady === true ? "wcag: legacy ok — verify" : "wcag: —"}
-              </Badge>
-              <StatusBadge status={b.status} />
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={`Delete ${b.name}`}
-                className="cursor-pointer text-destructive"
-                onClick={() => setPendingDelete(b as BuildRow)}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
+        <BuildList
+          builds={builds}
+          onOpen={(b) => openBuild(b._id)}
+          onDelete={async (b) => {
+            await remove({ id: b._id });
+            toast.success("Build deleted");
+          }}
+        />
       )}
     </div>
   );

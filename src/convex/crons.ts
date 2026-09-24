@@ -63,4 +63,13 @@ crons.interval(
   {},
 );
 
+// Grow: daily Google (GA4, Search Console, Google Ads) sync. Queues one job
+// per connected project; the jobs are staggered and record their outcome.
+crons.daily(
+  "google-daily-sync",
+  { hourUTC: 5, minuteUTC: 17 },
+  internal.google.sync.enqueueDailyRuns,
+  {},
+);
+
 export default crons;

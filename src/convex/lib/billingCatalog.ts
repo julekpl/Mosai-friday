@@ -196,3 +196,36 @@ export function checkoutConfigured(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY) &&
     PAID_PLANS.some((plan) => priceIdForPlan(plan) !== null);
 }
+
+
+/** A non-draft operator catalog row keyed by its Stripe price (billingPlans). */
+export type CatalogPriceRow = { key: string; kind: "plan" | "addon"; stripePriceId: string };
+
+/**
+ * Map a subscription's items onto the operator catalog: the first catalog
+ * plan item sets the plan, catalog add-on items become add-on keys. Items the
+ * catalog doesn't know are ignored; when no catalog plan is present the
+ * caller falls back to the legacy registry mapping (`planForSubscription`).
+ * Shared by the webhook and the daily reconciliation so they can't disagree.
+ */
+export function mapSubscriptionItems(
+  items: ReadonlyArray<{ price?: { id?: string } | null }>,
+  catalog: readonly CatalogPriceRow[],
+): { planKey: string | null; planPriceId: string | null; addonKeys: string[] } {
+  let planKey: string | null = null;
+  let planPriceId: string | null = null;
+  const addonKeys: string[] = [];
+  for (const item of items.slice(0, 20)) {
+    const priceId = item.price?.id;
+    if (!priceId) continue;
+    const row = catalog.find((entry) => entry.stripePriceId === priceId);
+    if (!row) continue;
+    if (row.kind === "plan" && planKey === null) {
+      planKey = row.key;
+      planPriceId = priceId;
+    } else if (row.kind === "addon" && !addonKeys.includes(row.key)) {
+      addonKeys.push(row.key);
+    }
+  }
+  return { planKey, planPriceId, addonKeys };
+}

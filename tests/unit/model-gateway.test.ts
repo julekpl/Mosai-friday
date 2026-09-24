@@ -366,7 +366,7 @@ describe("ModelGateway S1", () => {
     await modelComplete(request(ctx, { maxOutputTokens: MODEL_GATEWAY_MAX_OUTPUT_TOKENS }));
 
     expect(completionCalls).toHaveLength(1);
-    expect(completionCalls[0]?.maxTokens).toBe(3_000);
+    expect(completionCalls[0]?.maxTokens).toBe(MODEL_GATEWAY_MAX_OUTPUT_TOKENS);
   });
 
   it("keeps direct provider calls out of all AI feature files", () => {

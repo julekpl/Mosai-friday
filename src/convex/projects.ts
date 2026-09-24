@@ -1,7 +1,8 @@
-import { internalQuery, mutation } from "./_generated/server";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { anyApi } from "convex/server";
 import { v } from "convex/values";
-import { orgMutation, orgQuery, requireUser } from "./guards";
+import { orgMutation, orgQuery, projectAccessFor, requireUser } from "./guards";
+import { businessProfileFields } from "./schema";
 import type { Doc } from "./_generated/dataModel";
 import { getOrCreatePersonalOrganization } from "./organizations";
 
@@ -66,9 +67,15 @@ export const create = mutation({
     goals: v.optional(v.array(v.string())),
     kpis: v.optional(v.array(v.string())),
     channels: v.optional(v.array(v.string())),
+    targetAudience: v.optional(v.array(v.string())),
+    customerPains: v.optional(v.array(v.string())),
+    marketingChallenges: v.optional(v.array(v.string())),
+    serviceArea: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, rawArgs) => {
     const userId = await requireUser(ctx);
+    const args = boundProjectFields(rawArgs);
+    if (!args.name) throw new Error("Give the project a name.");
     // Every new project lands in the owner's personal organization (T2.1).
     // Idempotent, so a user who already has a personal workspace reuses it.
     const organizationId = await getOrCreatePersonalOrganization(ctx, userId);
@@ -97,9 +104,7 @@ export const platformCount = internalQuery({
   },
 });
 
-export const saveScan = orgMutation({
-  args: {
-    id: v.id("projects"),
+const scanFields = {
     status: v.union(
       v.literal("pending"),
       v.literal("scraped"),
@@ -150,33 +155,56 @@ export const saveScan = orgMutation({
         openHours: v.optional(v.string()),
       }),
     ),
-  },
+};
+
+export const saveScan = orgMutation({
+  args: { id: v.id("projects"), ...scanFields },
   handler: async (ctx, { id, ...scan }, access) => {
     const { project } = await access.requireProject(id);
-
-    // Auto-populate description from the best evidence we got.
-    const description =
-      scan.metaDescription ??
-      project.description ??
-      (scan.titles?.length ? scan.titles[0] : undefined);
-
-    // Products/services from scan (or GMB category) enrich the project.
-    const mergedProducts = [
-      ...new Set([...(project.productsServices ?? []), ...(scan.productsServices ?? [])]),
-    ];
-    const industry =
-      project.industry ?? scan.gmb?.category ?? undefined;
-
-    await ctx.db.patch(id, {
-      websiteScan: { ...scan, scannedAt: Date.now() },
-      description,
-      productsServices: mergedProducts.length ? mergedProducts : undefined,
-      industry,
-      // If GMB found a website and none was provided, backfill it.
-      websiteUrl: project.websiteUrl ?? scan.gmb?.website ?? undefined,
-    });
+    await ctx.db.patch(id, scanPatch(project, scan));
   },
 });
+
+/** Server-side scan writer (scraping.rescanProjectWebsite). Keeps the last
+ *  Google Business result, which a website re-scan does not refresh. */
+export const storeServerScan = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    userId: v.id("users"),
+    scan: v.object(scanFields),
+  },
+  handler: async (ctx, { projectId, userId, scan }) => {
+    if (!(await projectAccessFor(ctx, projectId, userId))) throw new Error("Not found");
+    const project = await ctx.db.get(projectId);
+    if (!project) throw new Error("Not found");
+    await ctx.db.patch(projectId, scanPatch(project, { ...scan, gmb: scan.gmb ?? project.websiteScan?.gmb }));
+  },
+});
+
+type ScanInput = Omit<NonNullable<Doc<"projects">["websiteScan"]>, "scannedAt">;
+
+function scanPatch(project: Doc<"projects">, scan: ScanInput) {
+  // The owner's own words win; the scan only fills an empty description.
+  const description =
+    project.description ??
+    scan.metaDescription ??
+    (scan.titles?.length ? scan.titles[0] : undefined);
+
+  // Products/services from scan (or GMB category) enrich the project.
+  const mergedProducts = [
+    ...new Set([...(project.productsServices ?? []), ...(scan.productsServices ?? [])]),
+  ];
+  const industry = project.industry ?? scan.gmb?.category ?? undefined;
+
+  return {
+    websiteScan: { ...scan, scannedAt: Date.now() },
+    description,
+    productsServices: mergedProducts.length ? mergedProducts.slice(0, 40) : undefined,
+    industry,
+    // If GMB found a website and none was provided, backfill it.
+    websiteUrl: project.websiteUrl ?? scan.gmb?.website ?? undefined,
+  };
+}
 
 export const update = orgMutation({
   args: {
@@ -187,24 +215,205 @@ export const update = orgMutation({
     websiteUrl: v.optional(v.string()),
     industry: v.optional(v.string()),
     competitors: v.optional(v.array(v.string())),
+    competitorEntries: v.optional(
+      v.array(
+        v.object({
+          type: v.union(v.literal("website"), v.literal("gmb")),
+          value: v.string(),
+        }),
+      ),
+    ),
+    googleBusinessName: v.optional(v.string()),
+    productsServices: v.optional(v.array(v.string())),
     goals: v.optional(v.array(v.string())),
     kpis: v.optional(v.array(v.string())),
     channels: v.optional(v.array(v.string())),
+    targetAudience: v.optional(v.array(v.string())),
+    customerPains: v.optional(v.array(v.string())),
+    marketingChallenges: v.optional(v.array(v.string())),
+    serviceArea: v.optional(v.string()),
   },
   handler: async (ctx, { id, ...patch }, access) => {
     await access.requireProject(id);
-    const clean = Object.fromEntries(
-      Object.entries(patch).filter(([, v]) => v !== undefined),
-    );
+    const bounded = boundProjectFields(patch);
+    if (patch.name !== undefined && !bounded.name) throw new Error("The project name can't be empty.");
+    // An explicitly cleared optional text field ("") is removed, not stored.
+    const clean: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(bounded)) {
+      if (patch[key as keyof typeof patch] === undefined) continue;
+      clean[key] = value === "" ? undefined : value;
+    }
     if (Object.keys(clean).length) await ctx.db.patch(id, clean);
   },
 });
 
-/**
- * Everything in the project, serialized — used by the Overview "download
- * pack" to produce one markdown file with all important details, personas,
- * content, communications and attached-file excerpts.
- */
+/** Choose the project's AI model from the operator's enabled list, or clear
+ *  the choice (null) to follow the platform default. */
+export const setAiModel = orgMutation({
+  args: { id: v.id("projects"), modelId: v.union(v.string(), v.null()) },
+  handler: async (ctx, { id, modelId }, access) => {
+    await access.requireProject(id);
+    if (modelId === null) {
+      await ctx.db.patch(id, { aiModelId: undefined });
+      return;
+    }
+    const row = await ctx.db
+      .query("aiModels")
+      .withIndex("by_model", (q) => q.eq("modelId", modelId))
+      .unique();
+    if (!row?.enabled) throw new Error("That AI model isn't available. Pick one from the list.");
+    await ctx.db.patch(id, { aiModelId: modelId });
+  },
+});
+
+/* ── Business understanding (lib/businessProfile.ts) ─────────────────── */
+
+const businessProfileArgs = v.object(businessProfileFields);
+
+/** Server-only writer for the AI draft (called by ai.generateBusinessProfile
+ *  after the caller's access was verified; re-verified here). A profile the
+ *  owner already confirmed is never overwritten by a new AI draft unless
+ *  `replaceConfirmed` is set by an explicit owner request. */
+export const storeBusinessProfileDraft = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    userId: v.id("users"),
+    profile: businessProfileArgs,
+    replaceConfirmed: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { projectId, userId, profile, replaceConfirmed }) => {
+    if (!(await projectAccessFor(ctx, projectId, userId))) throw new Error("Not found");
+    const project = await ctx.db.get(projectId);
+    if (!project) throw new Error("Not found");
+    if (project.businessProfile?.status === "confirmed" && !replaceConfirmed) {
+      return { stored: false as const };
+    }
+    await ctx.db.patch(projectId, {
+      businessProfile: {
+        ...boundBusinessProfile(profile),
+        status: "ai_draft",
+        updatedAt: Date.now(),
+      },
+    });
+    return { stored: true as const };
+  },
+});
+
+/** The owner edits and confirms the business understanding. */
+export const saveBusinessProfile = orgMutation({
+  args: {
+    id: v.id("projects"),
+    profile: businessProfileArgs,
+    confirm: v.boolean(),
+  },
+  handler: async (ctx, { id, profile, confirm }, access) => {
+    const { project } = await access.requireProject(id);
+    const bounded = boundBusinessProfile(profile);
+    if (!bounded.summary || !bounded.offerings.length || !bounded.customerSegments.length) {
+      throw new Error("Add a short summary, at least one offering and at least one customer group.");
+    }
+    const now = Date.now();
+    await ctx.db.patch(id, {
+      businessProfile: {
+        ...bounded,
+        status: confirm ? "confirmed" : project.businessProfile?.status ?? "ai_draft",
+        updatedAt: now,
+        confirmedAt: confirm ? now : project.businessProfile?.confirmedAt,
+      },
+    });
+  },
+});
+
+type ProjectFieldInput = {
+  name?: string;
+  businessName?: string;
+  description?: string;
+  websiteUrl?: string;
+  industry?: string;
+  competitors?: string[];
+  competitorEntries?: Array<{ type: "website" | "gmb"; value: string }>;
+  googleBusinessName?: string;
+  productsServices?: string[];
+  goals?: string[];
+  kpis?: string[];
+  channels?: string[];
+  targetAudience?: string[];
+  customerPains?: string[];
+  marketingChallenges?: string[];
+  serviceArea?: string;
+};
+
+function text(value: string | undefined, max: number): string | undefined {
+  return value === undefined ? undefined : value.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function items(values: string[] | undefined, maxItems = 20, maxLength = 160): string[] | undefined {
+  if (values === undefined) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const clean = value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+    if (!clean || seen.has(clean.toLowerCase())) continue;
+    seen.add(clean.toLowerCase());
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+/** Length/count bounds for owner-entered project fields (they feed every AI
+ *  prompt, so unbounded input would crowd out the real evidence). */
+function boundProjectFields<T extends ProjectFieldInput>(input: T): T {
+  return {
+    ...input,
+    name: text(input.name, 120),
+    businessName: text(input.businessName, 160),
+    description: text(input.description, 2_000),
+    websiteUrl: text(input.websiteUrl, 500),
+    industry: text(input.industry, 120),
+    googleBusinessName: text(input.googleBusinessName, 200),
+    serviceArea: text(input.serviceArea, 200),
+    competitors: items(input.competitors),
+    competitorEntries: input.competitorEntries
+      ?.map((entry) => ({ type: entry.type, value: entry.value.trim().slice(0, 500) }))
+      .filter((entry) => entry.value)
+      .slice(0, 20),
+    productsServices: items(input.productsServices, 40),
+    goals: items(input.goals),
+    kpis: items(input.kpis),
+    channels: items(input.channels),
+    targetAudience: items(input.targetAudience, 12),
+    customerPains: items(input.customerPains, 12),
+    marketingChallenges: items(input.marketingChallenges, 12),
+  };
+}
+
+function boundBusinessProfile(profile: {
+  summary: string;
+  businessModel: NonNullable<Doc<"projects">["businessProfile"]>["businessModel"];
+  offerings: string[];
+  customerSegments: string[];
+  notTheAudience: string[];
+  customerProblems: string[];
+  primaryGoals: string[];
+  market?: string;
+  differentiators: string[];
+  contentThemes: string[];
+}) {
+  return {
+    summary: text(profile.summary, 600) ?? "",
+    businessModel: profile.businessModel,
+    offerings: items(profile.offerings, 8) ?? [],
+    customerSegments: items(profile.customerSegments, 8) ?? [],
+    notTheAudience: items(profile.notTheAudience, 8) ?? [],
+    customerProblems: items(profile.customerProblems, 8) ?? [],
+    primaryGoals: items(profile.primaryGoals, 8) ?? [],
+    market: text(profile.market, 120) || undefined,
+    differentiators: items(profile.differentiators, 6) ?? [],
+    contentThemes: items(profile.contentThemes, 8) ?? [],
+  };
+}
+
 export const exportPack = orgQuery({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }, access) => {

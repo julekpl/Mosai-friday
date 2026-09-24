@@ -99,9 +99,17 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   oauthStates: { ...global("OAuth callback state", "Short-lived callback state expires", true), accountCleanup: [{ kind: "index", index: "by_user", field: "createdBy", source: "user" }] },
   adsAccounts: project("guards.requireProject"), adsCampaigns: project("guards.requireProject"),
   adsMetrics: project("guards.requireProject"), adsChangeRequests: project("guards.requireProject"),
+  // Grow — Google (GA4 / Search Console / Ads). Tokens are never exported.
+  googleConnections: project("moduleQuery/moduleMutation grow → access.requireProject", "excluded"),
+  googleSyncRuns: project("moduleQuery grow → access.ownedProject", "excluded"),
+  googleMetricsDaily: project("moduleQuery grow → access.ownedProject"),
+  googleTopItems: project("moduleQuery grow → access.ownedProject"),
   adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),
   appSettings: global("Server-managed settings", "Shared server configuration is retained"),
   platformAdmins: user("userId", "guards.requirePlatformAdmin", "excluded", "by_user"),
+  billingPlans: global("guards.requirePlatformAdmin (writes); signed-in users read active rows", "Operator catalog; no tenant data"),
+  organizationAddons: { ...organization("Verified Stripe webhook / audited operator grant"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only with the verified sole-owned organization cascade" }] },
+  aiModels: global("guards.requirePlatformAdmin (writes); any signed-in user reads enabled models", "Operator configuration; no tenant data"),
   adminAuditLog: global("guards.requirePlatformAdmin", "Operator audit records are retained"),
   billingCustomers: { ...organization("Verified Stripe webhook / billing access"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
   subscriptions: { ...organization("Verified Stripe webhook / reconciliation"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
@@ -113,6 +121,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   pageRevisions: project("guards.requireProject"), cmsAssets: project("guards.requireProject"),
   cmsNavigations: project("guards.requireProject"), cmsRedirects: project("guards.requireProject"),
   aiRateLimits: { ...user("userId", "Internal AI quota guard", "excluded", "by_user_window"), accountCleanup: [{ kind: "index", index: "by_user_window", field: "userId", source: "user" }] },
+  lookupRateLimits: { ...user("userId", "Internal paid-lookup quota guard", "excluded", "by_user_kind_window"), accountCleanup: [{ kind: "index", index: "by_user_kind_window", field: "userId", source: "user" }] },
   // A run may have a projectId or be user-only. Project deletion clears the
   // former; account cleanup clears either form through the user index.
   aiRuns: { ...project("Internal AI gateway; project actions require project authorization", "excluded"), accountCleanup: [{ kind: "index", index: "by_user_created", field: "userId", source: "user" }] },

@@ -8,7 +8,7 @@ import {
   requireUser,
   resolvePlatformAdmin,
 } from "./guards";
-import { isPlan, PLANS, modulesForPlan, type Plan } from "./lib/capabilities";
+import { isPlan, PLANS, modulesForPlan } from "./lib/capabilities";
 import { platformAdminEmails } from "./lib/platformAdmin";
 import { checkoutConfigured, planCatalog } from "./lib/billingCatalog";
 import { stripeMode, stripeWebhookSecret } from "./lib/stripe";
@@ -297,20 +297,27 @@ export const auditLog = query({
 export const setOrganizationPlan = mutation({
   args: {
     organizationId: v.id("organizations"),
-    plan: v.union(...PLANS.map((p) => v.literal(p))),
+    // A registry tier or a non-draft operator catalog plan key.
+    plan: v.string(),
     reason: v.string(),
   },
   handler: async (ctx, { organizationId, plan, reason }) => {
     const actorId = await requirePlatformAdmin(ctx);
     const trimmed = reason.trim();
     if (trimmed.length < 3) throw new Error("A reason is required.");
-    if (!isPlan(plan)) throw new Error("Unknown plan");
+    if (!isPlan(plan)) {
+      const row = await ctx.db
+        .query("billingPlans")
+        .withIndex("by_key", (q) => q.eq("key", plan))
+        .unique();
+      if (!row || row.kind !== "plan" || row.status === "draft") throw new Error("Unknown plan");
+    }
 
     const organization = await ctx.db.get(organizationId);
     if (!organization) throw new Error("Not found");
 
     await ctx.db.patch(organization.ownerId, {
-      plan: plan satisfies Plan,
+      plan,
       planStatus: "active",
     });
 

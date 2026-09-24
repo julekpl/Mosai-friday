@@ -41,3 +41,10 @@ paths = [
   '''\.env\.example''',
   '''\.gitleaks\.toml''',
 ]
+# Git commit hashes in links to this repository are public identifiers, not
+# credentials; gitleaks' built-in sourcegraph-access-token rule matches any
+# 40-hex string. Scoped to this repo's commit/tree links on the same line.
+regexTarget = "line"
+regexes = [
+  '''julekpl/Mosai-friday(@|/tree/|/commit/)[0-9a-f]{40}''',
+]

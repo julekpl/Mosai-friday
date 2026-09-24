@@ -1,5 +1,7 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { cascadeDeleteBuildStep } from "./dal";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -496,17 +498,55 @@ export const getReadiness = moduleQuery("build", {
   },
 });
 
+/** Rows removed per transaction; larger builds continue in scheduled steps. */
+const BUILD_CASCADE_BATCH = 100;
+
+/**
+ * Deletes a build and every row that hangs off it (chat messages, versions,
+ * page plans, release audits and any other table `buildChildTables()` derives
+ * from the data registry). Shared project data (the site, CMS pages, their
+ * revisions) is NOT removed: it belongs to the project, not to one build.
+ *
+ * A build with a deployment on record is refused: deleting it would remove a
+ * deployment receipt, which changes what is served. That needs an explicit
+ * unpublish flow first (owner decision, AGENTS.md §7).
+ */
 export const remove = moduleMutation("build", {
   args: { id: v.id("builds") },
-  handler: async (ctx, { id }, access) => {
+  handler: async (ctx, { id }, access): Promise<{ done: boolean }> => {
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
-    // cascade: remove the build's pages too
-    const pages = await ctx.db
-      .query("buildPages")
+
+    const deployments = await ctx.db
+      .query("buildDeployments")
       .withIndex("by_build", (q) => q.eq("buildId", id))
-      .collect();
-    for (const p of pages) await ctx.db.delete(p._id);
+      .take(50);
+    if (deployments.some((d) => d.state !== "failed" && d.state !== "canceled")) {
+      throw new Error(
+        "This build has a deployment on record. Take it offline before deleting the build.",
+      );
+    }
+
+    const step = await cascadeDeleteBuildStep(ctx, id, BUILD_CASCADE_BATCH);
     await ctx.db.delete(id);
+    if (!step.done) {
+      await ctx.scheduler.runAfter(0, internal.builds.removeChildrenStep, { buildId: id });
+    }
+    return { done: step.done };
+  },
+});
+
+/** Continues a build deletion that had more child rows than one batch. Runs
+ *  only for a build row that is already gone, so it can never be used to
+ *  strip the children of a live build. */
+export const removeChildrenStep = internalMutation({
+  args: { buildId: v.id("builds") },
+  handler: async (ctx, { buildId }): Promise<{ done: boolean }> => {
+    if (await ctx.db.get(buildId)) return { done: true };
+    const step = await cascadeDeleteBuildStep(ctx, buildId, BUILD_CASCADE_BATCH);
+    if (!step.done) {
+      await ctx.scheduler.runAfter(0, internal.builds.removeChildrenStep, { buildId });
+    }
+    return { done: step.done };
   },
 });
