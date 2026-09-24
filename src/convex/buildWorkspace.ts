@@ -6,7 +6,7 @@ import {
   validateDocument,
   type PageDocument,
 } from "../lib/cms/blocks";
-import { promotePageRevision } from "./cms";
+import { isPreparedPageStatus, promotePageRevision, RELEASE_PREPARED } from "./cms";
 import { READINESS_RULE_VERSION } from "../shared/contracts/status";
 
 /* ── Build workspace: chat history, versions, restore, publish ────────────
@@ -56,7 +56,9 @@ export const getPreviewData = moduleQuery("build", {
         _id: p._id,
         title: p.title,
         fullPath: p.fullPath,
-        status: p.status,
+        // Legacy `published` rows (pre-rename) are reported under the
+        // honest name so the client never sees two spellings of one state.
+        status: isPreparedPageStatus(p.status) ? RELEASE_PREPARED : p.status,
         doc: rev?.document ?? { schemaVersion: 1, blocks: [] },
       });
     }
@@ -276,8 +278,9 @@ export const restoreVersion = moduleMutation("build", {
  *   1. validates every draft ALL-OR-NOTHING (one invalid or empty page
  *      fails the whole preparation, leaving the previously prepared
  *      release intact — the blueprint has no partial-release clause),
- *   2. promotes drafts to the approved revision state (prior pointer
- *      superseded) so the page-level contract is unchanged,
+ *   2. promotes drafts to the `release_prepared` revision/page state
+ *      (prior pointer superseded) via `promotePageRevision` — never the
+ *      legacy `published` literal (owner decision, 24 Sep 2026),
  *   3. writes the `buildReleaseAudits` row pinned to the promoted revision
  *      ids + rule version (readiness and the UI delivery view derive from
  *      it),

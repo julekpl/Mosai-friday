@@ -31,6 +31,7 @@ import { PageRenderer } from "./PageRenderer";
 import {
   RELEASE_DIALOG_MESSAGE,
   RELEASE_PREPARED_MESSAGE,
+  isReleasePrepared,
   pageStatusForDisplay,
   revisionStateForDisplay,
   statusText,
@@ -305,12 +306,12 @@ export function PageEditor({
           variant="outline"
           className={cn(
             "ml-2 font-mono text-caption",
-            page.status === "published" && dirty
+            isReleasePrepared(page.status) && dirty
               ? "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber"
               : "",
           )}
         >
-          {page.status === "published" && dirty
+          {isReleasePrepared(page.status) && dirty
             ? "draft changes"
             : statusText(pageStatusForDisplay(page.status))}
         </Badge>
@@ -570,7 +571,7 @@ export function PageEditor({
                   variant="outline"
                   className={cn(
                     "font-mono text-caption",
-                    r.state === "published" &&
+                    isReleasePrepared(r.state) &&
                       "border-terminal-green/40 bg-terminal-green-soft text-terminal-green",
                     r.state === "draft" &&
                       "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber",
