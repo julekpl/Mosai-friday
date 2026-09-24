@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 
 import { normalizeWebsiteUrl } from "../lib/url";
-import { consumeAiQuotaForAction, requireActionUser } from "./guards";
+import { requireActionUser } from "./guards";
 import { safeFetch } from "./lib/safeFetch";
 
 /* ── Open-source scraping (cheerio, server-side) ─────────────────────────
@@ -177,7 +177,6 @@ export const scanWebsite = action({
   },
   handler: async (ctx, { url }): Promise<ScanResult> => {
     const userId = await requireActionUser(ctx);
-    await consumeAiQuotaForAction(ctx, userId);
     const normalized = normalizeWebsiteUrl(url);
     if (!normalized) throw new Error("Could not interpret that website URL");
 
@@ -239,7 +238,6 @@ export const lookupGoogleBusiness = action({
   args: { name: v.string(), placeId: v.optional(v.string()) },
   handler: async (ctx, { name, placeId }): Promise<GmbLookup> => {
     const userId = await requireActionUser(ctx);
-    await consumeAiQuotaForAction(ctx, userId);
     const key = process.env.SERPAPI_KEY;
     if (!key)
       throw new Error(
