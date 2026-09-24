@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 
 import { PageEditor } from "./PageEditor";
+import {
+  pageStatusForDisplay,
+  siteStatusForDisplay,
+  statusText,
+} from "./releaseLabels";
 import { ModuleEmpty } from "@/components/app/module-kit";
 import { StatusBadge } from "@/components/app/module-kit";
 import { Button } from "@/components/ui/button";
@@ -154,7 +159,7 @@ function PagesTab({ site }: { site: SiteDoc }) {
             <p className="truncate font-mono text-caption text-muted-foreground">
               {p.fullPath}
               {p.status === "published" && p.latestDraftRevisionId
-                ? " · unpublished draft changes"
+                ? " · draft changes since the prepared release"
                 : ""}
             </p>
           </button>
@@ -166,7 +171,7 @@ function PagesTab({ site }: { site: SiteDoc }) {
               homepage
             </Badge>
           )}
-          <StatusBadge status={p.status} />
+          <StatusBadge status={pageStatusForDisplay(p.status)} />
           {p.status !== "published" && (
             <Button
               size="sm"
@@ -709,8 +714,10 @@ function SettingsTab({ site }: { site: SiteDoc }) {
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <p className="flex items-center gap-2 font-mono text-caption text-muted-foreground">
-          <Globe className="size-3.5" /> status: {site.status} · custom domains
-          arrive with the publishing runtime (W3)
+          <Globe className="size-3.5" /> status:{" "}
+          {statusText(siteStatusForDisplay(site.status ?? "draft"))} · not publicly
+          served yet. Public hosting and custom domains arrive with the
+          publishing runtime (W3)
         </p>
         <a
           href={`/shop/${site.projectId}`}
@@ -722,8 +729,8 @@ function SettingsTab({ site }: { site: SiteDoc }) {
           <ExternalLink className="size-3" />
         </a>
         <p className="font-mono text-caption text-muted-foreground">
-          /shop serves published pages, the shop listing, collection pages and
-          product pages — with checkout handed off to connected providers.
+          /shop is a signed-in preview of the storefront (pages, shop listing,
+          collections and products). It is not a public link yet.
         </p>
       </div>
       <div className="grid gap-2 rounded-md border bg-card p-4 shadow-card">
