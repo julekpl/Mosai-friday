@@ -1381,6 +1381,48 @@ const schema = defineSchema(
 
     // Every operator action is recorded (T2.4). Full cross-tenant access is
     // powerful; the trail is what makes it reviewable.
+    // Operator-managed plan & add-on catalog (billingPlans.ts). Global: no
+    // tenant data. Money is integer minor units + ISO currency (AGENTS.md
+    // rule 7). A row never grants anything by itself: entitlement comes from
+    // a verified Stripe subscription item or an audited operator grant.
+    billingPlans: defineTable({
+      key: v.string(), // slug; for kind "plan" also the value stored in users.plan
+      kind: v.union(v.literal("plan"), v.literal("addon")),
+      name: v.string(),
+      description: v.optional(v.string()),
+      modules: v.array(v.string()), // registry ModuleIds this row unlocks
+      priceMinor: v.number(), // e.g. 2900 = 29.00
+      currency: v.string(), // ISO 4217, e.g. "EUR"
+      interval: v.union(v.literal("month"), v.literal("year")),
+      stripePriceId: v.optional(v.string()),
+      trialDays: v.optional(v.number()),
+      highlights: v.array(v.string()),
+      status: v.union(v.literal("draft"), v.literal("active"), v.literal("archived")),
+      sortOrder: v.number(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      updatedBy: v.id("users"),
+    })
+      .index("by_key", ["key"])
+      .index("by_stripe_price", ["stripePriceId"]),
+
+    // Add-ons an organization holds on top of its plan (mix and match).
+    // Written only by the verified Stripe webhook or an audited operator
+    // grant — never by a client-callable mutation.
+    organizationAddons: defineTable({
+      organizationId: v.id("organizations"),
+      addonKey: v.string(),
+      status: v.union(v.literal("active"), v.literal("canceled")),
+      source: v.union(v.literal("stripe"), v.literal("operator")),
+      stripeSubscriptionId: v.optional(v.string()),
+      reason: v.optional(v.string()),
+      grantedBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_addon", ["organizationId", "addonKey"]),
+
     // Operator-managed allow-list of OpenRouter models (aiModels.ts). Global:
     // no tenant data. The gateway resolves the model from here.
     aiModels: defineTable({
@@ -1440,6 +1482,9 @@ const schema = defineSchema(
       // The plan id from the capability registry, resolved from the price's
       // metadata. Never a free-text tier invented here.
       plan: v.string(),
+      // Catalog add-on keys this subscription pays for (one per item whose
+      // price is a billingPlans add-on). Mirrors Stripe; never client-written.
+      addonKeys: v.optional(v.array(v.string())),
       status: v.string(), // canonical provider status (active, past_due, …)
       livemode: v.boolean(),
       currentPeriodEnd: v.optional(v.number()),

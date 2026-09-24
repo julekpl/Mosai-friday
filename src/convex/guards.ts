@@ -27,6 +27,7 @@ import {
   MODULE_BY_ID,
   capabilityKey,
   capabilityMessage,
+  entitledModules,
   isPlan,
   parseCapability,
   planIncludesModule,
@@ -404,11 +405,76 @@ async function planForUser(
  * locked out of the add-ons the organization had paid for — a defect the
  * regression test in `tests/unit/entitlements.test.ts` pins down.
  */
-async function planForOrganization(
+/** A tenant's plan plus its resolved module set. */
+export type TenantEntitlement = {
+  plan: Plan;
+  /** The raw plan key (a registry tier or an operator catalog plan). */
+  planKey: string;
+  modules: ModuleId[];
+  addonKeys: string[];
+};
+
+/** Catalog rows still honour existing holders after being archived; drafts
+ *  are never sold, so they never define entitlement. */
+function catalogRowCounts(row: Doc<"billingPlans"> | null): row is Doc<"billingPlans"> {
+  return row !== null && row.status !== "draft";
+}
+
+/**
+ * The module set an organization (or a legacy owner-keyed project) may use:
+ * core bundle + plan modules (operator catalog, else registry tier) + active
+ * add-ons. Add-ons are written only by the verified Stripe webhook or an
+ * audited operator grant.
+ */
+export async function entitlementFor(
+  ctx: QueryCtx | MutationCtx,
+  ownerId: Id<"users">,
+  organizationId: Id<"organizations"> | null,
+): Promise<TenantEntitlement> {
+  const owner = await ctx.db.get(ownerId);
+  const planKey = owner?.plan?.trim() || DEFAULT_PLAN;
+  const plan: Plan = isPlan(planKey) ? planKey : DEFAULT_PLAN;
+  const planRow = await ctx.db
+    .query("billingPlans")
+    .withIndex("by_key", (q) => q.eq("key", planKey))
+    .unique();
+  const catalogPlan = catalogRowCounts(planRow) && planRow.kind === "plan" ? planRow : null;
+
+  const addonKeys: string[] = [];
+  const addonModules: string[] = [];
+  if (organizationId) {
+    const addons = await ctx.db
+      .query("organizationAddons")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(50);
+    for (const addon of addons) {
+      if (addon.status !== "active") continue;
+      const row = await ctx.db
+        .query("billingPlans")
+        .withIndex("by_key", (q) => q.eq("key", addon.addonKey))
+        .unique();
+      if (!catalogRowCounts(row) || row.kind !== "addon") continue;
+      addonKeys.push(addon.addonKey);
+      addonModules.push(...row.modules);
+    }
+  }
+  return {
+    plan,
+    planKey,
+    addonKeys,
+    modules: entitledModules({
+      plan,
+      catalogPlanModules: catalogPlan?.modules ?? null,
+      addonModules,
+    }),
+  };
+}
+
+async function entitlementForOrganization(
   ctx: QueryCtx | MutationCtx,
   organization: Doc<"organizations">,
-): Promise<Plan> {
-  return await planForUser(ctx, organization.ownerId);
+): Promise<TenantEntitlement> {
+  return await entitlementFor(ctx, organization.ownerId, organization._id);
 }
 
 function finalizeResolution(
@@ -439,17 +505,21 @@ export async function projectTenant(
   ctx: QueryCtx | MutationCtx,
   project: Doc<"projects">,
   userId: Id<"users">,
-): Promise<{ plan: Plan; role: OrgRole } | null> {
+): Promise<{ plan: Plan; role: OrgRole; modules: ModuleId[]; entitlement: TenantEntitlement } | null> {
   const organization = await organizationForProject(ctx, project);
   if (!organization) {
     if (project.ownerId !== userId) return null;
-    return { plan: await planForUser(ctx, userId), role: "owner" };
+    const entitlement = await entitlementFor(ctx, userId, null);
+    return { plan: entitlement.plan, role: "owner", modules: entitlement.modules, entitlement };
   }
   const membership = await membershipFor(ctx, organization._id, userId);
   if (!membership || membership.status !== "active") return null;
+  const entitlement = await entitlementForOrganization(ctx, organization);
   return {
-    plan: await planForOrganization(ctx, organization),
+    plan: entitlement.plan,
     role: membership.role,
+    modules: entitlement.modules,
+    entitlement,
   };
 }
 
@@ -473,6 +543,7 @@ export async function projectCapability(
       role: tenant.role,
       module: parsed.module,
       action: parsed.action,
+      modules: tenant.modules,
     }),
     parsed,
     capability,
@@ -492,13 +563,15 @@ export async function organizationCapability(
   if (!parsed) throw new Error(`Unknown capability "${capability}"`);
   const membership = await membershipFor(ctx, organization._id, userId);
   if (!membership || membership.status !== "active") return null;
-  const plan = await planForOrganization(ctx, organization);
+  const entitlement = await entitlementForOrganization(ctx, organization);
+  const plan = entitlement.plan;
   return finalizeResolution(
     resolveCapabilityState({
       plan,
       role: membership.role,
       module: parsed.module,
       action: parsed.action,
+      modules: entitlement.modules,
     }),
     parsed,
     capability,
@@ -669,11 +742,12 @@ export const capabilityStateForProject = internalQuery({
     const parsed = parseCapability(capability);
     if (!parsed) throw new Error(`Unknown capability "${capability}"`);
     const organization = await organizationForProject(ctx, project);
-    const plan = organization
-      ? await planForOrganization(ctx, organization)
-      : await planForUser(ctx, project.ownerId);
+    const entitlement = organization
+      ? await entitlementForOrganization(ctx, organization)
+      : await entitlementFor(ctx, project.ownerId, null);
     return resolveCapabilityState({
-      plan,
+      plan: entitlement.plan,
+      modules: entitlement.modules,
       role: "owner",
       module: parsed.module,
       action: parsed.action,

@@ -25,6 +25,7 @@ import type * as auth_namecraneMailer from "../auth/namecraneMailer.js";
 import type * as auth_otpDelivery from "../auth/otpDelivery.js";
 import type * as auth_smtpNode from "../auth/smtpNode.js";
 import type * as billing from "../billing.js";
+import type * as billingPlans from "../billingPlans.js";
 import type * as billingWebhooks from "../billingWebhooks.js";
 import type * as buildChat from "../buildChat.js";
 import type * as buildInternals from "../buildInternals.js";
@@ -125,6 +126,7 @@ declare const fullApi: ApiFromModules<{
   "auth/otpDelivery": typeof auth_otpDelivery;
   "auth/smtpNode": typeof auth_smtpNode;
   billing: typeof billing;
+  billingPlans: typeof billingPlans;
   billingWebhooks: typeof billingWebhooks;
   buildChat: typeof buildChat;
   buildInternals: typeof buildInternals;

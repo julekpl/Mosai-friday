@@ -34,9 +34,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AiModelsTab } from "./AiModelsTab";
+import { OrganizationAddonsDialog, PlansTab } from "./PlansTab";
 
 const PLAN_IDS = ["free", "starter", "growth", "scale"] as const;
-type PlanId = (typeof PLAN_IDS)[number];
 
 function Stat({
   label,
@@ -146,8 +146,13 @@ export default function AdminPanel() {
           <TabsTrigger value="organizations">Organizations</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="audit">Audit</TabsTrigger>
+          <TabsTrigger value="plans">Plans & add-ons</TabsTrigger>
           <TabsTrigger value="ai-models">AI models</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="plans" className="mt-4">
+          <PlansTab />
+        </TabsContent>
 
         <TabsContent value="ai-models" className="mt-4">
           <AiModelsTab />
@@ -326,7 +331,10 @@ export default function AdminPanel() {
                       {org.members} members
                     </span>
                     <div className="ml-auto">
-                      <PlanOverrideDialog organizationId={org._id} current={org.plan} />
+                      <div className="flex flex-wrap gap-1">
+                        <PlanOverrideDialog organizationId={org._id} current={org.plan} />
+                        <OrganizationAddonsDialog organizationId={org._id} organizationName={org.name} />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -446,11 +454,11 @@ function PlanOverrideDialog({
   current: string;
 }) {
   const updatePlan = useMutation(api.admin.setOrganizationPlan);
-  const [plan, setPlan] = useState<PlanId>(
-    (PLAN_IDS as readonly string[]).includes(current)
-      ? (current as PlanId)
-      : "free",
+  const catalog = useQuery(api.billingPlans.adminList, {});
+  const catalogPlans = (catalog?.rows ?? []).filter(
+    (row) => row.kind === "plan" && row.status !== "draft" && !(PLAN_IDS as readonly string[]).includes(row.key),
   );
+  const [plan, setPlan] = useState<string>(current || "free");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -475,12 +483,17 @@ function PlanOverrideDialog({
             <select
               className="mt-1 w-full rounded-sm border bg-background px-2 py-1.5 font-mono text-small"
               value={plan}
-              onChange={(event) => setPlan(event.target.value as PlanId)}
+              onChange={(event) => setPlan(event.target.value)}
               aria-label="Plan"
             >
               {PLAN_IDS.map((id) => (
                 <option key={id} value={id}>
                   {id}
+                </option>
+              ))}
+              {catalogPlans.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.name} ({row.key})
                 </option>
               ))}
             </select>

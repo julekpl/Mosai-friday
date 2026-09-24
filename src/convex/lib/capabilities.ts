@@ -212,6 +212,33 @@ export const PLAN_MODULES: Record<Plan, readonly ModuleId[]> = {
   scale: [...MODULE_IDS],
 };
 
+/** The unified core bundle (owner decision, 24 Sep 2026): Understand
+ *  (personas), Journeys and Create are always included; every other module is
+ *  added on top by a plan or an individual add-on. */
+export const CORE_MODULES: readonly ModuleId[] = ["understand", "journeys", "create"];
+
+/**
+ * One tenant's module set: the core bundle, plus the modules of its plan
+ * (the operator's catalog definition when one is active, else the built-in
+ * registry tier), plus the modules of its active add-ons. Deduplicated and in
+ * registry order so the UI and tests see a stable list.
+ */
+export function entitledModules(input: {
+  plan: Plan;
+  catalogPlanModules?: readonly string[] | null;
+  addonModules?: readonly string[];
+}): ModuleId[] {
+  const planModules = input.catalogPlanModules
+    ? input.catalogPlanModules.filter(isModuleId)
+    : modulesForPlan(input.plan);
+  const wanted = new Set<string>([
+    ...CORE_MODULES,
+    ...planModules,
+    ...(input.addonModules ?? []).filter(isModuleId),
+  ]);
+  return MODULE_IDS.filter((module) => wanted.has(module));
+}
+
 export function modulesForPlan(plan: Plan): readonly ModuleId[] {
   return PLAN_MODULES[plan] ?? PLAN_MODULES[DEFAULT_PLAN];
 }
@@ -285,6 +312,9 @@ export interface CapabilityInput {
   /** False when a required connection/provider setup is missing. Writes are
    *  then `needs_setup`; reads stay available (view what you already have). */
   setup?: boolean;
+  /** The tenant's resolved module set (core bundle + catalog plan + add-ons,
+   *  see `entitledModules`). When present it replaces the static plan map. */
+  modules?: readonly ModuleId[];
 }
 
 export function resolveCapabilityState(
@@ -297,7 +327,10 @@ export function resolveCapabilityState(
   if (!MODULE_BY_ID[input.module].actions.includes(input.action)) {
     return { state: "unavailable", reason: "country" };
   }
-  if (!planIncludesModule(input.plan, input.module)) {
+  const entitled = input.modules
+    ? input.modules.includes(input.module)
+    : planIncludesModule(input.plan, input.module);
+  if (!entitled) {
     return { state: "locked", reason: "plan" };
   }
   if (!roleAllows(input.role, input.action)) {
@@ -390,6 +423,7 @@ export function capabilityMatrix(input: {
   role: OrgRole;
   country?: string;
   setup?: boolean;
+  modules?: readonly ModuleId[];
 }): ModuleCapabilityView[] {
   return MODULE_DEFINITIONS.map((definition) => {
     const actions = definition.actions.map((action) => ({
@@ -402,6 +436,7 @@ export function capabilityMatrix(input: {
         action,
         country: input.country,
         setup: input.setup,
+        modules: input.modules,
       }).state,
     }));
     const state: CapabilityState = actions.some((a) => a.state === "included")
@@ -478,6 +513,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   files: "base",
   users: "base",
   billing: "base",
+  billingPlans: "base",
   "modules/privacy/deletionJobs": "base",
   "modules/privacy/exportJobs": "base",
   "modules/privacy/obligations": "base",
