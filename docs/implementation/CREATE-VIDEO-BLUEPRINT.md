@@ -5,6 +5,9 @@ decisions in §0 only for the tickets marked ⚑.
 **Decided 24 Sep 2026 (owner):** the MVP renders the final video **in the
 user's browser** with `@remotion/web-renderer`. No AWS, no render server. A
 server renderer (Vercel Sandbox preferred) is a later ticket (V5b). See §1.1.
+**Decided 24 Sep 2026 (owner):** the MVP is **silent** (no voiceover, no
+music, no audio track), must support videos **as short as 5 seconds**, and
+**export time is not a success criterion**.
 **Written:** 24 September 2026 against the working tree on
 `claude/nice-cerf-n78iit` (post T2.4). Re-find symbols with `rg -n` if files
 have moved.
@@ -26,7 +29,7 @@ agrees; the alternative is what changes if not.
 |---|---|---|---|
 | D1 | Renderer | ✅ **Decided: browser rendering** (`@remotion/web-renderer`) for the MVP. Later server renderer for background renders and Promote hand-off: **Vercel Sandbox** (`@remotion/vercel`) | Remotion Lambda (AWS) or Shotstack behind the same `RenderProvider` interface (§9.5). Google Cloud Run is excluded (Remotion lists it as alpha, not actively developed) |
 | D1a | Remotion licence tier | Free for organizations of up to 3 people; Company License above that | Confirm team size before launch; the licence applies to browser rendering too |
-| D2 | Voice provider | **ElevenLabs** `with-timestamps` | Any TTS that returns word/char timings; otherwise add a forced-alignment step |
+| D2 | Voice provider (after the MVP; the MVP is silent) | **ElevenLabs** `with-timestamps` | Any TTS that returns word/char timings; otherwise add a forced-alignment step |
 | D3 | AI clip provider | **OpenRouter video API** (`/api/v1/videos`) using the existing `OPENROUTER_API_KEY` | Direct Gemini (Veo) adapter behind the same interface |
 | D4 | Who pays for AI clips and TTS | Off by default; small monthly allowance on paid plans; hard per-organization budget | Pass-through top-up (needs T2.4 metered billing) |
 | D5 | AI disclosure on the video | Metadata always + platform AI label via Promote; on-video text only if legal asks | Add an end card or corner label (a composition style flag) |
@@ -56,28 +59,38 @@ export, so what the user previews is what renders.
 
 ### 1.1 MVP (what ships first)
 
-**Loop:** saved video script → AI storyboard → edit scenes → voiceover +
-captions → **export MP4 in the browser** → download (and keep a copy in the
-project).
+**Loop:** saved video script → pick a length (5, 15, 30 or 60 s) → AI
+storyboard → edit scenes → **export a silent MP4 in the browser** → download
+(and keep a copy in the project).
+
+The MVP video is a **text-led, silent** video: each scene is a visual (brand
+graphic, upload or stock) with on-screen text taken from the script. This is
+the common format for social feeds, where most video autoplays muted.
 
 | In the MVP | Later |
 |---|---|
-| Storyboard agent with fidelity check and fallback split | "Rewrite scene with AI" |
-| Edit text, reorder, add/delete scenes, pick visual, aspect (9:16, 1:1, 16:9), one style preset, live preview | Split/merge, more presets |
-| Visuals: uploads, brand graphics, Pexels stock | AI images, AI clips (V6) |
-| ElevenLabs voiceover, captions from its timings, WebVTT file | Music bed + ducking |
-| Browser export → download + saved as a project asset | Server render with receipt (V5b), Promote hand-off, disclosure end card |
+| Length presets 5 / 15 / 30 / 60 s (custom 5–120 s); a 5 s video is 1–3 scenes | |
+| Storyboard agent: condenses the script into on-screen text, with a grounding check (§7.1) and a fallback | "Rewrite scene with AI" |
+| Edit text, set scene duration, reorder, add/delete scenes, pick visual, aspect (9:16, 1:1, 16:9), one style preset, live preview | Split/merge, more presets |
+| Visuals: uploads, brand graphics, Pexels stock (stock audio stripped) | AI images, AI clips (V6) |
+| **No audio at all** | Voiceover, word-timed captions, WebVTT, music bed (V4b) |
+| Browser export (muted MP4) → download + saved as a project asset | Server render with receipt (V5b), Promote hand-off, disclosure end card |
 
-**Tickets:** V1, V2, V3, V4 (without music), V5 (browser export). Owner
-inputs still needed: D2 (voice), D6 (stock credit), a monthly voiceover cap per
-plan, D1a (licence tier). Not needed for the MVP: D3, D4 for clips, D5 beyond a
-metadata flag.
+**Tickets:** V0 (reduced), V1, V2, V3, V4 (stock only), V5 (browser export).
+Roughly **10–14 working days** (estimate). Owner inputs still needed: a
+Pexels API key, D6 (stock credit), D1a (licence tier). **Not needed for the
+MVP:** D2 voice, ElevenLabs key, voiceover cap, D3/D4 clip decisions, D5
+beyond a metadata flag.
 
-**Done when:** a user with a video script downloads a 60 s voiced, captioned
-MP4 in under 10 minutes on a mid-range laptop in a supported browser; cost under
-$0.15 per video; no success state shown without a real file; cross-tenant,
-budget and truth tests green; axe clean; with voice or stock keys missing, those
-parts show `needs_setup` and the rest still works.
+**Done when:**
+- a user with a video script exports and downloads a **5 s** silent MP4 and a
+  60 s one, in each aspect, in a supported browser (export duration is not
+  measured; it only has to finish, and it may run in a background tab);
+- every on-screen line passes the grounding check or was written by the user;
+- no success state is shown without a real stored file;
+- cross-tenant and truth tests are green and axe is clean;
+- without a Pexels key, stock shows `needs_setup` and uploads plus brand
+  graphics still work.
 
 ---
 
@@ -89,7 +102,7 @@ Browser (Create → Videos tab)                       Convex (module: create)
 │ VideoStudio                   │   mutations    │ modules/video/videos.ts   CRUD, save  │
 │  SceneList · SceneCard        │ ─────────────▶ │ modules/video/storyboard.ts  LLM      │
 │  VisualPicker · StylePanel    │                │ modules/video/assets.ts  upload/stock │
-│  VoicePanel · ExportPanel     │ ◀───────────── │ modules/video/voice.ts   TTS          │
+│  LengthPicker · ExportPanel   │ ◀───────────── │ modules/video/voice.ts   TTS          │
 │  PreviewPlayer (@remotion/    │   live rows    │ modules/video/clips.ts   AI clip jobs │
 │   player, lazy-loaded)        │                │ modules/video/renders.ts render jobs  │
 └──────────────┬────────────────┘                │ http.ts  /api/video/* webhooks        │
@@ -298,8 +311,13 @@ Convex all import it.
 
 ```ts
 export const COMPOSITION_VERSION = 1;
-export const LIMITS = { minScenes: 1, maxScenes: 20, maxTotalMs: 120_000,
-  minSceneMs: 1_000, maxSceneMs: 20_000, maxOnScreenWords: 8 } as const;
+export const LIMITS = { minScenes: 1, maxScenes: 20,
+  minTotalMs: 5_000, maxTotalMs: 120_000,
+  minSceneMs: 1_500, maxSceneMs: 20_000, maxOnScreenWords: 8 } as const;
+export const LENGTH_PRESETS_MS = [5_000, 15_000, 30_000, 60_000] as const;
+// Readability for silent video: ~0.4 s per on-screen word + 1 s to notice,
+// so an 8-word line needs ~4.2 s and a 3-word line ~2.2 s.
+export const readMsFor = (words: number) => 1_000 + words * 400;
 
 export type Aspect = "9:16" | "1:1" | "16:9";
 export const DIMENSIONS: Record<Aspect, { width: number; height: number }> = {
@@ -315,10 +333,10 @@ export type Visual =
 
 export type Scene = {
   id: string;                      // stable uuid, never reused
-  narration: string;               // spoken text
-  onScreenText?: string;
+  narration?: string;              // spoken text (only once voice exists, V4b)
+  onScreenText: string;            // MVP: the scene's message; "" allowed for a pure visual
   visual: Visual | null;           // null = incomplete (partial state)
-  durationMs: number;              // from voiceover when present, else estimate
+  durationMs: number;              // MVP: user-set or from LENGTH preset; later from voiceover
   transitionIn: "cut" | "fade" | "slide";
 };
 
@@ -330,7 +348,8 @@ export type Composition = {
            fontFamily: string; logoAssetId?: string };
   voice?: { voiceId: string; assetId?: string };      // assetId = full voiceover track
   music?: { assetId: string; gainDb: number; duckUnderVoice: boolean };
-  captions: { style: "bold_word" | "line" | "off" };
+  targetMs: number;                                   // chosen length (5–120 s)
+  captions: { style: "bold_word" | "line" | "off" };  // MVP: always "off" (no voice)
   disclosure: { endCard: boolean };                   // D5
   scenes: Scene[];
 };
@@ -339,8 +358,11 @@ export type Composition = {
 Exports: `compositionValidator` (Convex `v.object` mirror; a unit test asserts
 the TS type and validator accept the same fixtures), `validateComposition(c):
 Issue[]` (limits, unique ids, colour is a token-safe hex from the brand kit,
-every referenced asset id present), `isRenderable(c)` (no `null` visuals, voice
-present or captions off), `totalDurationMs(c)`, `compositionHash(c)` (sha-256 of
+every referenced asset id present, total between `minTotalMs` and
+`maxTotalMs`), `isRenderable(c)` (no `null` visuals; each scene at least
+`readMsFor(words)` long, so no line flashes by unreadably),
+`fitToTarget(c)` (scales scene durations proportionally to `targetMs`,
+respecting the per-scene minimum; used when the user changes the length), `totalDurationMs(c)`, `compositionHash(c)` (sha-256 of
 key-sorted JSON).
 
 `primaryColor` is data from the user's brand kit, rendered inside the video
@@ -381,7 +403,7 @@ same way `ai.ts` does today.
 | `searchStock({ videoId, query, orientation })` | `create.edit` | Pexels search by fixed host with the server key; returns ids, thumbnails, credit; `needs_setup` if no key |
 | `importStock({ videoId, provider: "pexels", externalId })` | `create.edit` | re-fetches the item **by id** server-side (never trusts a client URL), downloads the chosen rendition via `safeFetch`, stores blob + attribution |
 
-### 5.4 `modules/video/voice.ts` (`"use node"`)
+### 5.4 `modules/video/voice.ts` (`"use node"`), later (V4b, not in the silent MVP)
 
 `generateVoiceover({ videoId, voiceId })`, capability `create.edit` (and the
 TTS budget check, §11):
@@ -419,7 +441,7 @@ stores the result.
 | Function | Capability | Behaviour |
 |---|---|---|
 | `assets.exportUploadUrl({ videoId })` | `create.edit` | ownership checked; returns a Convex upload URL |
-| `assets.attachExport({ videoId, storageId, compositionHash, rendererVersion })` | `create.edit` | reads the `_storage` system row: MIME must be `video/mp4`, size ≤ 300 MB; stores a `videoAssets` row, kind `render`, `source.provider: "browser_export"`, `aiGenerated` copied from the video; builds the WebVTT from `wordTimings` server-side and stores it as a `captions` asset; sets video `status: "ready"`. Replaces the previous export of the same video (old blob deleted) |
+| `assets.attachExport({ videoId, storageId, compositionHash, rendererVersion })` | `create.edit` | reads the `_storage` system row: MIME must be `video/mp4`, size ≤ 300 MB; stores a `videoAssets` row, kind `render`, `source.provider: "browser_export"`, `aiGenerated` copied from the video; (from V4b) builds the WebVTT from `wordTimings` server-side and stores it as a `captions` asset; sets video `status: "ready"`. Replaces the previous export of the same video (old blob deleted) |
 
 The export itself runs in `src/components/create/video/useBrowserExport.ts`
 (§9.2). The downloaded file never depends on the upload: if the upload fails,
@@ -507,22 +529,33 @@ convention); `promptVersion` is written to every `aiRuns` row.
 
 - **Input (server-built):** script text stripped to plain text with section
   headings and `[b-roll]` notes kept as hints; persona summary; brand voice;
-  target length (from piece brief or 60 s default); aspect. Script, research and
+  target length chosen by the user (5–120 s); aspect. Script, research and
   notes are wrapped as untrusted data (rule 4).
-- **Output:** JSON only: `{ scenes: [{ narration, onScreenText?, visualIntent,
+- **Scene budget:** the server computes the allowed scene count from the target
+  before calling the model: 5 s → 1–3 scenes, 15 s → 2–5, 30 s → 3–8,
+  60 s → 5–12. For short targets the model **condenses**: it picks the hook and
+  the call to action and drops the rest.
+- **Output (MVP, silent):** JSON only: `{ scenes: [{ onScreenText, visualIntent,
   suggestedVisual: "brand_graphic"|"upload"|"stock"|"ai_image"|"ai_clip",
   layout?, stockQuery?, transitionIn }] }`.
 - **Validators (`validateOutput`):**
-  1. Narration fidelity: normalized concatenated narration vs. normalized
-     script spoken lines, token-level similarity ≥ 0.9 (the model segments; it
-     does not rewrite).
-  2. Pacing: estimated ≤ 2.7 words/s per scene; total within ±15 % of target.
+  1. **Grounding** (replaces the fidelity check while the MVP is silent,
+     because a 5 s video cannot carry the whole script): every on-screen line's
+     content words (stop words removed, stemmed) must appear in the script at
+     ≥ 70 % overlap, and numbers, prices, percentages and proper nouns must
+     appear in the script verbatim. The model may shorten; it may not add
+     claims. When voice arrives (V4b), the narration fidelity check (≥ 0.9
+     similarity to the script's spoken lines) is added back for narration.
+  2. Pacing: scene count within the budget; each scene ≥ `readMsFor(words)`;
+     durations sum to the target (then `fitToTarget`).
   3. `onScreenText` ≤ 8 words; 1–20 scenes; enums only.
   4. `stockQuery`: ≤ 6 plain words, no URLs, no punctuation beyond spaces.
   5. `suggestedVisual: "ai_clip"` is only a suggestion; it never triggers spend.
 - **On failure:** one retry with the validator message appended; then
-  `storyboardStatus: "failed"` and the UI offers "Split evenly" (a deterministic
-  fallback: one scene per paragraph).
+  `storyboardStatus: "failed"` and the UI offers a deterministic fallback:
+  the script's first heading or sentence (hook) and its CTA section as two
+  brand-graphic scenes, trimmed to 8 words each and fitted to the target. The
+  user can then edit freely; user-written text skips the grounding check.
 
 ### 7.2 `create.video_scene_rewrite` and `create.video_clip_prompt`
 
@@ -552,7 +585,8 @@ lives in `src/components/create/video/`:
 | `SceneList.tsx` / `SceneCard.tsx` | narration + on-screen text fields, visual thumbnail, duration, move up/down buttons (keyboard), split/merge, delete, "Rewrite with AI" |
 | `VisualPicker.tsx` | tabs: Upload · Brand · Stock · AI clip (AI clip shows `locked` without `create.spend`, `needs_setup` without provider) |
 | `PreviewPlayer.tsx` | `@remotion/player` with the shared composition, `React.lazy` so the Create bundle does not grow for users who never open video |
-| `StylePanel.tsx`, `VoicePanel.tsx`, `MusicPanel.tsx` | aspect, preset, captions style; voice select + "Generate voiceover"; music upload + gain |
+| `StylePanel.tsx`, `LengthPicker.tsx` | aspect, preset; length presets 5 / 15 / 30 / 60 s + custom (calls `fitToTarget`), per-scene duration with the readability minimum shown |
+| `VoicePanel.tsx`, `MusicPanel.tsx` (V4b) | voice select + "Generate voiceover"; captions style; music upload + gain |
 | `ExportPanel.tsx` | MVP: Export button (or `unavailable` with supported browsers), progress + Cancel, `aria-live="polite"` status, download MP4 + VTT, save-to-project status. V5b adds server render and "Send to Promote" |
 | `ClipSpendDialog.tsx` | prompt, model, duration, **price quote**, remaining budget, explicit confirm |
 | `useVideoDraft.ts` | local reducer over the composition, debounced `save` with `baseRevision`, conflict banner "Updated elsewhere: reload" |
@@ -564,7 +598,7 @@ lives in `src/components/create/video/`:
 | loading | queries pending, storyboard `running` | skeleton scene cards, "Planning scenes…" |
 | empty | no videos / piece has no script | `ModuleEmpty` with next action |
 | error | storyboard/render `failed` | error text from job + retry |
-| partial | any scene `visual === null` or no voice | scene cards flagged; render disabled with the list of issues |
+| partial | any scene `visual === null` or shorter than its readability minimum (later: no voice) | scene cards flagged; export disabled with the list of issues |
 | success | MVP: export stored via `attachExport`; V5b: server render `succeeded` with receipt | MVP: "Exported on this device" + download; V5b: `ReceiptBadge`, send to Promote |
 | locked | plan lacks `create`, role lacks `spend` | `locked` badge on AI clip + reason |
 | needs_setup | provider key missing on the deployment | `needs_setup` on voice/stock/render/clips, never simulated media |
@@ -572,7 +606,8 @@ lives in `src/components/create/video/`:
 ### 8.3 Accessibility (rule 16)
 
 Reorder by buttons and keyboard (no drag-only); every field labelled; preview
-has captions on by default and honours `prefers-reduced-motion` (Ken Burns off);
+shows all on-screen text as real text in the editor (the silent video's
+message is readable without watching it; captions come with V4b) and honours `prefers-reduced-motion` (Ken Burns off);
 job status announced via live region; focus returns to the scene after dialogs;
 contrast of caption presets checked (WCAG 2.2 AA) in a unit test over preset
 colours.
@@ -619,32 +654,34 @@ colours.
    saved composition, never unsaved local edits, so the stored
    `compositionHash` is true).
 3. **Render:** `renderMediaOnWeb({ composition, inputProps, container: "mp4",
-   videoCodec: "h264", audioCodec: "aac", onProgress, signal, licenseKey,
-   schema })` with the composition's Zod v4 schema (Zod v4 is already a
+   videoCodec: "h264", muted: true, onProgress, signal, licenseKey, schema })`
+   (`muted: true` in the MVP: no audio track is written, and stock clips'
+   own audio is dropped) with the composition's Zod v4 schema (Zod v4 is already a
    dependency). `signal` comes from an `AbortController` wired to Cancel.
    Load `@remotion/web-renderer` with a dynamic `import()` so it never enters
    the main bundle.
 4. **Progress:** progress bar + `aria-live="polite"` text at 10 % steps;
-   `beforeunload` warning while rendering; a note that a background tab renders
-   slower.
-5. **Deliver:** `getBlob()` → object URL → download `<title>.mp4` and the
-   `.vtt` captions. Then upload the blob with `exportUploadUrl` and
+   `beforeunload` warning while rendering. Export time is not a requirement:
+   the user can keep working in another tab (a background tab renders slower;
+   that is accepted).
+5. **Deliver:** `getBlob()` → object URL → download `<title>.mp4` (plus the
+   `.vtt` captions once voice exists). Then upload the blob with `exportUploadUrl` and
    `attachExport` (with hash and `rendererVersion`).
 6. **Failure:** show the error, keep the editor state, offer retry. Never mark
    the video ready unless `attachExport` succeeded.
 
-Performance knobs to settle in V0: `pageResponsiveness` (responsive vs. fast),
-`hardwareAcceleration`, `videoBitrate`, and `scale` (e.g. a quick 540p draft
-export).
+Settings: `pageResponsiveness` stays at the default (keeps the editor
+responsive); `videoBitrate` at the default. No performance tuning is planned,
+since export time does not matter.
 
 ### 9.3 Environment (names only; values never committed, rule 1)
 
-MVP: `ELEVENLABS_API_KEY`, `PEXELS_API_KEY`, `OPENROUTER_API_KEY` (exists) on
-the Convex deployment; `VITE_REMOTION_LICENSE_KEY` in the web app. A licence key
+MVP: `PEXELS_API_KEY`, `OPENROUTER_API_KEY` (exists) on the Convex
+deployment; `VITE_REMOTION_LICENSE_KEY` in the web app. A licence key
 used by client-side rendering is by nature visible in the browser bundle: V0
 confirms with Remotion that this key is a public identifier and not a secret;
 if it is a secret, fetch it per session from an authenticated query instead.
-Later: `VIDEO_CLIP_QUOTE_SECRET` (V6); `VERCEL_TOKEN`, `VERCEL_TEAM_ID`,
+Later: `ELEVENLABS_API_KEY` (V4b); `VIDEO_CLIP_QUOTE_SECRET` (V6); `VERCEL_TOKEN`, `VERCEL_TEAM_ID`,
 `BLOB_READ_WRITE_TOKEN` or equivalent (V5b). Missing key → that capability
 resolves to `needs_setup`.
 
@@ -706,12 +743,14 @@ within a tolerance.
 
 ## 11. Costs and budgets ⚑ D4
 
-Per 60 s video, list prices on 24 Sep 2026:
+Per 60 s video, list prices on 24 Sep 2026. **The silent MVP costs only the
+storyboard call (under $0.01 per video)**; everything else is free or runs on
+the user's device.
 
 | Item | Unit price | Typical use | Cost |
 |---|---|---|---|
 | Storyboard LLM | existing text model via OpenRouter | ~3k tokens | < $0.01 |
-| Voiceover (ElevenLabs) | $0.05–0.10 / 1k chars | ~900 chars | $0.05–0.09 |
+| Voiceover (ElevenLabs, V4b; none in the MVP) | $0.05–0.10 / 1k chars | ~900 chars | $0.05–0.09 |
 | Stock (Pexels) | free | 3–6 clips | $0 |
 | Export (MVP, browser) | runs on the user's device | 1 export | $0 (plus the Remotion licence if the company has 4+ people) |
 | Server render (later, Vercel Sandbox) | usage-based Vercel compute + Blob storage; Vercel Pro plan | 1 render | measure in V5b |
@@ -732,7 +771,7 @@ limits `spend` to owners). Plans without an allowance see AI clips as `locked`.
 
 | Area | Test (Vitest + convex-test unless noted) |
 |---|---|
-| Composition | validator ↔ type parity fixtures; limits; hash stability; `isRenderable` |
+| Composition | validator ↔ type parity fixtures; limits (a 5 s composition is valid, 4.9 s is not); `readMsFor` minimum; `fitToTarget` for 5/15/30/60 s; hash stability; `isRenderable` |
 | Timing/captions | char alignment → words; scene split; VTT output snapshot; pacing estimator |
 | Authorization | cross-tenant suite covers every new public function; member vs owner on `requestClip` |
 | Capability | free plan can storyboard; `create.spend` missing → `requestClip` refused before any provider call |
@@ -740,10 +779,10 @@ limits `spend` to owners). Plans without an allowance see AI clips as `locked`.
 | Renderer compatibility | unit test scans `src/video/remotion/` for banned CSS properties and unsupported components (§9.1) |
 | Idempotency | double `attachExport` of the same video replaces the old export (one row, old blob deleted); later double `requestRender` / `requestClip` → one row, one provider submit (mock) |
 | State machine | table test over `canTransition`; terminal states immutable |
-| Storyboard | fixture model outputs: rewritten script rejected; over-long on-screen text rejected; deterministic fallback |
+| Storyboard | fixture model outputs: an invented number/price/name rejected by grounding; scene count over budget for 5 s rejected; over-long on-screen text rejected; deterministic hook + CTA fallback fits 5 s |
 | Budget | over-allowance quote refused; cost recorded from `usage.cost` |
 | Deletion | project deletion removes rows **and** storage blobs |
-| Browser (Playwright, Chromium) | create video from a script → edit scene → preview plays → export a short fixture in the browser → download event fires with an MP4 → export listed on the video; keyboard-only reorder; unsupported-browser message when `VideoEncoder` is stubbed out |
+| Browser (Playwright, Chromium) | create video from a script → edit scene → preview plays → export a **5 s** fixture in the browser → download event fires with an MP4 that has a video track and **no audio track** and a duration of 5 s (±1 frame) → export listed on the video; keyboard-only reorder; unsupported-browser message when `VideoEncoder` is stubbed out |
 | A11y (axe) | Videos tab and studio pass with no allow-list |
 
 ---
@@ -754,20 +793,22 @@ Sizes: S ≤ 1 day, M 2–3 days, L 4–5 days.
 
 | Ticket | Scope | Depends on | Acceptance (each by a test or recorded check) | Size |
 |---|---|---|---|---|
-| **V0 Spike + ADR** | Export a 60 s 1080×1920 fixture (stock clips + voice + captions) with `renderMediaOnWeb` on a mid-range laptop in Chrome, Firefox and Safari 26; confirm Convex storage CORS for canvas use and that the licence key is public; one ElevenLabs call with timestamps; (for V6) one OpenRouter video job. Record times, file sizes, failures. ADR "Video rendering and media providers". | none for the browser part | ADR merged with measured numbers; no production code | M |
+| **V0 Spike + ADR** | Export a 5 s and a 60 s muted fixture (brand graphics + an uploaded image + a stock clip) with `renderMediaOnWeb` in Chrome, Firefox and Safari 26; confirm it completes (speed not measured), Convex storage CORS for canvas use, and that the licence key is public. ADR "Video rendering and media providers". ElevenLabs and OpenRouter video checks move to V4b/V6. | none | ADR merged; no production code | S |
 | **V1 Data + composition** | `src/shared/video/*`; `videos` + `videoAssets` tables; `aiRuns` additive fields; registry entries + blob cleanup; `videos.ts` CRUD with optimistic concurrency; `create.spend` in registry; file owners | T2.2, T2.3, T2.5 | composition tests; cross-tenant + capability tests green; `audit:functions`, `audit:capabilities`, data-registry audit green | M |
 | **V2 Storyboard agent** | `storyboard.ts`, prompt v1, validators, fallback, fixtures | V1, gateway | fidelity/pacing validators reject bad fixtures; no client-supplied script accepted | M |
 | **V3 Studio UI + preview** | Videos tab, studio, scene editing, uploads, brand graphics, `@remotion/player` preview, all UI states | V1, V2 | Playwright journey to preview; axe clean; keyboard reorder | L |
-| **V4 ⚑ Stock + voice + captions** | Pexels search/import, ElevenLabs voiceover, word timings, captions in preview, music bed | V3, D2, D6 | caption timing within 100 ms of alignment on fixtures; `needs_setup` without keys; attribution stored | M |
+| **V4 ⚑ Stock** | Pexels search/import (video renditions stored muted-agnostic; the export is muted), attribution stored and shown | V3, D6, Pexels key | `needs_setup` without the key; import by id only; attribution stored | S–M |
+| V4b ⚑ Sound (after the MVP) | ElevenLabs voiceover, word timings, captions, WebVTT, music bed + ducking, narration fidelity check, `muted: false` export | V5, D2, D4 voice cap | caption timing within 100 ms of alignment on fixtures; `needs_setup` without the key; budget refusal | M |
 | **V5 Browser export (MVP)** | `useBrowserExport`, capability check, progress/cancel, download MP4 + VTT, `exportUploadUrl`/`attachExport`, "Exported on this device" label | V4, V0 | Playwright export journey; unsupported browser shows `unavailable`; `attachExport` rejects bad MIME/size; `ready` only after stored | S–M |
 | V5b Server render + hand-off (later) | Vercel Sandbox `RenderProvider`, `videoRenders` table, `renders.ts`, polling, cron, finalize with receipt, `forPromote` contract, Promote accepts `{type:"video",id}` | V5, Vercel account (Pro) | truth + idempotency tests; receipt only after verified finalize; parity test vs browser export | L |
 | **V6 ⚑ AI clips** | allow-list, quote token, `clips.ts`, poll loop, budget, disclosure flag to Promote; approval record once T2.12 lands | V5 (V5b for the Promote flag), D3, D4, D5 | no clip without `create.spend` + valid quote; budget refusal; `aiGenerated` reaches Promote | M |
 | V7 Rough cut (deferred) | Upload phone footage → shot detection + ASR filler removal (OpenStoryline as reference, isolated worker) | ADR | n/a | L |
 | V8 Advanced edit (deferred) | Multi-track editor (OpenReel as reference, MIT; check ffmpeg.wasm licensing and CDN loading) | ADR | n/a | L+ |
 
-**MVP = V0 + V1 + V2 + V3 + V4 (no music) + V5**, roughly 13–18 working days
-(estimate, to be checked by V0). Order: V0 can run in parallel with V1–V3 (they
-need no provider). V4 waits for D2/D6; V5b and V6 come after the MVP. Each PR description follows the template in AGENTS.md §6
+**MVP = V0 + V1 + V2 + V3 + V4 (stock) + V5, silent**, roughly 10–14 working
+days (estimate). Order: V0 can run in parallel with V1–V3 (they need no
+provider). V4 waits for D6 and the Pexels key; V4b (sound), V5b and V6 come
+after the MVP. Each PR description follows the template in AGENTS.md §6
 (Outcome · Scope · Before · After · Data migration · Security and privacy ·
 Verification · Proof).
 
@@ -777,9 +818,10 @@ Verification · Proof).
 
 | Risk | Mitigation |
 |---|---|
-| Browser export too slow or fails on low-end devices | V0 measures; offer a 540p draft export (`scale`); cap MVP length at 120 s; V5b server render as the fallback |
+| Browser export fails on low-end devices (slowness itself is accepted) | V0 checks completion on each browser; cap length at 120 s; V5b server render as the fallback |
+| A 5 s video that says nothing useful | scene budget + hook/CTA condensing; user can edit every line |
 | Unsupported browser (older Safari, no WebCodecs) | capability check → `unavailable` with the supported versions; preview still works |
-| User closes or backgrounds the tab | `beforeunload` warning; background tabs keep rendering, slower (Remotion falls back to a Worker timer) |
+| User closes the tab mid-export | `beforeunload` warning; backgrounding is fine (Remotion keeps rendering via a Worker timer, slower, which is accepted) |
 | Canvas-drawn output differs from the preview for unsupported CSS | CSS subset rule + scan test (§9.1) |
 | Remotion licence tier | free up to 3 people; confirm D1a before launch |
 | Provider model retired (Sora API removed 24 Sep 2026) | allow-list + OpenRouter lets us switch model ids; no model id in UI code |
