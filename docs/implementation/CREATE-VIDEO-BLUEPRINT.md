@@ -660,8 +660,12 @@ colours.
 2. **Guard:** `isRenderable(composition)` and a saved revision (export uses the
    saved composition, never unsaved local edits, so the stored
    `compositionHash` is true).
-3. **Render:** `renderMediaOnWeb({ composition, inputProps, container: "mp4",
-   videoCodec: "h264", muted: true, onProgress, signal, schema })`
+3. **Render:** pick the codec with `canRenderMediaOnWeb` in the order MP4/H.264
+   → MP4/VP9 → WebM/VP9 → WebM/VP8 (V0 found no H.264 encoder in open-source
+   Chromium; see `docs/decisions/2026-09-24-video-browser-rendering.md`), then
+   `renderMediaOnWeb({ composition, inputProps, container, videoCodec,
+   muted: true, onProgress, signal, schema })`. The export panel names the codec
+   when it is not H.264
    (`muted: true` in the MVP: no audio track is written, and stock clips'
    own audio is dropped) with the composition's Zod v4 schema (Zod v4 is already a
    dependency). `signal` comes from an `AbortController` wired to Cancel.
