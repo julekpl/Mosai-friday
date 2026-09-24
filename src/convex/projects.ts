@@ -111,6 +111,33 @@ export const saveScan = orgMutation({
     metaDescription: v.optional(v.string()),
     headings: v.optional(v.array(v.string())),
     productsServices: v.optional(v.array(v.string())),
+    pages: v.optional(v.array(v.object({
+      url: v.string(),
+      title: v.optional(v.string()),
+      description: v.optional(v.string()),
+      headings: v.array(v.string()),
+      productsServices: v.array(v.string()),
+      excerpt: v.string(),
+    }))),
+    socialChannels: v.optional(v.array(v.string())),
+    businessDetails: v.optional(v.object({
+      name: v.optional(v.string()),
+      address: v.optional(v.string()),
+      country: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      email: v.optional(v.string()),
+      footerExcerpt: v.optional(v.string()),
+    })),
+    coverage: v.optional(v.object({
+      sitemapCount: v.number(),
+      sitemapFailureCount: v.number(),
+      discoveredPageCount: v.number(),
+      scannedPageCount: v.number(),
+      failedPageCount: v.number(),
+      skippedByRobotsCount: v.number(),
+      pageLimit: v.number(),
+      truncated: v.boolean(),
+    })),
     gmb: v.optional(
       v.object({
         title: v.optional(v.string()),
@@ -207,6 +234,19 @@ export const exportPack = orgQuery({
       md.push(`\n## Goals\n${project.goals.map((g) => `- ${g}`).join("\n")}`);
     if (project.competitors?.length)
       md.push(`\n## Competitors\n${project.competitors.map((c) => `- ${c}`).join("\n")}`);
+    if (project.websiteScan) {
+      const scan = project.websiteScan;
+      md.push(`\n## Website scan · ${scan.status}`);
+      if (scan.businessDetails?.address) md.push(`**Address candidate:** ${scan.businessDetails.address}`);
+      if (scan.businessDetails?.country) md.push(`**Country candidate:** ${scan.businessDetails.country}`);
+      if (scan.socialChannels?.length) md.push(`**Social profile links:** ${scan.socialChannels.join(", ")}`);
+      if (scan.coverage) md.push(`**Coverage:** ${scan.coverage.scannedPageCount} pages scanned of ${scan.coverage.discoveredPageCount} discovered; ${scan.coverage.truncated ? "first-pass limit reached" : "no discovered page left in this pass"}.`);
+      for (const page of scan.pages ?? []) {
+        md.push(`\n### ${page.title ?? page.url}\n${page.url}`);
+        if (page.description) md.push(page.description);
+        if (page.excerpt) md.push(page.excerpt);
+      }
+    }
 
     if (personas.length) {
       md.push(`\n## Personas`);

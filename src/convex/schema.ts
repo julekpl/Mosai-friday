@@ -218,6 +218,33 @@ const schema = defineSchema(
           headings: v.optional(v.array(v.string())),
           // detected product / service names extracted from the site or GMB
           productsServices: v.optional(v.array(v.string())),
+          pages: v.optional(v.array(v.object({
+            url: v.string(),
+            title: v.optional(v.string()),
+            description: v.optional(v.string()),
+            headings: v.array(v.string()),
+            productsServices: v.array(v.string()),
+            excerpt: v.string(),
+          }))),
+          socialChannels: v.optional(v.array(v.string())),
+          businessDetails: v.optional(v.object({
+            name: v.optional(v.string()),
+            address: v.optional(v.string()),
+            country: v.optional(v.string()),
+            phone: v.optional(v.string()),
+            email: v.optional(v.string()),
+            footerExcerpt: v.optional(v.string()),
+          })),
+          coverage: v.optional(v.object({
+            sitemapCount: v.number(),
+            sitemapFailureCount: v.number(),
+            discoveredPageCount: v.number(),
+            scannedPageCount: v.number(),
+            failedPageCount: v.number(),
+            skippedByRobotsCount: v.number(),
+            pageLimit: v.number(),
+            truncated: v.boolean(),
+          })),
           gmb: v.optional(
             v.object({
               title: v.optional(v.string()),
