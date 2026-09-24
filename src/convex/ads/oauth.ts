@@ -114,6 +114,13 @@ export const start = moduleMutation("promote", {
     })) {
       if (v) url.searchParams.set(k, v);
     }
+    // Google only issues a refresh token for offline access, and only on a
+    // fresh consent — without these the stored credential dies in an hour.
+    if (platform === "google") {
+      url.searchParams.set("access_type", "offline");
+      url.searchParams.set("prompt", "consent");
+      url.searchParams.set("include_granted_scopes", "true");
+    }
     // TikTok OAuth uses its portal; add required params
     if (platform === "tiktok") {
       url.searchParams.set("advertiser_id", "");

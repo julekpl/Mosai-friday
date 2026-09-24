@@ -34,7 +34,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { GoogleDataPanel } from "@/components/grow/GoogleDataPanel";
 import { cn } from "@/lib/utils";
+
+/** GA4, Search Console and Google Ads connect through the Google panel. */
+const GOOGLE_PROVIDER_IDS: readonly string[] = ["ga4", "gsc", "gads"];
+const OTHER_PROVIDERS = DATA_PROVIDERS.filter((p) => !GOOGLE_PROVIDER_IDS.includes(p.id));
 
 const KINDS = [
   "seo",
@@ -103,7 +108,7 @@ function InsightForm({
             manual
           </div>
           <p className="font-mono text-caption text-muted-foreground">
-            Notes about GA4 or other providers remain manual until verified imports are available.
+            Notes you record here stay labelled manual. Google numbers appear in the Google data panel.
           </p>
         </div>
       </div>
@@ -170,8 +175,8 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
                 New insight
               </DialogTitle>
               <DialogDescription className="font-mono text-caption">
-                Manually recorded notes stay labeled manual. Provider data and
-                evidence-backed recommendations are not available yet.
+                Manually recorded notes stay labeled manual. Synced Google
+                numbers are shown separately with their source and date.
               </DialogDescription>
             </DialogHeader>
             <InsightForm projectId={projectId} onDone={() => setOpen(false)} />
@@ -179,9 +184,11 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
         </Dialog>
       </ModuleHeader>
 
-      {/* Connection status strip */}
+      <GoogleDataPanel projectId={projectId} />
+
+      {/* Other providers: intent only until each has a verified flow. */}
       <div className="mb-6 flex flex-wrap gap-2">
-        {DATA_PROVIDERS.map((p) => {
+        {OTHER_PROVIDERS.map((p) => {
           const connection = connectionByProvider.get(p.id);
           const status = connection?.status ?? "available";
           const isConnected = status === "connected";
@@ -239,7 +246,7 @@ export default function Grow({ projectId }: { projectId: Id<"projects"> }) {
         <ModuleEmpty
           icon={TrendingUp}
           title="No insights yet"
-          hint="Record a manual note here. Verified provider imports and evidence-backed recommendations are not available yet."
+          hint="Record a manual note here. Connect Google above to see verified numbers from Google Analytics, Search Console and Google Ads."
           action={
             <Button onClick={() => setOpen(true)}>
               <Plus className="size-4" /> Record the first insight
