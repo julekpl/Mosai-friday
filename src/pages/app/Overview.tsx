@@ -29,9 +29,13 @@ import { moduleTileBg, moduleTileText } from "@/components/mosaic";
 import {
   DATA_PROVIDERS,
   ModuleEmpty,
+  ModuleErrorBoundary,
+  ModuleSkeleton,
   StatusBadge,
 } from "@/components/app/module-kit";
 import { ProjectFilesSection } from "@/components/app/ProjectFiles";
+import { NextAction } from "@/components/app/NextAction";
+import { getNextActionModel } from "@/components/app/next-action-model";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -97,6 +101,41 @@ const MODULE_CARDS = [
     desc: "Insights with source & freshness, no blended scores",
   },
 ] as const;
+
+function OverviewNextAction({
+  projectId,
+  modules,
+}: {
+  projectId: Id<"projects">;
+  modules: string[];
+}) {
+  const personas = useQuery(api.personas.list, { projectId });
+  const journeys = useQuery(
+    api.journeys.list,
+    modules.includes("journeys") ? { projectId } : "skip",
+  );
+  const content = useQuery(api.content.list, { projectId });
+
+  if (
+    personas === undefined ||
+    content === undefined ||
+    (modules.includes("journeys") && journeys === undefined)
+  ) {
+    return <ModuleSkeleton label="Finding a useful next step…" />;
+  }
+
+  return (
+    <NextAction
+      projectId={projectId}
+      model={getNextActionModel({
+        personaCount: personas.length,
+        journeyCount: journeys?.length ?? 0,
+        contentCount: content.length,
+        modules,
+      })}
+    />
+  );
+}
 
 /* ── Communications section ─────────────────────────────────────────────── */
 
@@ -360,6 +399,10 @@ export default function Overview({
           </Badge>
         </div>
       </ModuleHeader>
+
+      <ModuleErrorBoundary>
+        <OverviewNextAction projectId={projectId} modules={modules} />
+      </ModuleErrorBoundary>
 
       {/* Project details */}
       <section className="mb-8 grid gap-4 rounded-md border bg-card p-4 shadow-card md:grid-cols-2">
