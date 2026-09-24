@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getSocialPostReadiness } from "@/lib/social-post-readiness";
 
 const CAMPAIGN_CHANNELS = ["email", "ads", "social"] as const;
 const POST_CHANNELS = ["facebook", "instagram", "linkedin", "x", "tiktok"] as const;
@@ -403,9 +404,11 @@ function PostActions({
   const [aiHint, setAiHint] = useState<string | null>(null);
 
   const connected = useQuery(api.social.oauth.status, { projectId });
-  const isConnected = connected?.find(
-    (c) => c.platform === post.channel,
-  )?.connected;
+  const connection =
+    connected === undefined
+      ? undefined
+      : connected.find((c) => c.platform === post.channel) ?? null;
+  const readiness = getSocialPostReadiness(connection);
 
   const doSchedule = async () => {
     setBusy("schedule");
@@ -464,21 +467,26 @@ function PostActions({
     }
   };
 
-  const needsConnection = post.status === "scheduled" || post.status === "draft";
-
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {post.status === "draft" && (
         <>
-          {isConnected === false && needsConnection && (
-            <span className="font-mono text-caption text-terminal-amber">
-              connect {PLATFORM_LABEL[post.channel] ?? post.channel} first
+          {readiness.state !== "ready" && (
+            <span
+              role="status"
+              className="font-mono text-caption text-terminal-amber"
+            >
+              {readiness.state === "checking"
+                ? `Checking ${PLATFORM_LABEL[post.channel] ?? post.channel} connection…`
+                : readiness.state === "connect"
+                  ? `Connect ${PLATFORM_LABEL[post.channel] ?? post.channel} in the “publish via” section above to schedule or publish.`
+                  : `${PLATFORM_LABEL[post.channel] ?? post.channel} publishing is unavailable until this platform is configured.`}
             </span>
           )}
           <Button
             size="sm"
             variant="outline"
-            disabled={busy !== null}
+            disabled={busy !== null || !readiness.canExecute}
             onClick={doSchedule}
           >
             {busy === "schedule" ? (
@@ -491,7 +499,7 @@ function PostActions({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy !== null || isConnected === false}
+            disabled={busy !== null || !readiness.canExecute}
             onClick={doAiTime}
             title="AI suggests a time, you approve by scheduling"
           >
@@ -502,7 +510,11 @@ function PostActions({
             )}
             AI time
           </Button>
-          <Button size="sm" disabled={busy !== null} onClick={doPublish}>
+          <Button
+            size="sm"
+            disabled={busy !== null || !readiness.canExecute}
+            onClick={doPublish}
+          >
             {busy === "publish" ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
