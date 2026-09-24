@@ -68,9 +68,20 @@ export function hostingStateView(
  *  ignored rather than rendered as an address. */
 const PUBLIC_PATH = /^\/s\/[a-z0-9][a-z0-9-]*-website(?:\/[A-Za-z0-9._~/-]*)?$/;
 
-/** Full public URL for a status path on the given origin, or null. */
+/** Full public URL for a status path on the given origin, or null. When the
+ *  server has MOSAI_PUBLIC_SITE_BASE set (the later move to a separate
+ *  domain), `path` is already an absolute https URL and is used as is. */
 export function publicSiteUrl(origin: string, path: string | null | undefined): string | null {
-  if (!path || !PUBLIC_PATH.test(path) || path.includes("..")) return null;
+  if (!path || path.includes("..")) return null;
+  if (path.startsWith("https://")) {
+    try {
+      const url = new URL(path);
+      return PUBLIC_PATH.test(url.pathname) && !url.search && !url.hash ? url.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!PUBLIC_PATH.test(path)) return null;
   return `${origin.replace(/\/+$/, "")}${path}`;
 }
 

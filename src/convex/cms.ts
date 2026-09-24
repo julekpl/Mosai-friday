@@ -1,4 +1,4 @@
-import { query, type MutationCtx } from "./_generated/server";
+import { query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -7,7 +7,7 @@ import {
   validateDocument,
   type PageDocument,
 } from "../lib/cms/blocks";
-import { selectConfirmedRelease } from "./lib/deliveryGate";
+import { resolveReleaseRoute, selectConfirmedRelease } from "./lib/deliveryGate";
 
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
  *
@@ -229,13 +229,11 @@ export const getPublishedByPath = query({
     // otherwise serve A's pinned revision under B's new path (the page row
     // moved, but a pin maps by page id). Audits written before snapshots
     // existed fail closed because their former route/metadata is unknowable.
-    const route = gate.routesByPath.get(path);
-    const pinnedId: Id<"pageRevisions"> | undefined = route?.revisionId;
-    if (!pinnedId || !route?.title) return null;
-    const revision = await ctx.db.get(pinnedId);
-    // Accepts the legacy `published` name during the rename transition; the
-    // receipt-pinned route above is what actually authorizes serving.
-    if (!revision || !isPreparedRevisionState(revision.state)) return null;
+    // Shared with the MOSAI self-host route (siteHosting) so both public
+    // readers resolve a path identically.
+    const resolved = await resolveReleaseRoute(ctx, gate.routesByPath, path);
+    if (!resolved) return null;
+    const { route, revision } = resolved;
     // Metadata comes from the snapshot frozen at preparation — a title/SEO
     // edit belonging to a later, unverified release must not appear before
     // that release verifies (follow-up 4). No mutable page.status check:
@@ -907,42 +905,56 @@ export const resolveProducts = moduleQuery("build", {
   handler: async (ctx, { collectionId, limit }, access) => {
     const col = await access.ownedRow(await ctx.db.get(collectionId));
     if (!col) return [];
-
-    const products = await ctx.db
-      .query("products")
-      .withIndex("by_project", (q) => q.eq("projectId", col.projectId))
-      .collect();
-    const members = products
-      .filter((p) => p.collectionIds?.includes(collectionId))
-      .filter((p) => p.status !== "archived")
-      .slice(0, Math.min(limit ?? 12, 48));
-
-    const resolved: ResolvedProduct[] = [];
-    for (const p of members) {
-      const variants = await ctx.db
-        .query("productVariants")
-        .withIndex("by_product", (q) => q.eq("productId", p._id))
-        .collect();
-      const def = variants.find((v) => v.isDefault) ?? variants[0];
-      const media = await ctx.db
-        .query("productMedia")
-        .withIndex("by_product", (q) => q.eq("productId", p._id))
-        .collect();
-      const primary = media.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
-      resolved.push({
-        productId: p._id,
-        title: p.title,
-        priceCents: def?.priceCents ?? null,
-        currency: def?.currency ?? "USD",
-        availability: def?.availability ?? null,
-        imageUrl: primary?.url ?? null,
-        externalUrl: p.externalUrl ?? null,
-        provider: p.provider ?? null,
-      });
-    }
-    return resolved;
+    return await collectionProducts(ctx, col, { limit });
   },
 });
+
+/**
+ * Live product facts for one collection, shared by the owner preview above
+ * and the MOSAI-hosted public site renderer (siteHosting). `publicOnly` also
+ * drops `draft` products, for pages anyone can read. Not a registered
+ * function — callers authorize the collection first.
+ */
+export async function collectionProducts(
+  ctx: Pick<QueryCtx, "db">,
+  col: Doc<"collections">,
+  opts: { limit?: number; publicOnly?: boolean } = {},
+): Promise<ResolvedProduct[]> {
+  const products = await ctx.db
+    .query("products")
+    .withIndex("by_project", (q) => q.eq("projectId", col.projectId))
+    .collect();
+  const members = products
+    .filter((p) => p.collectionIds?.includes(col._id))
+    .filter((p) => p.status !== "archived")
+    .filter((p) => !opts.publicOnly || p.status !== "draft")
+    .slice(0, Math.min(opts.limit ?? 12, 48));
+
+  const resolved: ResolvedProduct[] = [];
+  for (const p of members) {
+    const variants = await ctx.db
+      .query("productVariants")
+      .withIndex("by_product", (q) => q.eq("productId", p._id))
+      .collect();
+    const def = variants.find((v) => v.isDefault) ?? variants[0];
+    const media = await ctx.db
+      .query("productMedia")
+      .withIndex("by_product", (q) => q.eq("productId", p._id))
+      .collect();
+    const primary = media.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+    resolved.push({
+      productId: p._id,
+      title: p.title,
+      priceCents: def?.priceCents ?? null,
+      currency: def?.currency ?? "USD",
+      availability: def?.availability ?? null,
+      imageUrl: primary?.url ?? null,
+      externalUrl: p.externalUrl ?? null,
+      provider: p.provider ?? null,
+    });
+  }
+  return resolved;
+}
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 

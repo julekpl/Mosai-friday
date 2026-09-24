@@ -317,6 +317,17 @@ const fixtures: Fixture[] = [
     }),
   },
   {
+    // MOSAI-hosted site address (siteHosting). Deleting the project frees
+    // the slug.
+    table: "publicSites",
+    doc: (s) => ({
+      projectId: s.projectId,
+      kind: "website",
+      slug: "fixture-site",
+      createdAt: at,
+    }),
+  },
+  {
     table: "projectFiles",
     doc: (s) => ({
       projectId: s.projectId,

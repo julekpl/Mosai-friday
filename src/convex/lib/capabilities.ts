@@ -484,6 +484,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   buildWorkspace: "build",
   buildChat: "build",
   cms: "build",
+  siteHosting: "build",
   contacts: "customers",
   posts: "promote",
   campaigns: "promote",
@@ -580,6 +581,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/aiBudget": "internal",
   "lib/sitePaths": "internal",
   "lib/siteHtml": "internal",
+  "lib/publicSites": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {

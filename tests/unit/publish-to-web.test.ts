@@ -54,6 +54,14 @@ describe("publicSiteUrl", () => {
     );
   });
 
+  it("uses an absolute https address from MOSAI_PUBLIC_SITE_BASE as is", () => {
+    expect(
+      publicSiteUrl("https://appmosai.com", "https://appmosai.site/s/acme-website"),
+    ).toBe("https://appmosai.site/s/acme-website");
+    expect(publicSiteUrl("https://appmosai.com", "http://appmosai.site/s/acme-website")).toBeNull();
+    expect(publicSiteUrl("https://appmosai.com", "https://appmosai.site/admin")).toBeNull();
+  });
+
   it("ignores missing or unexpected paths", () => {
     for (const bad of [
       null,
