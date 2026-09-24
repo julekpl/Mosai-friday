@@ -579,6 +579,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/aiModelCatalog": "internal",
   "lib/aiBudget": "internal",
   "lib/sitePaths": "internal",
+  "lib/siteHtml": "internal",
 };
 
 export function fileOwner(file: string): FileOwner | null {
