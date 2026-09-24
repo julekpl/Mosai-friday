@@ -429,7 +429,7 @@ function VersionsMenu({
                     v{v.version}
                     {v.isPublished && (
                       <span className="ml-1.5 text-terminal-green">
-                        · live
+                        · latest release
                       </span>
                     )}
                     <span className="ml-1.5 font-normal text-muted-foreground">

@@ -2,7 +2,6 @@ import { useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { useParams, Navigate } from "react-router";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/app/AppShell";
-import { ModuleTransition } from "@/components/motion";
 import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
 import Overview from "./app/Overview";
 import Understand from "./app/Understand";
@@ -83,9 +82,8 @@ function ModuleView({
   if (!Component) return null;
   return (
     <div ref={containerRef}>
-      <ModuleTransition>
-        <Component key={module} projectId={projectId} />
-      </ModuleTransition>
+      {/* AppShell animates route changes (reduced-motion aware). */}
+      <Component key={module} projectId={projectId} />
     </div>
   );
 }
