@@ -59,6 +59,48 @@ export type ModelGatewayResult = {
   usage: ProviderUsage;
 };
 
+// ── Tool calling (T2.17) ────────────────────────────────────────────────────
+
+/** Upper bounds on one tool-calling step. The loop in `lib/agentLoop.ts`
+ *  enforces its own per-turn step cap on top of these. */
+export const MODEL_GATEWAY_MAX_TOOLS = 32;
+export const MODEL_GATEWAY_MAX_TOOL_CALLS_PER_STEP = 8;
+export const MODEL_GATEWAY_MAX_TOOL_ARGUMENT_CHARS = 8_000;
+
+/** A function the model may ask for. `parameters` is a JSON Schema object. */
+export type ModelToolDefinition = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+/** A call the model asked for. `arguments` is raw model output: untrusted
+ *  JSON text that the caller must parse and validate before use. */
+export type ModelToolCall = {
+  id: string;
+  name: string;
+  arguments: string;
+};
+
+export type ModelToolMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string; toolCalls?: ModelToolCall[] }
+  | { role: "tool"; toolCallId: string; content: string };
+
+export type ModelToolStepRequest = Omit<
+  ModelGatewayRequest,
+  "messages" | "provider" | "validateOutput"
+> & {
+  messages: ModelToolMessage[];
+  tools: ModelToolDefinition[];
+};
+
+export type ModelToolStepResult = {
+  text: string;
+  toolCalls: ModelToolCall[];
+  usage: ProviderUsage;
+};
+
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
@@ -68,6 +110,7 @@ function record(value: unknown): Record<string, unknown> | null {
 export function normalizeOpenRouterResponse(value: unknown): {
   text: string;
   usage: ProviderUsage;
+  toolCalls: ModelToolCall[];
 } {
   const data = record(value);
   const choices = Array.isArray(data?.choices) ? data.choices : [];
@@ -78,6 +121,7 @@ export function normalizeOpenRouterResponse(value: unknown): {
   const costMicrousd = cost === null ? null : finiteNumber(Math.round(cost * 1_000_000));
   return {
     text: typeof message?.content === "string" ? message.content.trim() : "",
+    toolCalls: normalizeToolCalls(message?.tool_calls),
     usage: {
       promptTokens: finiteNumber(usage?.prompt_tokens),
       completionTokens: finiteNumber(usage?.completion_tokens),
@@ -87,6 +131,28 @@ export function normalizeOpenRouterResponse(value: unknown): {
       costCurrency: costMicrousd === null ? null : "USD",
     },
   };
+}
+
+/** Keep only well-formed function calls. Anything else the provider returns
+ *  is dropped here, so a malformed call can never reach a tool handler. */
+export function normalizeToolCalls(value: unknown): ModelToolCall[] {
+  if (!Array.isArray(value)) return [];
+  const calls: ModelToolCall[] = [];
+  for (const item of value) {
+    const call = record(item);
+    const fn = record(call?.function);
+    if (
+      typeof call?.id !== "string" ||
+      !call.id ||
+      call.id.length > 200 ||
+      typeof fn?.name !== "string" ||
+      typeof fn.arguments !== "string"
+    ) {
+      continue;
+    }
+    calls.push({ id: call.id, name: fn.name, arguments: fn.arguments });
+  }
+  return calls;
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -170,7 +236,13 @@ async function callVly(request: ResolvedRequest, maxTokens: number) {
   };
 }
 
-async function callOpenRouter(request: ResolvedRequest, maxTokens: number) {
+async function callOpenRouter(
+  request: Pick<ResolvedRequest, "model" | "temperature"> & {
+    messages: ModelMessage[] | ModelToolMessage[];
+    tools?: ModelToolDefinition[];
+  },
+  maxTokens: number,
+) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("provider configuration unavailable");
 
@@ -184,9 +256,22 @@ async function callOpenRouter(request: ResolvedRequest, maxTokens: number) {
     },
     body: JSON.stringify({
       model: request.model,
-      messages: request.messages,
+      messages: request.messages.map(toOpenRouterMessage),
       max_tokens: maxTokens,
       temperature: request.temperature ?? 0.7,
+      ...(request.tools?.length
+        ? {
+            tools: request.tools.map((tool) => ({
+              type: "function",
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+              },
+            })),
+            tool_choice: "auto",
+          }
+        : {}),
     }),
     signal: AbortSignal.timeout(MODEL_GATEWAY_TIMEOUT_MS),
   });
@@ -195,9 +280,132 @@ async function callOpenRouter(request: ResolvedRequest, maxTokens: number) {
   const normalized = normalizeOpenRouterResponse(await response.json());
   return {
     text: normalized.text,
+    toolCalls: normalized.toolCalls,
     failed: false,
     usage: normalized.usage,
   };
+}
+
+function toOpenRouterMessage(message: ModelMessage | ModelToolMessage) {
+  if (message.role === "tool") {
+    return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+  }
+  if (message.role === "assistant" && "toolCalls" in message && message.toolCalls?.length) {
+    return {
+      role: "assistant",
+      content: message.content,
+      tool_calls: message.toolCalls.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    };
+  }
+  return { role: message.role, content: message.content };
+}
+
+const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+
+function validateToolStepRequest(request: ModelToolStepRequest & { model: string }): boolean {
+  const names = new Set(request.tools.map((tool) => tool.name));
+  const messageChars = request.messages.reduce(
+    (sum, message) =>
+      sum +
+      message.content.length +
+      (message.role === "assistant"
+        ? (message.toolCalls ?? []).reduce((n, call) => n + call.arguments.length, 0)
+        : 0),
+    0,
+  );
+  return (
+    Boolean(request.agentId.trim()) &&
+    Boolean(request.promptVersion.trim()) &&
+    Boolean(request.model.trim()) &&
+    request.model.length <= 120 &&
+    Number.isInteger(request.maxOutputTokens) &&
+    request.maxOutputTokens >= 1 &&
+    request.maxOutputTokens <= MODEL_GATEWAY_MAX_OUTPUT_TOKENS &&
+    request.messages.length > 0 &&
+    request.messages.every((message) => typeof message.content === "string") &&
+    request.contextSources.length <= 20 &&
+    request.contextSources.every((source) => source.trim() && source.length <= 80) &&
+    messageChars <= MODEL_GATEWAY_MAX_INPUT_CHARS &&
+    request.tools.length > 0 &&
+    request.tools.length <= MODEL_GATEWAY_MAX_TOOLS &&
+    names.size === request.tools.length &&
+    request.tools.every((tool) => TOOL_NAME.test(tool.name) && tool.description.trim().length > 0)
+  );
+}
+
+/**
+ * One recorded tool-calling step (T2.17). OpenRouter only, because the legacy
+ * platform SDK has no tool-call shape. The model's reply is either final text
+ * or a list of requested calls; this function never executes a tool. The
+ * caller (`lib/agentLoop.ts`) validates and runs them.
+ */
+export async function modelToolStep(
+  request: ModelToolStepRequest,
+): Promise<ModelToolStepResult> {
+  const model =
+    request.model ??
+    (
+      await request.ctx.runQuery(internal.aiModels.resolveForRequest, {
+        projectId: request.projectId,
+      })
+    ).modelId;
+  const maxTokens = Math.min(request.maxOutputTokens, MODEL_GATEWAY_MAX_OUTPUT_TOKENS);
+  const startedAt = Date.now();
+  const runId = await request.ctx.runMutation(internal.guards.startAiRun, {
+    userId: request.userId,
+    projectId: request.projectId,
+    agentId: request.agentId,
+    promptVersion: request.promptVersion,
+    provider: "openrouter",
+    model,
+    autonomy: request.autonomy,
+    maxOutputTokens: maxTokens,
+    contextSources: request.contextSources,
+  });
+  const finish = (
+    status: "succeeded" | "failed",
+    usage: ProviderUsage,
+    errorCategory: AiErrorCategory | null,
+  ) =>
+    persistRunFinish(request.ctx, {
+      runId,
+      status,
+      ...usage,
+      errorCategory,
+      finishedAt: Date.now(),
+      latencyMs: Date.now() - startedAt,
+    });
+
+  if (!validateToolStepRequest({ ...request, model })) {
+    await finish("failed", emptyUsage(), "invalid_request");
+    throw new Error(errorMessage("invalid_request"));
+  }
+
+  let result: Awaited<ReturnType<typeof callOpenRouter>>;
+  try {
+    result = await callOpenRouter(
+      { model, temperature: request.temperature, messages: request.messages, tools: request.tools },
+      maxTokens,
+    );
+  } catch {
+    await finish("failed", emptyUsage(), "provider_error");
+    throw new Error(errorMessage("provider_error"));
+  }
+
+  if (!result.text && result.toolCalls.length === 0) {
+    await finish("failed", result.usage, "empty_response");
+    throw new Error(errorMessage("empty_response"));
+  }
+  if (result.toolCalls.length > MODEL_GATEWAY_MAX_TOOL_CALLS_PER_STEP) {
+    await finish("failed", result.usage, "invalid_output");
+    throw new Error(errorMessage("invalid_output"));
+  }
+  await finish("succeeded", result.usage, null);
+  return { text: result.text, toolCalls: result.toolCalls, usage: result.usage };
 }
 
 /**

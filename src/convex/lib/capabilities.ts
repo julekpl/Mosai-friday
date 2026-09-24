@@ -560,6 +560,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "sell/readiness": "internal",
   "lib/dataRegistry": "internal",
   "lib/modelGateway": "internal",
+  "lib/agentLoop": "internal",
   "lib/dataLifecycle": "internal",
   "lib/deliveryGate": "internal",
   "lib/roles": "internal",

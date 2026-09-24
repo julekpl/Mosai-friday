@@ -277,6 +277,7 @@ describe("ModelGateway S1", () => {
 
     expect(normalizeOpenRouterResponse(null)).toEqual({
       text: "",
+      toolCalls: [],
       usage: {
         promptTokens: null,
         completionTokens: null,
@@ -304,6 +305,7 @@ describe("ModelGateway S1", () => {
       }),
     ).toEqual({
       text: "reply",
+      toolCalls: [],
       usage: {
         promptTokens: 8,
         completionTokens: 5,

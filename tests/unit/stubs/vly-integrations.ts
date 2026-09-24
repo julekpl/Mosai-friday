@@ -17,6 +17,8 @@ export type CompletionCall = {
   messages: Array<{ role: string; content: string }>;
   temperature?: number;
   maxTokens?: number;
+  /** OpenRouter only: the raw request body, for tool-calling assertions. */
+  body?: Record<string, unknown>;
 };
 
 /** Every `completion()` call made during a test, in order. */
@@ -41,8 +43,17 @@ export function stubMalformedCompletionContent(content: unknown) {
   hasMalformedContent = true;
 }
 
+/** OpenRouter only: queued raw `choices[0].message` objects, returned one per
+ *  request before falling back to `nextContent`. Used for tool-call replies. */
+const queuedOpenRouterMessages: unknown[] = [];
+
+export function queueOpenRouterMessages(...messages: unknown[]) {
+  queuedOpenRouterMessages.push(...messages);
+}
+
 export function resetCompletionStub() {
   completionCalls.length = 0;
+  queuedOpenRouterMessages.length = 0;
   nextContent = "{}";
   nextError = null;
   nextMalformedContent = undefined;
@@ -51,7 +62,7 @@ export function resetCompletionStub() {
 
 /** Offline OpenRouter adapter used by unit tests that choose that provider. */
 export function openRouterFetch(_input: RequestInfo | URL, init?: RequestInit): Response {
-  let request: { model?: unknown; messages?: unknown; max_tokens?: unknown; temperature?: unknown } = {};
+  let request: { model?: unknown; messages?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown } = {};
   try {
     request = JSON.parse(String(init?.body ?? "{}")) as typeof request;
   } catch {
@@ -65,11 +76,15 @@ export function openRouterFetch(_input: RequestInfo | URL, init?: RequestInit): 
     messages,
     maxTokens: typeof request.max_tokens === "number" ? request.max_tokens : undefined,
     temperature: typeof request.temperature === "number" ? request.temperature : undefined,
+    body: request,
   });
   if (nextError) return new Response(JSON.stringify({ error: nextError }), { status: 500 });
   const content = hasMalformedContent ? nextMalformedContent : nextContent;
+  const message = queuedOpenRouterMessages.length
+    ? queuedOpenRouterMessages.shift()
+    : { content };
   return new Response(JSON.stringify({
-    choices: [{ message: { content } }],
+    choices: [{ message }],
     usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 }

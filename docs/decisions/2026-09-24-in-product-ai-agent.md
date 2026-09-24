@@ -1,6 +1,6 @@
-# Decision record (proposed): the in-product AI agent
+# Decision record: the in-product AI agent
 
-**Status:** proposed, awaiting owner acceptance · **Date:** 24 Sep 2026
+**Status:** accepted (option C) on 24 Sep 2026; decisions 2 and 4 provisional, decision 3 open · **Date:** 24 Sep 2026
 **Needed because:** AGENTS.md §8 forbids adding a framework not named in an accepted ADR, and rule 11 says every AI call goes through `ModelGateway`.
 
 ## Question
@@ -66,7 +66,20 @@ Option C, concretely:
   - A *learning loop* that drafts a skill from a successful job for review.
   - *Unattended runs deny by default*: a job that needs approval moves to `waiting_for_user`.
 
-## Decisions the owner must make
+## Decision (24 Sep 2026)
+
+The owner accepted **option C**, a native copilot inside Convex. Option A (a Hermes worker per tenant) is rejected. No Hermes package, Python worker or `hermes-agent` npm package enters this repository.
+
+| # | Question | Status |
+|---|---|---|
+| 1 | Option C | **Accepted.** Hermes stays available as the owner's own tool on their machine (option B), outside the product. |
+| 2 | Loop | **Provisional: hand-rolled** inside `ModelGateway`, with no new dependencies. The owner can revisit this before T2.19. |
+| 3 | AI budget per plan | **Open.** This is money, so it is the owner's call (AGENTS.md §7). Until then the existing per-user quota applies: one unit per user turn, plus a hard cap on steps per turn. |
+| 4 | First release scope | **Provisional: navigate + read + draft.** No tool may publish, schedule, send or spend. Those arrive only as proposals once T2.12 (`ApprovalGate`) exists. |
+
+Tickets (rows in `docs/pack/10-build-backlog.md`): **T2.17** tool calling in `ModelGateway`, **T2.18** the copilot tool registry, **T2.19** copilot threads and the app-wide dock, **T2.20** a next-step model covering all eight modules.
+
+## Decisions the owner had to make (as originally proposed)
 
 1. Accept option C (and whether to keep B for internal operations).
 2. Hand-rolled loop vs `@convex-dev/agent` (new dependencies: `ai@^7`, `@convex-dev/agent`, `@openrouter/ai-sdk-provider`).
