@@ -24,6 +24,8 @@ Updated: 24 September 2026. This file tracks cross-chapter debt and owner decisi
 
 ## Working rule while D-01 is open
 
+For D-13, the 15-language list is an owner-approved launch requirement, not a localization claim. A read-only scan on 24 September found no application locale/translation files or translation hook in `src`; the current UI still contains English copy. BP-12 and the cross-module UX work need a shared locale strategy, translated consent and account journeys, and language-specific browser checks before any multilingual release claim.
+
 Run and report typecheck, lint, unit, authorization audits, browser checks and codegen separately where their prerequisites exist. Run the configured `bun run check` and record its actual failure at `scan:secrets`; never edit the scan or represent the overall gate as passed. No production deployment, live external write, or release approval follows from passing the other checks.
 
 ## Parallel chapter boundary
