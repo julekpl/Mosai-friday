@@ -146,8 +146,11 @@ Return ONLY valid JSON:
   "pages": [ { "name": string, "goal": string } ]
 }
 pages is empty while still clarifying; 3-7 pages once the plan is concrete.`,
-      `Business: ${project.name} — ${project.description ?? "no description yet"}
+      `Business: ${project.businessName ?? project.name} — ${project.description ?? "no description yet"}
 Industry: ${project.industry ?? "unknown"}
+Products/services: ${(project.productsServices ?? []).join(", ") || "not recorded"}
+Business goals: ${(project.goals ?? []).join(", ") || "not recorded"}
+Success measures: ${(project.kpis ?? []).join(", ") || "not recorded"}
 Build idea: ${build.idea ?? "(none yet)"}
 Conversation so far:
 ${transcript}
@@ -238,10 +241,12 @@ export const generateSite = moduleAction("build", {
 }
 3-6 pages, homepage first with path "/". 3-6 semantic sections per page, top to bottom.
 ${SITE_GEN_PROPS}
-Rules: specific benefit-led headings, no lorem ipsum, no invented statistics, concrete CTA labels.`,
-      `Business: ${project.name} — ${project.description ?? ""}
+Rules: specific benefit-led headings, no lorem ipsum, no invented statistics, concrete CTA labels. Use recorded business goals and success measures to guide page goals and CTAs; never promise outcomes or claim results that were not provided.`,
+      `Business: ${project.businessName ?? project.name} — ${project.description ?? ""}
 Industry: ${project.industry ?? "unknown"}
 Products/services: ${(project.productsServices ?? []).join(", ") || "unknown"}
+Business goals: ${(project.goals ?? []).join(", ") || "not recorded"}
+Success measures: ${(project.kpis ?? []).join(", ") || "not recorded"}
 Idea: ${build.idea ?? message}
 Latest instruction: ${message}`,
       { temperature: 0.7, maxTokens: 3000, validateOutput: validateGeneratedSitePlan },

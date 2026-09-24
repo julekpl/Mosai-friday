@@ -154,11 +154,13 @@ export function BuildIdeaScreen({
 
 function ChatPanel({
   buildId,
+  pageId,
   mode,
   onModeChange,
   onSiteGenerated,
 }: {
   buildId: Id<"builds">;
+  pageId?: Id<"cmsPages">;
   mode: "plan" | "build";
   onModeChange: (m: "plan" | "build") => void;
   onSiteGenerated: () => void;
@@ -184,7 +186,7 @@ function ChatPanel({
       if (mode === "plan") {
         await plan({ buildId, message });
       } else {
-        await edit({ buildId, message });
+        await edit({ buildId, message, pageId });
         onSiteGenerated();
       }
     } catch (e) {
@@ -514,12 +516,13 @@ export function BuildWorkspace({
   }
 
   return (
-    <div className="flex h-[calc(100vh-220px)] min-h-[520px] overflow-hidden rounded-lg border bg-card shadow-card">
+    <div className="flex h-[calc(100vh-220px)] min-h-[520px] flex-col overflow-hidden rounded-lg border bg-card shadow-card md:flex-row">
       {/* left: chat */}
       {showChat && (
-        <div className="flex w-[380px] shrink-0 flex-col border-r">
+        <div className="flex min-h-0 w-full flex-1 shrink-0 flex-col border-b md:w-[380px] md:flex-none md:border-b-0 md:border-r">
           <ChatPanel
             buildId={build._id}
+            pageId={activePage?._id}
             mode={mode}
             onModeChange={setMode}
             onSiteGenerated={() => undefined}
@@ -528,7 +531,7 @@ export function BuildWorkspace({
       )}
 
       {/* right: preview */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* preview toolbar */}
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Button size="icon-sm" variant="ghost" onClick={onBack} aria-label="Back to builds">
