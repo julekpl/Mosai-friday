@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   Blocks,
@@ -12,6 +12,7 @@ import {
   FileText,
   Globe,
   Loader2,
+  Lock,
   Plus,
   Sparkles,
   Target,
@@ -19,16 +20,25 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
-import { ModuleEmpty, StatusBadge } from "@/components/app/module-kit";
+import {
+  ModuleEmpty,
+  ModuleErrorBoundary,
+  ModuleSkeleton,
+  StatusBadge,
+} from "@/components/app/module-kit";
 import { SitePanel } from "@/components/cms/SitePanel";
 import { siteStatusForDisplay } from "@/components/cms/releaseLabels";
 import { BuildWorkspace } from "@/components/build/BuildWorkspace";
 import { AppWorkspace } from "@/components/build/AppWorkspace";
-import { BuildList } from "@/components/build/BuildList";
+import { BuildSlotCard } from "@/components/build/BuildList";
 import {
+  BUILD_KINDS,
+  buildSlots,
   resolveBuildSelection,
   withBuildSelection,
+  type BuildKind,
 } from "@/components/build/buildSelection";
+import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
 import { ContextInspector } from "@/components/app/ContextInspector";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,8 +55,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-const KINDS = ["website", "app"] as const;
 
 type BuildRow = {
   _id: Id<"builds">;
@@ -90,6 +98,7 @@ type BuildRow = {
   seoReady?: boolean;
   wcagReady?: boolean;
   createdAt: number;
+  updatedAt?: number;
 };
 
 type PersonaRow = {
@@ -112,10 +121,14 @@ type JourneyRow = {
 
 function NewBuildForm({
   projectId,
+  kind,
   onDone,
 }: {
   projectId: Id<"projects">;
-  onDone: () => void;
+  /** The slot being filled; a project holds one website and one app. */
+  kind: BuildKind;
+  /** Called with the new build's id on success, or with nothing on cancel. */
+  onDone: (buildId?: Id<"builds">) => void;
 }) {
   const create = useMutation(api.builds.create);
   const plan = useAction(api.buildPlan.generateBuildPlan);
@@ -125,8 +138,7 @@ function NewBuildForm({
   const personas = (useQuery(api.personas.list, { projectId }) ?? []) as PersonaRow[];
   const journeys = (useQuery(api.journeys.list, { projectId }) ?? []) as JourneyRow[];
 
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<(typeof KINDS)[number]>("website");
+  const [name, setName] = useState(kind === "website" ? "Website" : "App");
   const [appAudience, setAppAudience] = useState<"" | "customer_facing" | "internal_team" | "both">("");
   const [idea, setIdea] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -161,7 +173,7 @@ function NewBuildForm({
         toast.success("App workspace created", {
           description: "Your app brief is ready to edit and review. No code was generated or run.",
         });
-        onDone();
+        onDone(buildId);
         return;
       }
 
@@ -207,7 +219,7 @@ function NewBuildForm({
               : "You can generate the blueprint later from the Plan tab.",
         });
       }
-      onDone();
+      onDone(buildId);
     } catch (e) {
       toast.error("Save failed", {
         description: e instanceof Error ? e.message : "Try again.",
@@ -227,21 +239,6 @@ function NewBuildForm({
           placeholder="e.g. Marketing site"
           autoFocus
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="nb-kind">Type</Label>
-        <select
-          id="nb-kind"
-          className="h-9 cursor-pointer rounded-md border bg-card px-3 font-mono text-small"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as (typeof KINDS)[number])}
-        >
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
       </div>
       {kind === "app" && (
         <div className="grid gap-2">
@@ -280,7 +277,7 @@ function NewBuildForm({
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onDone}>
+        <Button variant="ghost" onClick={() => onDone()}>
           Cancel
         </Button>
         <Button
@@ -292,7 +289,7 @@ function NewBuildForm({
           ) : (
             <Sparkles className="size-4" />
           )}
-          {kind === "app" ? "Create app brief" : "Plan build"}
+          {kind === "app" ? "Create app brief" : "Plan website"}
         </Button>
       </div>
     </div>
@@ -670,11 +667,35 @@ function PagesTab({ build }: { build: BuildRow }) {
 
 /* ── Main module ───────────────────────────────────────────────────────── */
 
+/** A failed query (Convex throws during render) shows the module error
+ *  state with a retry instead of blanking the page. */
 export default function Build({ projectId }: { projectId: Id<"projects"> }) {
+  return (
+    <ModuleErrorBoundary>
+      <BuildModule projectId={projectId} />
+    </ModuleErrorBoundary>
+  );
+}
+
+const CREATE_COPY: Record<BuildKind, { title: string; description: string }> = {
+  website: {
+    title: "Create website",
+    description:
+      "Your website receives a strategy plan from your idea, personas and journeys. A project has one website.",
+  },
+  app: {
+    title: "Create app",
+    description:
+      "Your app opens a requirements workspace with an explicit audience choice. App execution and deployment are not available yet. A project has one app.",
+  },
+};
+
+function BuildModule({ projectId }: { projectId: Id<"projects"> }) {
   const buildsQuery = useQuery(api.builds.list, { projectId }) as BuildRow[] | undefined;
-  const builds = buildsQuery ?? [];
   const remove = useMutation(api.builds.remove);
-  const [open, setOpen] = useState(false);
+  const rename = useMutation(api.builds.update);
+  const entitlements = useModuleEntitlements(projectId);
+  const [creating, setCreating] = useState<BuildKind | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // The open build is URL state (?build=<id>&view=manage): refresh, back and
@@ -683,12 +704,30 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
   const openBuild = (id: Id<"builds"> | null, managing = false) =>
     setSearchParams(withBuildSelection(searchParams, id, managing));
 
-  if (selection.kind === "loading") {
+  // Locked: the route gate normally redirects first; this covers a plan
+  // change while the page is open, so nothing the server refuses is offered.
+  const capability = entitlements.stateOf("build");
+  if (capability !== null && capability !== "included") {
     return (
-      <p className="font-mono text-caption text-muted-foreground" role="status">
-        loading build…
-      </p>
+      <div>
+        <ModuleHeader icon={Blocks} title="Build" subtitle="Your project's website and app" />
+        <ModuleEmpty
+          icon={Lock}
+          tone="warning"
+          title="Build is not on your plan"
+          hint="Creating and editing a website or app needs a plan that includes Build. Your existing builds are kept."
+          action={
+            <Button asChild>
+              <Link to="/app/billing">See plan options</Link>
+            </Button>
+          }
+        />
+      </div>
     );
+  }
+
+  if (selection.kind === "loading") {
+    return <ModuleSkeleton label="Loading build…" rows={1} />;
   }
 
   if (selection.kind === "missing") {
@@ -701,7 +740,7 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
           hint="It may have been deleted, or the link belongs to another project."
           action={
             <Button variant="outline" onClick={() => openBuild(null)}>
-              ← All builds
+              ← Website and app
             </Button>
           }
         />
@@ -781,56 +820,65 @@ export default function Build({ projectId }: { projectId: Id<"projects"> }) {
     );
   }
 
+  const slots = buildsQuery ? buildSlots(buildsQuery) : null;
+
   return (
     <div>
       <ModuleHeader
         icon={Blocks}
         title="Build"
-        subtitle="Strategy-first websites & apps — planned from your idea, personas and journeys before a single line is generated"
-      >
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="size-4" /> New build
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="font-mono text-h3">New build</DialogTitle>
-              <DialogDescription className="font-mono text-caption">
-                Websites receive a strategy plan. Apps open a separate requirements workspace with an explicit audience choice; app execution and deployment are not available yet.
-              </DialogDescription>
-            </DialogHeader>
-            <NewBuildForm projectId={projectId} onDone={() => setOpen(false)} />
-          </DialogContent>
-        </Dialog>
-      </ModuleHeader>
+        subtitle="One website and one app per project, planned from your idea, personas and journeys"
+      />
 
-      {buildsQuery === undefined ? (
-        <p className="font-mono text-caption text-muted-foreground" role="status">
-          loading builds…
-        </p>
-      ) : builds.length === 0 ? (
-        <ModuleEmpty
-          icon={Blocks}
-          title="No builds yet"
-          hint="Unlike prompt-to-app tools, every build here starts with a strategy: the idea, the personas it serves, the journeys it answers — then pages, content and SEO/WCAG checks."
-          action={
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> Start a build
-            </Button>
-          }
-        />
+      {slots === null ? (
+        <ModuleSkeleton label="Loading your website and app…" rows={2} variant="cards" />
       ) : (
-        <BuildList
-          builds={builds}
-          onOpen={(b) => openBuild(b._id)}
-          onDelete={async (b) => {
-            await remove({ id: b._id });
-            toast.success("Build deleted");
-          }}
-        />
+        <div className="grid gap-4 md:grid-cols-2">
+          {BUILD_KINDS.map((kind) => (
+            <BuildSlotCard
+              key={kind}
+              kind={kind}
+              slot={slots[kind]}
+              onCreate={setCreating}
+              onOpen={(b) => openBuild(b._id)}
+              onRename={async (b, name) => {
+                await rename({ id: b._id, name });
+                toast.success("Renamed");
+              }}
+              onDelete={async (b) => {
+                await remove({ id: b._id });
+                toast.success(`${b.kind === "app" ? "App" : "Website"} deleted`);
+              }}
+            />
+          ))}
+        </div>
       )}
+
+      <Dialog open={creating !== null} onOpenChange={(o) => !o && setCreating(null)}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          {creating && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-mono text-h3">
+                  {CREATE_COPY[creating].title}
+                </DialogTitle>
+                <DialogDescription className="font-mono text-caption">
+                  {CREATE_COPY[creating].description}
+                </DialogDescription>
+              </DialogHeader>
+              <NewBuildForm
+                key={creating}
+                projectId={projectId}
+                kind={creating}
+                onDone={(buildId) => {
+                  setCreating(null);
+                  if (buildId) openBuild(buildId);
+                }}
+              />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

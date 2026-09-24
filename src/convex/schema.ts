@@ -724,7 +724,11 @@ const schema = defineSchema(
       lastReleaseAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
-    }).index("by_project", ["projectId"]),
+    })
+      .index("by_project", ["projectId"])
+      // One website and one app per project (owner decision, 24 Sep 2026):
+      // `builds.create` reads this index before inserting.
+      .index("by_project_kind", ["projectId", "kind"]),
 
     // Server-written release-preparation audit trail (BP-03). One row per
     // accepted `publishSite` preparation: which draft revisions were

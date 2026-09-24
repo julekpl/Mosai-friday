@@ -100,6 +100,25 @@ export const create = moduleMutation("build", {
       args.goals !== undefined || args.personaIds !== undefined ||
       args.journeyMapIds !== undefined || args.differentiators !== undefined
     )) throw new Error("App builds cannot contain website plan fields");
+    // One website and one app per project (owner decision, 24 Sep 2026).
+    // The read and the insert run in one serializable mutation, so two
+    // concurrent creates cannot both pass this check: Convex retries the
+    // loser, which then sees the winner's row. Legacy projects that already
+    // hold several builds of a kind keep them (no deletion without owner
+    // approval) but cannot add another. Deleting the build frees the slot.
+    const existing = await ctx.db
+      .query("builds")
+      .withIndex("by_project_kind", (q) =>
+        q.eq("projectId", args.projectId).eq("kind", args.kind),
+      )
+      .first();
+    if (existing) {
+      throw new Error(
+        args.kind === "website"
+          ? "This project already has a website. Open it, or delete it before creating another."
+          : "This project already has an app. Open it, or delete it before creating another.",
+      );
+    }
     const { projectId, ...rest } = args;
     const now = Date.now();
     return await ctx.db.insert("builds", {
