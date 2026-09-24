@@ -44,4 +44,28 @@ test.describe("marketing and auth smoke", () => {
     await expect(page.getByRole("heading", { name: "404" })).toBeVisible();
     await expect(page.getByText(/page not found/i)).toBeVisible();
   });
+
+  test("a module card on the landing page opens that module's landing page", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: /^promote/i })
+      .click();
+    await expect(page).toHaveURL(/\/modules\/promote$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
+      /campaigns you approve/i,
+    );
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: /try promote/i })
+      .click();
+    await expect(page).toHaveURL(/\/auth$/);
+  });
+
+  test("an unknown module shows the not-found page", async ({ page }) => {
+    await page.goto("/modules/billing");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("404");
+  });
 });

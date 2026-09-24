@@ -88,6 +88,10 @@ type A11yEntry = {
 const PAGES: A11yEntry[] = [
   { name: "landing", path: "/" },
   { name: "auth", path: "/auth" },
+  // Module landing pages share one template; cover a core module and one
+  // with the setup note (the only conditional block).
+  { name: "module landing (understand)", path: "/modules/understand" },
+  { name: "module landing (promote)", path: "/modules/promote" },
   {
     name: "app",
     path: "/app",

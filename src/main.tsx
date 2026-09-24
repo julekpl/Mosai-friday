@@ -17,6 +17,7 @@ const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const DesignSystem = lazy(() => import("./pages/DesignSystem.tsx"));
+const ModuleLanding = lazy(() => import("./pages/modules/ModuleLanding.tsx"));
 
 // App module pages (lazy, code-split)
 const AppHome = lazy(() => import("./pages/App.tsx"));
@@ -156,6 +157,7 @@ createRoot(document.getElementById("root")!).render(
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/system" element={<DesignSystem />} />
+              <Route path="/modules/:moduleId" element={<ModuleLanding />} />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/app" />}
