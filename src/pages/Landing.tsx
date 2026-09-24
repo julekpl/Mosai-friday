@@ -205,6 +205,16 @@ function DemoPanel({ step }: { step: number }) {
   );
 }
 
+/* Extra modules shown alongside the demo workflow */
+
+const demoModules = [
+  { icon: Megaphone, id: "promote", label: "Social media", caption: "schedule posts" },
+  { icon: TrendingUp, id: "grow", label: "Ads", caption: "launch campaigns" },
+  { icon: PenTool, id: "create", label: "Email", caption: "newsletters" },
+  { icon: Blocks, id: "build", label: "App", caption: "customer hub" },
+  { icon: ShoppingBag, id: "sell", label: "Ecom", caption: "web shop" },
+] as const;
+
 function Demo() {
   const [step, setStep] = useState(0);
   return (
@@ -215,47 +225,68 @@ function Demo() {
           example workspace — a fictional bakery, shown for illustration
         </span>
       </div>
-      <div className="grid gap-0 md:grid-cols-[minmax(0,14rem)_1fr]">
-        <ol className="border-b md:border-b-0 md:border-r">
-          {demoSteps.map((s, i) => (
-            <li key={s.label}>
-              <button
-                type="button"
-                aria-current={step === i ? "step" : undefined}
-                onClick={() => setStep(i)}
+      {/* Horizontal step selector */}
+      <ol className="grid grid-cols-2 divide-x divide-border border-b md:grid-cols-4">
+        {demoSteps.map((s, i) => (
+          <li key={s.label}>
+            <button
+              type="button"
+              aria-current={step === i ? "step" : undefined}
+              onClick={() => setStep(i)}
+              className={cn(
+                "flex h-full w-full items-start gap-2.5 px-3 py-3 text-left transition-colors duration-150 ease-terminal sm:px-4",
+                step === i
+                  ? "bg-terminal-green-soft"
+                  : "hover:bg-accent focus-visible:bg-accent",
+              )}
+            >
+              <span
                 className={cn(
-                  "flex w-full items-start gap-2.5 border-b px-4 py-3 text-left transition-colors duration-150 ease-terminal last:border-b-0 md:border-b-0 md:border-t",
+                  "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[3px] font-mono text-caption transition-colors duration-150",
                   step === i
-                    ? "bg-terminal-green-soft"
-                    : "hover:bg-accent focus-visible:bg-accent",
+                    ? "bg-terminal-green text-background"
+                    : "border text-muted-foreground",
                 )}
+                aria-hidden
               >
-                <span
-                  className={cn(
-                    "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[3px] font-mono text-caption transition-colors duration-150",
-                    step === i
-                      ? "bg-terminal-green text-background"
-                      : "border text-muted-foreground",
-                  )}
-                  aria-hidden
-                >
-                  {i + 1}
+                {i + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-mono text-small font-medium">
+                  {s.label}
                 </span>
-                <span className="min-w-0">
-                  <span className="block font-mono text-small font-medium">
-                    {s.label}
-                  </span>
-                  <span className="mt-0.5 block font-mono text-caption text-muted-foreground">
-                    {s.caption}
-                  </span>
+                <span className="mt-0.5 hidden font-mono text-caption text-muted-foreground md:block">
+                  {s.caption}
                 </span>
-              </button>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <div className="p-4 sm:p-5">
+        <DemoPanel step={step} />
+      </div>
+      {/* Additional modules, same workspace */}
+      <div className="border-t bg-muted/40 px-4 py-3 sm:px-5">
+        <p className="font-mono text-caption text-muted-foreground">
+          right next to it in the same workspace
+        </p>
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {demoModules.map((m) => (
+            <li
+              key={m.label}
+              className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 shadow-hairline transition-colors duration-150 ease-terminal hover:border-terminal-green/40"
+            >
+              <m.icon className={cn("size-4", moduleTileText(m.id))} aria-hidden />
+              <span className="font-mono text-caption font-medium">
+                {m.label}
+              </span>
+              <span className="font-mono text-caption text-muted-foreground">
+                {m.caption}
+              </span>
             </li>
           ))}
-        </ol>
-        <div className="min-w-0 p-4 sm:p-5">
-          <DemoPanel step={step} />
-        </div>
+        </ul>
       </div>
     </div>
   );
