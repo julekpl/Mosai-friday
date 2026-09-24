@@ -359,6 +359,16 @@ describe("ModelGateway S1", () => {
     });
   });
 
+  it("allows the configured maximum used by structured website generation", async () => {
+    const { ctx } = mockContext();
+    stubCompletionContent("{} ");
+
+    await modelComplete(request(ctx, { maxOutputTokens: MODEL_GATEWAY_MAX_OUTPUT_TOKENS }));
+
+    expect(completionCalls).toHaveLength(1);
+    expect(completionCalls[0]?.maxTokens).toBe(3_000);
+  });
+
   it("keeps direct provider calls out of all AI feature files", () => {
     const root = process.cwd();
     const files = [

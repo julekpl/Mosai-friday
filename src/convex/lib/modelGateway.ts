@@ -3,7 +3,9 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { vly } from "../../lib/vly-integrations";
 
-export const MODEL_GATEWAY_MAX_OUTPUT_TOKENS = 2_000;
+// The site generator emits a structured multi-page plan and requests 3,000
+// tokens. Keep the gateway limit aligned with that supported output size.
+export const MODEL_GATEWAY_MAX_OUTPUT_TOKENS = 3_000;
 export const MODEL_GATEWAY_MAX_INPUT_CHARS = 100_000;
 
 export type ModelProvider = "vly" | "openrouter";

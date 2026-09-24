@@ -1093,6 +1093,29 @@ type ContextPackRequest = {
   includeAllEntities?: boolean;
 };
 
+/** Load the saved inputs for a content draft after checking its project access.
+ *  AI actions use this instead of trusting browser-provided topic/research data. */
+export const contentGenerationReferences = internalQuery({
+  args: { pieceId: v.id("contentPieces"), userId: v.id("users") },
+  handler: async (ctx, { pieceId, userId }) => {
+    const piece = await ctx.db.get(pieceId);
+    if (!piece) return null;
+    const project = await ctx.db.get(piece.projectId);
+    if (!project || !(await hasProjectAccess(ctx, project, userId))) return null;
+
+    const topic = piece.topicId ? await ctx.db.get(piece.topicId) : null;
+    const persona = piece.personaId ? await ctx.db.get(piece.personaId) : null;
+    const journey = piece.journeyMapId ? await ctx.db.get(piece.journeyMapId) : null;
+    if (
+      (piece.topicId && (!topic || topic.projectId !== piece.projectId)) ||
+      (piece.personaId && (!persona || persona.projectId !== piece.projectId)) ||
+      (piece.journeyMapId && (!journey || journey.projectId !== piece.projectId))
+    ) return null;
+
+    return { piece, topic, persona, journey };
+  },
+});
+
 function compactText(value: string | undefined, limit = 1_200): string | undefined {
   const clean = value?.trim();
   return clean ? clean.slice(0, limit) : undefined;

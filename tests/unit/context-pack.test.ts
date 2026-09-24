@@ -10,6 +10,72 @@ import { newBackend, seedProject, seedUser } from "./helpers";
 afterEach(() => resetCompletionStub());
 
 describe("BP-09/S2 ContextPack trust boundary", () => {
+  it("drafts from the saved piece, selected persona, journey, and topic research", async () => {
+    resetCompletionStub();
+    stubCompletionContent("<h1>Grounded draft</h1><p>Review the evidence.</p>");
+    const backend = newBackend();
+    const owner = await seedUser(backend, { plan: "scale" });
+    const projectId = await seedProject(backend, owner.userId, "Northstar business");
+    const personaId = await backend.run((ctx) => ctx.db.insert("personas", {
+      projectId: projectId as never,
+      name: "Saved buyer persona",
+      role: "Operations director",
+      goals: ["reduce supplier risk"],
+      pains: ["unclear service levels"],
+      createdBy: owner.userId as never,
+      createdAt: Date.now(),
+    }));
+    const journeyMapId = await backend.run((ctx) => ctx.db.insert("journeyMaps", {
+      projectId: projectId as never,
+      name: "Saved evaluation journey",
+      goal: "Choose a reliable provider",
+      stages: [{ stage: "Consideration", cells: ["compare service levels"] }],
+      source: "manual",
+      createdBy: owner.userId as never,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    const topicId = await backend.run((ctx) => ctx.db.insert("contentTopics", {
+      projectId: projectId as never,
+      title: "Choosing a reliable provider",
+      angle: "A practical service-level comparison",
+      contentType: "blog",
+      keywords: ["service levels", "provider risk"],
+      research: [{
+        source: "youtube",
+        title: "Saved research source title",
+        url: "https://example.test/research",
+        snippet: "Saved research finding for the comparison.",
+      }],
+      createdBy: owner.userId as never,
+      createdAt: Date.now(),
+    }));
+    const pieceId = await owner.as.mutation(api.content.create, {
+      projectId: projectId as never,
+      title: "Provider comparison article",
+      topicId,
+      personaId,
+      journeyMapId,
+      journeyStage: "Consideration",
+      contentType: "blog",
+    });
+
+    const draft = await owner.as.action(api.ai.generateContent, { pieceId });
+    expect(draft).toContain("Grounded draft");
+    const prompt = completionCalls[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    for (const marker of [
+      "Northstar business",
+      "Saved buyer persona",
+      "reduce supplier risk",
+      "Saved evaluation journey",
+      "Consideration",
+      "Choosing a reliable provider",
+      "A practical service-level comparison",
+      "Saved research source title",
+      "Saved research finding for the comparison.",
+    ]) expect(prompt).toContain(marker);
+  });
+
   it("does not allow client-forged persona or journey snapshots into model context", async () => {
     resetCompletionStub();
     stubCompletionContent(JSON.stringify({ gaps: [{ title: "A real gap" }] }));
@@ -39,13 +105,12 @@ describe("BP-09/S2 ContextPack trust boundary", () => {
     expect(completionCalls).toHaveLength(0);
     expect(JSON.stringify(completionCalls)).not.toContain("FOREIGN-TENANT-FORGED-PERSONA");
 
-    await expect(
-      owner.as.action(api.ai.generateContent, {
-        projectId: projectId as never,
-        personaId: foreignPersonaId,
-        topic: { title: "A topic" },
-      }),
-    ).rejects.toThrow(/Not found/);
+    const pieceId = await owner.as.mutation(api.content.create, {
+      projectId: projectId as never,
+      title: "Draft linked to foreign persona",
+      personaId: foreignPersonaId,
+    });
+    await expect(owner.as.action(api.ai.generateContent, { pieceId })).rejects.toThrow(/Not found/);
     expect(completionCalls).toHaveLength(0);
   });
 
