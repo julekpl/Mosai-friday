@@ -519,6 +519,8 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/roles": "internal",
   "lib/safeFetch": "internal",
   "lib/capabilities": "internal",
+  "lib/oauthBaseUrl": "internal",
+  "lib/contextPack": "internal",
   "lib/platformAdmin": "internal",
   "lib/stripe": "internal",
   "lib/billingCatalog": "internal",

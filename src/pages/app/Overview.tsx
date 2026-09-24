@@ -114,7 +114,6 @@ function CommsDialog({
   projectId: Id<"projects">;
   onOpenChange: (o: boolean) => void;
 }) {
-  const personas = useQuery(api.personas.list, { projectId }) ?? [];
   const generate = useAction(api.ai.generateComms);
   const create = useMutation(api.communications.create);
 
@@ -133,12 +132,6 @@ function CommsDialog({
     try {
       const result = await generate({
         projectId,
-        personaLines: personas
-          .slice(0, 5)
-          .map(
-            (p) =>
-              `- ${p.name}${p.role ? ` (${p.role})` : ""}: goals=${(p.goals ?? []).join("/") || "—"} pains=${(p.pains ?? []).join("/") || "—"}`,
-          ),
         topic: topic.trim(),
         influence: influence.length ? influence : undefined,
       });

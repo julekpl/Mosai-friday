@@ -1,9 +1,9 @@
-
 import { v } from "convex/values";
 import { httpAction } from "../_generated/server";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalMutation } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { moduleMutation, moduleQuery } from "../guards";
+import { hasProjectAccess, moduleMutation, moduleQuery } from "../guards";
+import { configuredOAuthBaseUrl } from "../lib/oauthBaseUrl";
 import {
   PLATFORMS,
   exchangeCodeForTokens,
@@ -34,14 +34,26 @@ export const status = moduleQuery("promote", {
       .query("adsCredentials")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
+    const appOrigin = configuredOAuthBaseUrl(
+      process.env.ADS_OAUTH_REDIRECT_BASE,
+    );
+    const callbackOrigin = configuredOAuthBaseUrl(process.env.CONVEX_SITE_URL);
 
     return PLATFORMS.map((p) => {
       const cred = creds.find((c) => c.platform === p);
-      const env = platformEnv(p);
+      const providerConfigured = platformEnv(p) !== null;
+      const configured =
+        providerConfigured && appOrigin !== null && callbackOrigin !== null;
       return {
         platform: p,
-        // configured = deployment has the platform's client id/secret
-        configured: env !== null,
+        configured,
+        setupDetail: !providerConfigured
+          ? "Provider client credentials are not configured for this deployment."
+          : !appOrigin
+            ? "The trusted MOSAI app return origin is not configured."
+            : !callbackOrigin
+              ? "The Convex OAuth callback origin is unavailable."
+              : undefined,
         connected: cred !== undefined,
         accountLabel: cred?.accountLabel,
         expiresAt: cred?.expiresAt,
@@ -65,8 +77,20 @@ export const start = moduleMutation("promote", {
         `${platform} OAuth is not configured in this deployment (missing client id/secret env vars).`,
       );
     }
+    const oauthBaseUrl = configuredOAuthBaseUrl(
+      process.env.ADS_OAUTH_REDIRECT_BASE,
+    );
+    if (!oauthBaseUrl) {
+      throw new Error(
+        "The MOSAI app return origin is not configured. Set ADS_OAUTH_REDIRECT_BASE to its trusted HTTPS origin (localhost is allowed for development).",
+      );
+    }
+    const callbackBaseUrl = configuredOAuthBaseUrl(process.env.CONVEX_SITE_URL);
+    if (!callbackBaseUrl) {
+      throw new Error("The Convex OAuth callback origin is unavailable.");
+    }
 
-    const state = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+    const state = crypto.randomUUID();
     await ctx.db.insert("oauthStates", {
       state,
       projectId,
@@ -75,7 +99,7 @@ export const start = moduleMutation("promote", {
       createdAt: Date.now(),
     });
 
-    const redirectUri = `${process.env.ADS_OAUTH_REDIRECT_BASE ?? ""}/api/ads/callback`;
+    const redirectUri = `${callbackBaseUrl}/api/ads/callback`;
     const url = new URL(env.authorizeUrl);
     for (const [k, v] of Object.entries({
       client_id: env.clientId,
@@ -101,29 +125,46 @@ export const oauthCallback = httpAction(async (ctx, request) => {
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
 
-  const appUrl =
-    process.env.ADS_OAUTH_REDIRECT_BASE ??
-    `${url.protocol}//${url.host}`;
-
-  if (error || !state || !code) {
-    return redirect(`${appUrl}/app`, `error=${encodeURIComponent(error ?? "missing code or state")}`);
+  const appUrl = configuredOAuthBaseUrl(process.env.ADS_OAUTH_REDIRECT_BASE);
+  const callbackBaseUrl = configuredOAuthBaseUrl(process.env.CONVEX_SITE_URL);
+  if (!appUrl || !callbackBaseUrl) {
+    return new Response("OAuth redirect settings are not configured", {
+      status: 503,
+    });
   }
 
-  // 1. Validate + consume state (CSRF protection)
-  const stateRow = await ctx.runQuery(internal.ads.oauth.getOauthState, { state });
-  if (!stateRow || Date.now() - stateRow.createdAt > STATE_TTL_MS) {
+  if (!state) {
+    return redirect(`${appUrl}/app`, "error=expired_or_invalid_state");
+  }
+
+  // Atomically claim the state before exchanging a code. A split query/delete
+  // allowed two concurrent callback requests to read the same state.
+  const stateRow = await ctx.runMutation(internal.ads.oauth.claimOauthState, {
+    state,
+  });
+  if (!stateRow) {
     return redirect(appUrl, "error=expired_or_invalid_state");
   }
-  await ctx.runMutation(internal.ads.oauth.consumeOauthState, { state });
+  if (error || !code) {
+    return redirect(
+      appUrl,
+      `error=${encodeURIComponent(error ? "authorization_canceled" : "missing_code")}`,
+    );
+  }
 
   const platform = stateRow.platform as Platform;
   const env = platformEnv(platform);
   if (!env) return redirect(appUrl, "error=platform_not_configured");
 
   // 2. Exchange the authorization code for tokens
-  const redirectUri = `${process.env.ADS_OAUTH_REDIRECT_BASE ?? `${url.protocol}//${url.host}`}/api/ads/callback`;
+  const redirectUri = `${callbackBaseUrl}/api/ads/callback`;
   try {
-    const tokens = await exchangeCodeForTokens(platform, env, code, redirectUri);
+    const tokens = await exchangeCodeForTokens(
+      platform,
+      env,
+      code,
+      redirectUri,
+    );
 
     // 3. Store credentials server-side
     await ctx.runMutation(internal.ads.oauth.storeCred, {
@@ -131,7 +172,9 @@ export const oauthCallback = httpAction(async (ctx, request) => {
       platform,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
+      expiresAt: tokens.expiresIn
+        ? Date.now() + tokens.expiresIn * 1000
+        : undefined,
       scope: tokens.scope,
       connectedBy: stateRow.createdBy,
     });
@@ -155,24 +198,33 @@ function redirect(appUrl: string, query: string) {
 
 /* ── internal helpers for the callback ────────────────────────────────── */
 
-export const getOauthState = internalQuery({
-  args: { state: v.string() },
-  handler: async (ctx, { state }) => {
-    return await ctx.db
-      .query("oauthStates")
-      .withIndex("by_state", (q) => q.eq("state", state))
-      .first();
-  },
-});
-
-export const consumeOauthState = internalMutation({
+export const claimOauthState = internalMutation({
   args: { state: v.string() },
   handler: async (ctx, { state }) => {
     const row = await ctx.db
       .query("oauthStates")
       .withIndex("by_state", (q) => q.eq("state", state))
-      .first();
-    if (row) await ctx.db.delete(row._id);
+      .unique();
+    if (!row || !isPlatform(row.platform)) return null;
+
+    // Deletion and validation share this transaction, so concurrent callbacks
+    // can receive the state at most once. Expired or no-longer-authorized
+    // attempts are consumed too and cannot be retried with a different code.
+    await ctx.db.delete(row._id);
+    const now = Date.now();
+    if (row.createdAt > now || now - row.createdAt > STATE_TTL_MS) return null;
+
+    const project = await ctx.db.get(row.projectId);
+    const user = await ctx.db.get(row.createdBy);
+    if (
+      !project ||
+      !user ||
+      user.deletionRequestedAt !== undefined ||
+      !(await hasProjectAccess(ctx, project, row.createdBy))
+    ) {
+      return null;
+    }
+    return row;
   },
 });
 
@@ -187,43 +239,43 @@ export const storeCred = internalMutation({
     connectedBy: v.id("users"),
   },
   handler: async (ctx, args) => {
-      const existing = await ctx.db
-        .query("adsCredentials")
-        .withIndex("by_project_platform", (q) =>
-          q.eq("projectId", args.projectId).eq("platform", args.platform),
-        )
-        .first();
-      const now = Date.now();
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          accessToken: args.accessToken,
-          refreshToken: args.refreshToken,
-          expiresAt: args.expiresAt,
-          scope: args.scope,
-          updatedAt: now,
-          // BP-04: a fresh OAuth handshake supersedes any in-flight refresh —
-          // bump the version so a concurrent rotating-token response can never
-          // overwrite these tokens, drop a held lease, and clear the
-          // `needs_reconnect` state this reconnect just resolved.
-          tokenVersion: (existing.tokenVersion ?? 0) + 1,
-          refreshLeaseId: undefined,
-          refreshLeaseUntil: undefined,
-          refreshStatus: "ok" as const,
-        });
-        return existing._id;
-      }
-      return await ctx.db.insert("adsCredentials", {
-        projectId: args.projectId,
-        platform: args.platform,
+    const existing = await ctx.db
+      .query("adsCredentials")
+      .withIndex("by_project_platform", (q) =>
+        q.eq("projectId", args.projectId).eq("platform", args.platform),
+      )
+      .first();
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
         accessToken: args.accessToken,
         refreshToken: args.refreshToken,
         expiresAt: args.expiresAt,
         scope: args.scope,
-        connectedBy: args.connectedBy,
-        createdAt: now,
         updatedAt: now,
+        // BP-04: a fresh OAuth handshake supersedes any in-flight refresh —
+        // bump the version so a concurrent rotating-token response can never
+        // overwrite these tokens, drop a held lease, and clear the
+        // `needs_reconnect` state this reconnect just resolved.
+        tokenVersion: (existing.tokenVersion ?? 0) + 1,
+        refreshLeaseId: undefined,
+        refreshLeaseUntil: undefined,
+        refreshStatus: "ok" as const,
       });
-    },
+      return existing._id;
+    }
+    return await ctx.db.insert("adsCredentials", {
+      projectId: args.projectId,
+      platform: args.platform,
+      accessToken: args.accessToken,
+      refreshToken: args.refreshToken,
+      expiresAt: args.expiresAt,
+      scope: args.scope,
+      connectedBy: args.connectedBy,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
 });
 
 /** Disconnect a platform: delete stored tokens. */

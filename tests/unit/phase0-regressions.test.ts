@@ -87,12 +87,33 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
     // server-side — none of them accepts a client-built snapshot any more.)
     const ownerId = await seedUser(t).then((u) => u.userId);
     const projectId = await seedProject(t, ownerId);
+    const personaId = await t.run((ctx) => ctx.db.insert("personas", {
+      projectId: projectId as never,
+      name: "Test persona",
+      createdBy: ownerId as never,
+      createdAt: Date.now(),
+    }));
+    const buildId = await t.run((ctx) => ctx.db.insert("builds", {
+      projectId: projectId as never,
+      name: "Test build",
+      kind: "website",
+      status: "draft",
+      createdAt: Date.now(),
+    }));
+    const pageId = await t.run((ctx) => ctx.db.insert("buildPages", {
+      projectId: projectId as never,
+      buildId: buildId as never,
+      name: "Home",
+      path: "/",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
 
     const actions: Array<[string, unknown, unknown]> = [
       [
         "ai.detectContentGaps",
         api.ai.detectContentGaps,
-        { projectId, personas: [], journeys: [] },
+        { projectId },
       ],
       [
         "ai.suggestTopics",
@@ -116,7 +137,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
         {
           mode: "persona",
           projectId,
-          persona: { name: "Buyer" },
+          personaId,
           message: "hello",
         },
       ],
@@ -124,7 +145,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       [
         "ai.generateJourney",
         api.ai.generateJourney,
-        { projectId, persona: { name: "Buyer" } },
+        { projectId, personaId },
       ],
       [
         "ai.generateComms",
@@ -160,23 +181,12 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       [
         "buildPlan.generateBuildPlan",
         api.buildPlan.generateBuildPlan,
-        {
-          projectId,
-          idea: "idea",
-          kind: "website",
-          name: "Site",
-          personas: [],
-          journeys: [],
-        },
+        { projectId, buildId },
       ],
       [
         "buildPlan.generatePageDraft",
         api.buildPlan.generatePageDraft,
-        {
-          projectId,
-          build: { name: "Site", kind: "website" },
-          page: { name: "Home", path: "/" },
-        },
+        { projectId, pageId },
       ],
     ];
 
@@ -194,9 +204,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
 
 describe("R4 — AI actions load context server-side (T0.4)", () => {
   // PROMOTED from `it.fails` on 22 Sep 2026: T0.4's remainder landed. The
-  // actions take a `projectId` and the prompt is built server-side by
-  // `guards.actionProjectSnapshot` after the caller's access is verified —
-  // there is no client-supplied snapshot argument left to fabricate.
+  // actions take authorized record ids and build a ContextPack on the server.
   const SERVER_MARKER = "SERVER-LOADED-CONTEXT-MARKER";
 
   it("the prompt is built from the database for a project the caller owns", async () => {
@@ -212,11 +220,7 @@ describe("R4 — AI actions load context server-side (T0.4)", () => {
     });
 
     await as
-      .action(api.ai.detectContentGaps, {
-        projectId,
-        personas: [],
-        journeys: [],
-      })
+      .action(api.ai.detectContentGaps, { projectId })
       .catch(() => {
         /* the AI reply is not what this test is about */
       });
@@ -243,11 +247,7 @@ describe("R4 — AI actions load context server-side (T0.4)", () => {
     const outsider = await seedUser(t, { plan: "scale" });
 
     await expect(
-      outsider.as.action(api.ai.detectContentGaps, {
-        projectId,
-        personas: [],
-        journeys: [],
-      }),
+      outsider.as.action(api.ai.detectContentGaps, { projectId }),
     ).rejects.toThrow(/Not found/);
     // Refused BEFORE any provider call and before any quota was consumed.
     expect(completionCalls.length).toBe(0);
@@ -274,7 +274,7 @@ describe("T0.4 — per-user AI rate limit", () => {
 
     for (let i = 0; i < AI_QUOTA_LIMIT; i++) {
       await as
-        .action(api.ai.detectContentGaps, { projectId, personas: [], journeys: [] })
+        .action(api.ai.detectContentGaps, { projectId })
         .catch(() => {
           /* the quota is consumed before the provider call either way */
         });
@@ -282,7 +282,7 @@ describe("T0.4 — per-user AI rate limit", () => {
 
     const before = completionCalls.length;
     await expect(
-      as.action(api.ai.detectContentGaps, { projectId, personas: [], journeys: [] }),
+      as.action(api.ai.detectContentGaps, { projectId }),
     ).rejects.toThrow(/limit/i);
     expect(completionCalls.length).toBe(before);
 

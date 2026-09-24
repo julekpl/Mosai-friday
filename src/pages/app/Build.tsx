@@ -26,6 +26,7 @@ import {
 } from "@/components/app/module-kit";
 import { SitePanel } from "@/components/cms/SitePanel";
 import { BuildWorkspace } from "@/components/build/BuildWorkspace";
+import { ContextInspector } from "@/components/app/ContextInspector";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -126,29 +127,7 @@ function NewBuildForm({
       // Strategy-first: generate the plan immediately from idea + personas
       // + journeys, then persist positioning/goals/differentiators/pages.
       try {
-        const result = await plan({
-          projectId,
-          idea: idea.trim(),
-          kind,
-          name: name.trim(),
-          personas: personas.map((p) => ({
-            id: p._id,
-            name: p.name,
-            role: p.role,
-            goals: p.goals,
-            pains: p.pains,
-            objections: p.objections,
-          })),
-          journeys: journeys.map((j) => ({
-            id: j._id,
-            name: j.name,
-            personaId: j.personaId,
-            stages: (j.stages ?? []).map((s) => ({
-              stage: s.stage,
-              score: s.score,
-            })),
-          })),
-        });
+        const result = await plan({ projectId, buildId });
 
         await update({
           id: buildId,
@@ -268,34 +247,13 @@ function PlanTab({ build }: { build: BuildRow }) {
   const update = useMutation(api.builds.update);
   const setStepStatus = useMutation(api.builds.setStepStatus);
   const plan = useAction(api.buildPlan.generateBuildPlan);
-  const personas = (useQuery(api.personas.list, { projectId: build.projectId }) ?? []) as PersonaRow[];
-  const journeys = (useQuery(api.journeys.list, { projectId: build.projectId }) ?? []) as JourneyRow[];
   const [regenerating, setRegenerating] = useState(false);
 
   const regenerate = async () => {
     if (!build.idea) return;
     setRegenerating(true);
     try {
-      const result = await plan({
-        projectId: build.projectId,
-        idea: build.idea,
-        kind: build.kind,
-        name: build.name,
-        personas: personas.map((p) => ({
-          id: p._id,
-          name: p.name,
-          role: p.role,
-          goals: p.goals,
-          pains: p.pains,
-          objections: p.objections,
-        })),
-        journeys: journeys.map((j) => ({
-          id: j._id,
-          name: j.name,
-          personaId: j.personaId,
-          stages: (j.stages ?? []).map((s) => ({ stage: s.stage, score: s.score })),
-        })),
-      });
+      const result = await plan({ projectId: build.projectId, buildId: build._id });
       await update({
         id: build._id,
         positioning: result.positioning,
@@ -321,6 +279,7 @@ function PlanTab({ build }: { build: BuildRow }) {
 
   return (
     <div className="grid gap-4">
+      <ContextInspector projectId={build.projectId} buildId={build._id} />
       {build.blueprint?.summary && (
         <div className="rounded-md border bg-card p-4 shadow-card">
           <p className="font-mono text-caption text-muted-foreground">blueprint</p>
@@ -478,31 +437,7 @@ function PagesTab({ build }: { build: BuildRow }) {
     if (!page) return;
     setBusyPage(pageId);
     try {
-      const persona = personas.find((p) => p._id === page.personaId);
-      const html = await draft({
-        projectId: build.projectId,
-        build: {
-          name: build.name,
-          kind: build.kind,
-          positioning: build.positioning,
-          differentiators: build.differentiators,
-        },
-        page: {
-          name: page.name,
-          path: page.path,
-          goal: page.goal,
-          journeyStage: page.journeyStage,
-        },
-        persona: persona
-          ? {
-              name: persona.name,
-              role: persona.role,
-              goals: persona.goals,
-              pains: persona.pains,
-              objections: persona.objections,
-            }
-          : undefined,
-      });
+      const html = await draft({ projectId: build.projectId, pageId: page._id });
       await updatePage({ id: pageId, draft: html, status: "drafted" });
       toast.success(`Draft ready: ${pageName}`);
     } catch (e) {

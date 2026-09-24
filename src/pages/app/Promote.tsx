@@ -86,7 +86,7 @@ function ConnectionsPanel({
               ? `Connected${s.accountLabel ? ` as ${s.accountLabel}` : ""}`
               : s.configured
                 ? "Available — connect to enable publishing"
-                : "Not configured in this deployment (missing API keys)"
+                : s.setupDetail ?? "Not configured in this deployment"
           }
         >
           <span
@@ -116,17 +116,25 @@ function ConnectionsPanel({
             >
               <Unplug className="size-3" />
             </button>
-          ) : (
+          ) : s.configured ? (
             <button
               className="cursor-pointer font-mono text-caption text-terminal-green hover:underline disabled:opacity-40"
-              disabled={!s.configured}
               onClick={() => connect(s.platform)}
             >
-              {s.configured ? "connect" : "n/a"}
+              connect
             </button>
+          ) : (
+            <span className="font-mono text-caption text-muted-foreground" role="status">
+              setup needed
+            </span>
           )}
         </div>
       ))}
+      {status.some((s) => !s.configured) && (
+        <span className="basis-full text-caption text-muted-foreground">
+          An administrator must configure the provider and trusted app return origin before connecting accounts.
+        </span>
+      )}
     </div>
   );
 }

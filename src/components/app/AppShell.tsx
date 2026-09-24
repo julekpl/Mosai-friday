@@ -2,13 +2,14 @@ import { Fragment, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   Bot,
   ChevronsUpDown,
   LayoutDashboard,
   LogOut,
   Megaphone,
+  Menu,
   PenTool,
   Plus,
   Route,
@@ -38,6 +39,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { MosaicMark, moduleTileBg, moduleTileText } from "@/components/mosaic";
 import { SkipLink } from "@/components/SkipLink";
 import { useAuth } from "@/hooks/use-auth";
@@ -69,7 +79,9 @@ export function AppShell({
   const admin = useQuery(api.admin.me);
   const projects = useQuery(api.projects.list) ?? [];
   const navigate = useNavigate();
+  const location = useLocation();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const current = projects.find((p) => p._id === projectId) ?? projects[0];
   // Entitlements come from the server, resolved for THIS project's
@@ -79,6 +91,14 @@ export function AppShell({
   // organization has paid for.
   const entitlements = useModuleEntitlements(projectId);
   const plan = entitlements.plan ?? "free";
+  const activeModule = modules.find((module) =>
+    location.pathname.split("/").includes(module.to),
+  );
+  const currentLocation = location.pathname.endsWith("/billing")
+    ? "Plan & billing"
+    : location.pathname.endsWith("/new")
+      ? "New project"
+      : (activeModule?.label ?? "Overview");
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -267,8 +287,173 @@ export function AppShell({
 
       {/* Mobile top bar */}
       <div className="fixed inset-x-0 top-0 z-40 flex h-12 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur lg:hidden">
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-11 shrink-0"
+              aria-label="Open navigation menu"
+            >
+              <Menu aria-hidden="true" className="size-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent
+            side="left"
+            className="w-3/4 gap-0 overflow-y-auto p-0 sm:max-w-sm"
+          >
+            <SheetHeader className="border-b px-4 py-4 pr-12 text-left">
+              <SheetTitle className="font-mono text-small">
+                mosai navigation
+              </SheetTitle>
+              <SheetDescription className="font-mono text-caption">
+                Current location: {currentLocation}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="border-b px-3 py-3">
+              <p className="px-2 font-mono text-caption text-muted-foreground">
+                workspace
+              </p>
+              {projects.map((project) => (
+                <SheetClose asChild key={project._id}>
+                  <NavLink
+                    to={`/app/${project._id}`}
+                    end
+                    className={({ isActive }) =>
+                      cn(
+                        "mt-1 block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isActive && "bg-accent font-medium",
+                      )
+                    }
+                  >
+                    {project.name}
+                  </NavLink>
+                </SheetClose>
+              ))}
+              <SheetClose asChild>
+                <NavLink
+                  to="/app/new"
+                  className="mt-1 block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small text-terminal-green hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  + New project
+                </NavLink>
+              </SheetClose>
+              <p className="px-2 font-mono text-caption text-muted-foreground">
+                {plan} plan
+              </p>
+            </div>
+            <nav aria-label="Modules" className="flex-1 p-2">
+              <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
+                modules
+              </p>
+              {modules.map((module) => {
+                const state = entitlements.stateOf(module.to);
+                const locked = state !== null && state !== "included";
+                return current ? (
+                  <SheetClose asChild key={module.to}>
+                    <NavLink
+                      to={
+                        locked
+                          ? "/app/billing"
+                          : `/app/${current._id}/${module.to}`
+                      }
+                      className={({ isActive }) =>
+                        cn(
+                          "mb-0.5 flex min-h-11 items-center gap-2 rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          isActive && "bg-accent font-medium",
+                          locked && "text-muted-foreground/70",
+                        )
+                      }
+                    >
+                      <module.icon
+                        className={cn(
+                          "size-4 shrink-0",
+                          moduleTileText(module.to),
+                        )}
+                        aria-hidden="true"
+                      />
+                      <span>{module.label}</span>
+                      {locked && state && (
+                        <Badge
+                          variant="outline"
+                          className="ml-auto font-mono text-caption text-terminal-amber"
+                        >
+                          {capabilityStateLabel(state)}
+                        </Badge>
+                      )}
+                    </NavLink>
+                  </SheetClose>
+                ) : (
+                  <div
+                    key={module.to}
+                    className="mb-0.5 flex min-h-11 items-center gap-2 rounded-sm px-2 py-2 font-mono text-small text-muted-foreground/50"
+                  >
+                    <module.icon
+                      className="size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>{module.label}</span>
+                  </div>
+                );
+              })}
+            </nav>
+            <div className="border-t p-2">
+              <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
+                account
+              </p>
+              <p className="truncate px-2 py-1 font-mono text-caption">
+                {user?.email ?? "operator"}
+              </p>
+              <SheetClose asChild>
+                <NavLink
+                  to="/app/billing"
+                  className={({ isActive }) =>
+                    cn(
+                      "flex min-h-11 items-center gap-2 rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      isActive && "bg-accent font-medium",
+                    )
+                  }
+                >
+                  <Sparkles aria-hidden="true" className="size-4" />
+                  Plan &amp; billing
+                </NavLink>
+              </SheetClose>
+              {admin?.isAdmin && (
+                <SheetClose asChild>
+                  <NavLink
+                    to="/admin"
+                    className={({ isActive }) =>
+                      cn(
+                        "flex min-h-11 items-center gap-2 rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isActive && "bg-accent font-medium",
+                      )
+                    }
+                  >
+                    <ShieldCheck aria-hidden="true" className="size-4" />
+                    Platform admin
+                  </NavLink>
+                </SheetClose>
+              )}
+              <Button
+                variant="ghost"
+                className="min-h-11 w-full justify-start gap-2 px-2 font-mono text-small text-destructive"
+                onClick={async () => {
+                  setMobileMenuOpen(false);
+                  await signOut();
+                  navigate("/");
+                }}
+              >
+                <LogOut aria-hidden="true" className="size-4" />
+                Sign out
+              </Button>
+            </div>
+          </SheetContent>
+        </Sheet>
         <MosaicMark size={20} />
         <span className="font-mono text-small font-semibold">mosai</span>
+        <span className="sr-only" aria-live="polite">
+          Current location: {currentLocation}
+        </span>
         <Button asChild size="sm" variant="outline" className="ml-auto h-7">
           <NavLink to={current ? `/app/${current._id}` : "/app/new"}>
             {current ? current.name : "New project"}

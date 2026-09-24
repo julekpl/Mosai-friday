@@ -179,29 +179,7 @@ function GapsTab({
     if (busy) return;
     setBusy(true);
     try {
-      const result = await detect({
-        projectId,
-        personas: personas.map((p) => ({
-          id: p._id,
-          name: p.name,
-          role: p.role,
-          goals: p.goals,
-          pains: p.pains,
-          objections: p.objections,
-        })),
-        journeys: journeys.map((j) => ({
-          id: j._id,
-          personaId: j.personaId,
-          name: j.name,
-          goal: j.goal,
-          stages: j.stages.map((s) => ({
-            stage: s.stage,
-            score: s.score,
-            pains: s.cells[3],
-            opportunities: s.cells[4],
-          })),
-        })),
-      });
+      const result = await detect({ projectId });
       for (const g of result.gaps) {
         await createGap({
           projectId,
@@ -1027,15 +1005,7 @@ function PieceEditor({
           contentType: piece.contentType ?? topic?.contentType,
           keywords: topic?.keywords,
         },
-        persona: persona
-          ? {
-              name: persona.name,
-              role: persona.role,
-              goals: persona.goals,
-              pains: persona.pains,
-              objections: persona.objections,
-            }
-          : undefined,
+        personaId: persona?._id,
         journeyStage: piece.journeyStage ?? journey?.stages.find((s) => s.stage === piece.journeyStage)?.stage,
         researchDigest,
       });
