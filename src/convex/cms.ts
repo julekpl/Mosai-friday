@@ -2,7 +2,11 @@ import { query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
-import { sanitizeDocument, validateDocument } from "../lib/cms/blocks";
+import {
+  sanitizeDocument,
+  validateDocument,
+  type PageDocument,
+} from "../lib/cms/blocks";
 import { selectConfirmedRelease } from "./lib/deliveryGate";
 
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
@@ -622,37 +626,85 @@ export const publishPage = moduleMutation("build", {
       }
     }
 
-    const now = Date.now();
-    const revs = await ctx.db
-      .query("pageRevisions")
-      .withIndex("by_page", (q) => q.eq("pageId", pageId))
-      .collect();
-    const nextVersion = revs.reduce((m, r) => Math.max(m, r.version), 0) + 1;
-
-    if (page.publishedRevisionId) {
-      await ctx.db.patch(page.publishedRevisionId, { state: "superseded" });
-    }
-    const publishedId = await ctx.db.insert("pageRevisions", {
-      pageId,
-      projectId: page.projectId,
-      version: nextVersion,
-      state: "published",
+    const { revisionId } = await promotePageRevision(ctx, {
+      page,
       document: doc,
-      createdBy: userId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    await ctx.db.patch(pageId, {
-      publishedRevisionId: publishedId,
-      status: "published",
-      updatedAt: now,
+      userId,
+      now: Date.now(),
     });
     // BP-03: a database edit is not a deployment. The page's approved
     // revision is stored, but the site keeps no externally published status
     // until the BP-13 deployment adapter holds a verified receipt.
-    return publishedId;
+    return revisionId;
   },
 });
+
+/**
+ * The one canonical promotion path for a page revision (WEBSITE-ARCHITECTURE
+ * rule 7), shared by `cms.publishPage` and `buildWorkspace.publishSite`:
+ *
+ *  - the document is sanitized server-side (T0.7) before it is stored;
+ *    content checks stay with each caller (they differ and are unchanged),
+ *  - the new row takes `max(version) + 1` for the page, so revision numbers
+ *    are unique and monotonic,
+ *  - the prior promoted revision is marked `superseded` (never mutated
+ *    otherwise), and the page pointer moves to the new row.
+ *
+ * The state names written here are unchanged (`pageRevisions.state` and
+ * `cmsPages.status` = "published"); renaming them is an owner decision (build
+ * review T1). Not a registered function — callers are authorized mutations.
+ */
+export async function promotePageRevision(
+  ctx: MutationCtx,
+  args: {
+    page: Doc<"cmsPages">;
+    document: PageDocument;
+    userId: Id<"users">;
+    now: number;
+  },
+): Promise<{ revisionId: Id<"pageRevisions">; version: number }> {
+  const { page, userId, now } = args;
+  const document = sanitizeDocument(args.document);
+
+  const revs = await ctx.db
+    .query("pageRevisions")
+    .withIndex("by_page", (q) => q.eq("pageId", page._id))
+    .collect();
+  const version = revs.reduce((m, r) => Math.max(m, r.version), 0) + 1;
+
+  // Supersede every still-promoted row of this page, not only the pointer
+  // (older code paths could leave more than one `published` row behind) —
+  // EXCEPT a revision pinned by the last confirmed public release. BP-03:
+  // "continue serving the last confirmed public release" until the next one
+  // verifies, and the public readers only serve a pinned row whose state is
+  // still `published`. Such a row is superseded by the next promotion after
+  // a newer release has been confirmed.
+  const gate = await selectConfirmedRelease(ctx, page.projectId);
+  const pinned = new Set<Id<"pageRevisions">>(
+    gate.allowed ? gate.audit.revisionIds : [],
+  );
+  for (const r of revs) {
+    if (r.state === "published" && !pinned.has(r._id)) {
+      await ctx.db.patch(r._id, { state: "superseded" });
+    }
+  }
+  const revisionId = await ctx.db.insert("pageRevisions", {
+    pageId: page._id,
+    projectId: page.projectId,
+    version,
+    state: "published",
+    document,
+    createdBy: userId,
+    createdAt: now,
+    publishedAt: now,
+  });
+  await ctx.db.patch(page._id, {
+    publishedRevisionId: revisionId,
+    status: "published",
+    updatedAt: now,
+  });
+  return { revisionId, version };
+}
 
 /** Restore = new draft from an old revision; history is never overwritten. */
 export const restoreRevision = moduleMutation("build", {
@@ -671,12 +723,18 @@ export const restoreRevision = moduleMutation("build", {
       .withIndex("by_page", (q) => q.eq("pageId", rev.pageId))
       .collect();
     const nextVersion = revs.reduce((m, r) => Math.max(m, r.version), 0) + 1;
+    // T0.7 / build review S1: an old revision may predate sanitize-on-save
+    // (or have been written by an unsanitized path), so the restored draft
+    // is sanitized and validated like any other write.
+    const document = sanitizeDocument(rev.document);
+    const errors = validateDocument(document);
+    if (errors.length) throw new Error(errors[0]);
     const newId = await ctx.db.insert("pageRevisions", {
       pageId: rev.pageId,
       projectId: rev.projectId,
       version: nextVersion,
       state: "draft",
-      document: rev.document,
+      document,
       createdBy: userId,
       createdAt: Date.now(),
     });
