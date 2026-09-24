@@ -77,6 +77,8 @@ import type * as media from "../media.js";
 import type * as modules_privacy_deletionJobs from "../modules/privacy/deletionJobs.js";
 import type * as modules_privacy_exportJobs from "../modules/privacy/exportJobs.js";
 import type * as modules_privacy_obligations from "../modules/privacy/obligations.js";
+import type * as modules_video_validators from "../modules/video/validators.js";
+import type * as modules_video_videos from "../modules/video/videos.js";
 import type * as organizations from "../organizations.js";
 import type * as personaChat from "../personaChat.js";
 import type * as personas from "../personas.js";
@@ -178,6 +180,8 @@ declare const fullApi: ApiFromModules<{
   "modules/privacy/deletionJobs": typeof modules_privacy_deletionJobs;
   "modules/privacy/exportJobs": typeof modules_privacy_exportJobs;
   "modules/privacy/obligations": typeof modules_privacy_obligations;
+  "modules/video/validators": typeof modules_video_validators;
+  "modules/video/videos": typeof modules_video_videos;
   organizations: typeof organizations;
   personaChat: typeof personaChat;
   personas: typeof personas;
