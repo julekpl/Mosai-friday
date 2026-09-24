@@ -80,6 +80,8 @@ import type * as lib_sitePaths from "../lib/sitePaths.js";
 import type * as lib_stripe from "../lib/stripe.js";
 import type * as lib_websiteScan from "../lib/websiteScan.js";
 import type * as media from "../media.js";
+import type * as modules_buildApp_generate from "../modules/buildApp/generate.js";
+import type * as modules_buildApp_workspace from "../modules/buildApp/workspace.js";
 import type * as modules_privacy_deletionJobs from "../modules/privacy/deletionJobs.js";
 import type * as modules_privacy_exportJobs from "../modules/privacy/exportJobs.js";
 import type * as modules_privacy_obligations from "../modules/privacy/obligations.js";
@@ -190,6 +192,8 @@ declare const fullApi: ApiFromModules<{
   "lib/stripe": typeof lib_stripe;
   "lib/websiteScan": typeof lib_websiteScan;
   media: typeof media;
+  "modules/buildApp/generate": typeof modules_buildApp_generate;
+  "modules/buildApp/workspace": typeof modules_buildApp_workspace;
   "modules/privacy/deletionJobs": typeof modules_privacy_deletionJobs;
   "modules/privacy/exportJobs": typeof modules_privacy_exportJobs;
   "modules/privacy/obligations": typeof modules_privacy_obligations;

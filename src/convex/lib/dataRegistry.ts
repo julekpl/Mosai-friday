@@ -93,6 +93,11 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   buildPages: project("guards.requireProject"),
   buildMessages: { scope: "project", tenantField: "buildId", authorization: "parent builds project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "builds", parentIndex: "by_project", childIndex: "by_build", childField: "buildId" } },
   buildVersions: { scope: "project", tenantField: "buildId", authorization: "parent builds project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "builds", parentIndex: "by_project", childIndex: "by_build", childField: "buildId" } },
+  // BP-15 app builder: build children (removed with the build by
+  // dal.buildChildTables) and project rows (removed with the project).
+  appRuns: project("moduleQuery/moduleMutation build → access.ownedRow (parent builds)"),
+  appSnapshots: project("moduleQuery/moduleMutation build → access.ownedRow (parent builds)"),
+  appSourceFiles: project("moduleQuery/moduleMutation build → access.ownedRow (parent builds)"),
   projectFiles: project("guards.requireProject"),
   journeyMaps: project("guards.requireProject"), contentGaps: project("guards.requireProject"),
   contentTopics: project("guards.requireProject"),

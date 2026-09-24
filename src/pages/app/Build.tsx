@@ -159,7 +159,7 @@ function NewBuildForm({
       });
 
       if (kind === "app") {
-        await saveAppRequirements({
+        if (appAudience) await saveAppRequirements({
           buildId,
           requirements: {
             audience: appAudience as "customer_facing" | "internal_team" | "both",
@@ -171,7 +171,7 @@ function NewBuildForm({
           },
         });
         toast.success("App workspace created", {
-          description: "Your app brief is ready to edit and review. No code was generated or run.",
+          description: "Describe what to build in the chat. Nothing is published.",
         });
         onDone(buildId);
         return;
@@ -242,14 +242,14 @@ function NewBuildForm({
       </div>
       {kind === "app" && (
         <div className="grid gap-2">
-          <Label htmlFor="nb-audience">Who is this app for?</Label>
+          <Label htmlFor="nb-audience">Who is this app for? (optional)</Label>
           <select
             id="nb-audience"
             className="h-9 cursor-pointer rounded-md border bg-card px-3 font-mono text-small"
             value={appAudience}
             onChange={(e) => setAppAudience(e.target.value as typeof appAudience)}
           >
-            <option value="">Choose an audience</option>
+            <option value="">Decide later</option>
             <option value="customer_facing">Customers</option>
             <option value="internal_team">Internal team</option>
             <option value="both">Customers and internal team</option>
@@ -267,7 +267,7 @@ function NewBuildForm({
         />
         <p className="font-mono text-caption text-muted-foreground">
           {kind === "app"
-            ? "This creates an editable app requirements brief. Choose its audience explicitly; app generation, execution and deployment are not available yet."
+            ? "Next, you chat with the app builder. It uses this idea with your personas, journeys and products, and shows a live preview. Publishing and deploying apps are not available yet."
             : "The plan uses this idea with your personas and journeys to outline positioning, pages and differentiators before website content."}
         </p>
       </div>
@@ -282,14 +282,14 @@ function NewBuildForm({
         </Button>
         <Button
           onClick={handleSave}
-          disabled={isSaving || !name.trim() || !idea.trim() || (kind === "app" && !appAudience)}
+          disabled={isSaving || !name.trim() || !idea.trim()}
         >
           {isSaving ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
             <Sparkles className="size-4" />
           )}
-          {kind === "app" ? "Create app brief" : "Plan website"}
+          {kind === "app" ? "Start building" : "Plan website"}
         </Button>
       </div>
     </div>

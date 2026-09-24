@@ -945,6 +945,63 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("by_build", ["buildId"]),
 
+    // BP-15 app builder. An app is versioned source, never a CMS document.
+    // One chat turn = one run (a job, AGENTS.md rule 13). Each run that
+    // changes code writes an immutable snapshot; file bodies are stored once
+    // per build by SHA-256 so snapshots stay small. Generated code is data:
+    // it only executes in the preview iframe on the bundler's own origin.
+    appRuns: defineTable({
+      buildId: v.id("builds"),
+      projectId: v.id("projects"),
+      userId: v.id("users"),
+      prompt: v.string(),
+      mode: v.union(v.literal("create"), v.literal("edit")),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("succeeded"),
+        v.literal("partially_succeeded"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+      baseVersion: v.optional(v.number()),
+      snapshotVersion: v.optional(v.number()),
+      reply: v.optional(v.string()),
+      changedPaths: v.optional(v.array(v.string())),
+      skippedPaths: v.optional(v.array(v.string())),
+      error: v.optional(v.string()),
+      createdAt: v.number(),
+      startedAt: v.optional(v.number()),
+      finishedAt: v.optional(v.number()),
+    })
+      .index("by_build", ["buildId", "createdAt"])
+      .index("by_project", ["projectId"]),
+
+    appSnapshots: defineTable({
+      buildId: v.id("builds"),
+      projectId: v.id("projects"),
+      version: v.number(),
+      label: v.string(),
+      source: v.union(v.literal("starter"), v.literal("ai"), v.literal("manual"), v.literal("restore")),
+      runId: v.optional(v.id("appRuns")),
+      files: v.array(v.object({ path: v.string(), hash: v.string(), bytes: v.number() })),
+      dependencies: v.array(v.object({ name: v.string(), version: v.string() })),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    })
+      .index("by_build", ["buildId", "version"])
+      .index("by_project", ["projectId"]),
+
+    appSourceFiles: defineTable({
+      buildId: v.id("builds"),
+      projectId: v.id("projects"),
+      hash: v.string(),
+      content: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_build", ["buildId", "hash"])
+      .index("by_project", ["projectId"]),
+
     // Files attached to a project (pdfs, figma exports, briefs…) that enrich
     // every downstream module. Bytes live in Convex storage; this is metadata.
     projectFiles: defineTable({

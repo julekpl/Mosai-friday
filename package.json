@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@auth/core": "^0.41.3",
+    "@codesandbox/sandpack-react": "^2.20.0",
     "@convex-dev/auth": "^0.0.94",
     "@hookform/resolvers": "^5.2.2",
     "@jridgewell/trace-mapping": "^0.3.31",
