@@ -125,6 +125,10 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   // A run may have a projectId or be user-only. Project deletion clears the
   // former; account cleanup clears either form through the user index.
   aiRuns: { ...project("Internal AI gateway; project actions require project authorization", "excluded"), accountCleanup: [{ kind: "index", index: "by_user_created", field: "userId", source: "user" }] },
+  // AI budget counters. Organization rows cascade with the organization;
+  // unattributed per-user rows go with the account; platform-day rows carry no
+  // tenant and are plain operational counters.
+  aiSpendRollups: { ...organization("Internal AI gateway ledger; read via aiBudget.usage (org-scoped)", "excluded"), accountCleanup: [{ kind: "index", index: "by_user", field: "userId", source: "user" }] },
   privacyJobs: { scope: "global", tenantField: "_id", authorization: "self-scoped job reads / internal finalizer / operator report", export: "excluded", retention: "kept-until-revoked", deletion: { kind: "retain", reason: "Minimal deletion-job receipt supports audit and retry history" } },
   privacyExportChunks: { scope: "user", tenantField: "jobId", authorization: "parent privacyJobs owner", export: "excluded", retention: "cascade-with-user", deletion: { kind: "account-parent", parentTable: "privacyJobs", parentIndex: "by_user", childIndex: "by_job_sequence", childField: "jobId" }, accountCleanup: [{ kind: "export-jobs", parentIndex: "by_user", parentField: "userId", parentKindField: "kind", parentKinds: ["account_export", "project_export"], childIndex: "by_job_sequence", childField: "jobId" }] },
 };

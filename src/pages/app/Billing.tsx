@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { makeFunctionReference } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { AlertTriangle, CreditCard, Loader2, Sparkles } from "lucide-react";
@@ -27,6 +28,68 @@ import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PlanCatalogEntry } from "@/convex/lib/billingCatalog";
 import { CatalogPlans } from "@/components/billing/CatalogPlans";
+import { Progress } from "@/components/ui/progress";
+import { StatusBadge } from "@/components/app/module-kit";
+import { formatMicrousd, type AiBudgetUsage } from "@/convex/lib/aiBudget";
+
+/** `aiBudget.organizationUsage` by name: the reference is typed here so the page does not
+ *  depend on regenerated bindings for the new module. */
+const aiBudgetUsageQuery = makeFunctionReference<
+  "query",
+  { organizationId: Id<"organizations"> },
+  AiBudgetUsage
+>("aiBudget:organizationUsage");
+
+/** Honest AI-spend meter: booked cost plus in-flight reservations against the
+ *  plan's monthly budget. Nothing here is an estimate of future use. */
+function AiUsageMeter({ organizationId }: { organizationId: Id<"organizations"> | undefined }) {
+  const usage = useQuery(aiBudgetUsageQuery, organizationId ? { organizationId } : "skip");
+  if (!organizationId || usage === undefined) {
+    return (
+      <p role="status" className="mb-6 font-mono text-caption text-muted-foreground">
+        Loading AI usage…
+      </p>
+    );
+  }
+  const used = usage.spentMicrousd + usage.reservedMicrousd;
+  const percent = usage.budgetMicrousd > 0 ? Math.min(100, (used / usage.budgetMicrousd) * 100) : 100;
+  const resets = new Date(usage.resetsAt).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  });
+  const summary = `AI usage this month: ${formatMicrousd(usage.spentMicrousd, usage.currency)} of ${formatMicrousd(usage.budgetMicrousd, usage.currency)}`;
+  return (
+    <section
+      aria-labelledby="ai-usage-heading"
+      className="mb-6 rounded-md border bg-card p-4 shadow-card"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="ai-usage-heading" className="font-mono text-small font-medium">
+          {summary}
+        </h2>
+        {usage.state === "locked" && <StatusBadge status="locked" detail="monthly AI budget reached" />}
+        {usage.state !== "locked" && usage.platformPaused && (
+          <StatusBadge status="paused" detail="AI is paused for today" />
+        )}
+      </div>
+      <Progress
+        className="mt-3"
+        value={percent}
+        aria-label="AI budget used this month"
+        aria-valuetext={summary}
+      />
+      <p role="status" className="mt-2 font-mono text-caption text-muted-foreground">
+        {usage.reservedMicrousd > 0
+          ? `${formatMicrousd(usage.reservedMicrousd, usage.currency)} is held for requests still running. `
+          : ""}
+        {usage.state === "locked"
+          ? `AI features are locked until ${resets} (UTC). Upgrade your plan for a larger monthly AI budget.`
+          : `Resets on ${resets} (UTC). AI stops when the budget is used up — it never runs over.`}
+      </p>
+    </section>
+  );
+}
 
 type BillingCatalog = {
   configured: boolean;
@@ -276,6 +339,8 @@ export default function Billing() {
             : ""}
         </Badge>
       </header>
+
+      {organization !== null && <AiUsageMeter organizationId={organizationId} />}
 
       {billingState?.planStatus === "past_due" && (
         <div

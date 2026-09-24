@@ -1854,9 +1854,36 @@ const schema = defineSchema(
       startedAt: v.number(),
       finishedAt: v.optional(v.number()),
       latencyMs: v.optional(v.number()),
+      // AI budget (lib/aiBudget.ts), integer micro-USD. `reservedMicrousd` is
+      // the worst-case cost held against the budget while the run is
+      // `running`; `chargedMicrousd` is what the finished run counts. Optional
+      // so rows written before the budget existed stay valid.
+      reservedMicrousd: v.optional(v.number()),
+      chargedMicrousd: v.optional(v.number()),
     })
       .index("by_user_created", ["userId", "startedAt"])
-      .index("by_project", ["projectId"]),
+      .index("by_project", ["projectId"])
+      .index("by_org_started", ["organizationId", "startedAt"]),
+
+    // AI budget rollups: one row per organization (or unattributed user) per
+    // UTC month, plus one platform row per UTC day. Counters only — no prompt,
+    // output or model data. Written solely by the internal gateway mutations
+    // (guards.startAiRun / finishAiRun) so the budget check reads two rows
+    // instead of scanning runs.
+    aiSpendRollups: defineTable({
+      scope: v.union(v.literal("organization"), v.literal("user"), v.literal("platform")),
+      organizationId: v.optional(v.id("organizations")),
+      userId: v.optional(v.id("users")),
+      period: v.string(), // "2026-09" (organization/user) or "2026-09-24" (platform)
+      spentMicrousd: v.number(),
+      reservedMicrousd: v.number(),
+      runCount: v.number(),
+      currency: v.literal("USD"),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId", "period"])
+      .index("by_user", ["userId", "period"])
+      .index("by_scope_period", ["scope", "period"]),
   },
   {
     schemaValidation: false,
