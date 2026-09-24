@@ -41,3 +41,18 @@ describe("app brief workspace", () => {
     expect(markup).not.toContain("Requirements workspace only");
   });
 });
+
+import { briefGaps } from "@/components/build/appBriefGaps";
+
+describe("app brief gaps", () => {
+  it("names the missing audience fields that keep Save brief disabled", () => {
+    const gaps = briefGaps({ audience: "", goal: "Compare grocery prices", targetUsers: "", coreWorkflows: [] });
+    expect(gaps.save.map((g) => g.label)).toEqual(["Who should use this app", "Describe the people who will use it"]);
+    expect(gaps.save.every((g) => g.step === 1)).toBe(true);
+    expect(gaps.review).toEqual([{ step: 2, label: "At least one workflow" }]);
+  });
+
+  it("reports nothing once the brief is complete", () => {
+    expect(briefGaps({ audience: "both", goal: "x", targetUsers: "y", coreWorkflows: ["z"] })).toEqual({ save: [], review: [] });
+  });
+});

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ModuleHeader } from "@/components/app/AppShell";
 import { cn } from "@/lib/utils";
+import { briefGaps } from "@/components/build/appBriefGaps";
 
 type SourceRef =
   | { kind: "persona"; id: Id<"personas">; label: string; sourceVersion: string }
@@ -93,6 +94,7 @@ export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => vo
   const hasUnsavedChanges = !persisted || JSON.stringify(normalizedDraft) !== JSON.stringify(persisted);
   const canReview = Boolean(build.appRequirements && !hasUnsavedChanges &&
     normalizedDraft.goal && normalizedDraft.targetUsers && normalizedDraft.coreWorkflows.length > 0);
+  const gaps = briefGaps(normalizedDraft);
   const stepComplete = [
     Boolean(normalizedDraft.goal),
     Boolean(normalizedDraft.audience && normalizedDraft.targetUsers),
@@ -230,6 +232,10 @@ export function AppWorkspace({ build, onBack }: { build: Build; onBack: () => vo
             <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={persist} disabled={saving || !draft.audience || !draft.goal.trim() || !draft.targetUsers.trim()}>{saving ? <Loader2 className="size-4 animate-spin" /> : null}Save brief</Button><Button onClick={markReviewed} disabled={saving || !canReview || reviewed || stale || reviewStatus === undefined}>{saving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}Mark reviewed</Button></div>
           </div>}
         </div>
+        {step === APP_BRIEF_STEPS.length - 1 && (gaps.save.length > 0 || gaps.review.length > 0) ? <div role="status" className="rounded-md border border-terminal-amber/40 p-3 font-mono text-caption text-terminal-amber">
+          <p>{gaps.save.length > 0 ? "To save the brief, finish:" : "Before marking the brief reviewed, add:"}</p>
+          <ul className="mt-2 grid gap-1">{[...gaps.save, ...gaps.review].map((gap) => <li key={gap.label}><button type="button" onClick={() => setStep(gap.step)} className="underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{gap.label} (step {gap.step + 1}: {APP_BRIEF_STEPS[gap.step]})</button></li>)}</ul>
+        </div> : null}
       </section>
     </div>
   </div>;
