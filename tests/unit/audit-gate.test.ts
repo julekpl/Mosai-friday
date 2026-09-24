@@ -113,6 +113,28 @@ export const bad = query({
     expect(result.stdout).toContain("never authorizes a named record");
   });
 
+  it("fails a public function that calls getAuthUserId and discards the result", () => {
+    // The files.generateUploadUrl defect: no record argument, so it used to be
+    // a REVIEW warning (exit 0) even though a signed-out caller got through.
+    const dir = withModule(
+      `${IMPORTS}
+export const mint = query({
+  args: {},
+  handler: async (ctx) => {
+    await getAuthUserId(ctx);
+    return "upload-url";
+  },
+});
+`,
+    );
+
+    const result = runAudit(dir);
+
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toContain("mint");
+    expect(result.stdout).toContain("no sign-in check at all");
+  });
+
   it("fails a public function with no sign-in check at all", () => {
     const dir = withModule(
       `${IMPORTS}
