@@ -84,22 +84,15 @@ const components = [
 /* ── Small demonstration: one believable task, labelled as an example ─── */
 
 const demoSteps = [
-  {
-    label: "Tell MOSAI about your business",
-    caption: "What you sell, who buys it, where you sell it.",
-  },
-  {
-    label: "Choose an audience",
-    caption: "A person you're writing for, with goals and pains.",
-  },
-  {
-    label: "Draft an announcement",
-    caption: "Ask for the work; get an editable draft back.",
-  },
-  {
-    label: "Review and save",
-    caption: "You decide what's good, and what leaves the workspace.",
-  },
+  { label: "Your business" },
+  { label: "Your audience" },
+  { label: "Draft it" },
+  { label: "Review & save" },
+  { label: "Social media" },
+  { label: "Ads" },
+  { label: "Email" },
+  { label: "App" },
+  { label: "Ecom" },
 ] as const;
 
 function DemoPanel({ step }: { step: number }) {
@@ -180,6 +173,22 @@ function DemoPanel({ step }: { step: number }) {
       </div>
     );
   }
+  if (step >= 5) {
+    const extra = demoExtras[step - 5];
+    return (
+      <div className="grid gap-3">
+        <p className="font-mono text-caption text-muted-foreground">
+          {extra.slug}
+        </p>
+        <div className="rounded-md border bg-card p-4 shadow-card">
+          <p className="font-mono text-small font-medium">{extra.title}</p>
+          <p className="mt-1.5 font-mono text-caption text-muted-foreground">
+            {extra.body}
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="grid gap-3">
       <p className="font-mono text-caption text-muted-foreground">
@@ -207,12 +216,32 @@ function DemoPanel({ step }: { step: number }) {
 
 /* Extra modules shown alongside the demo workflow */
 
-const demoModules = [
-  { icon: Megaphone, id: "promote", label: "Social media", caption: "schedule posts" },
-  { icon: TrendingUp, id: "grow", label: "Ads", caption: "launch campaigns" },
-  { icon: PenTool, id: "create", label: "Email", caption: "newsletters" },
-  { icon: Blocks, id: "build", label: "App", caption: "customer hub" },
-  { icon: ShoppingBag, id: "sell", label: "Ecom", caption: "web shop" },
+const demoExtras = [
+  {
+    slug: "social · not connected",
+    title: "Share the news, when you're ready",
+    body: "Connect your own account, review the post, and press publish yourself.",
+  },
+  {
+    slug: "ads · budget set by you",
+    title: "Reach more weekend visitors",
+    body: "Draft a small local campaign from the announcement — you set the budget.",
+  },
+  {
+    slug: "email · consent checked",
+    title: "Tell your regulars",
+    body: "A newsletter for subscribers who asked to hear about classes.",
+  },
+  {
+    slug: "app · in progress",
+    title: "A small hub for your customers",
+    body: "Hours, menus and bookings in one place, built from the same context.",
+  },
+  {
+    slug: "ecom · web shop",
+    title: "Sell the bread, book the class",
+    body: "Products and prices in one catalog, checked before anything goes live.",
+  },
 ] as const;
 
 function Demo() {
@@ -226,7 +255,7 @@ function Demo() {
         </span>
       </div>
       {/* Horizontal step selector */}
-      <ol className="grid grid-cols-2 divide-x divide-border border-b md:grid-cols-4">
+      <ol className="grid grid-cols-3 divide-x divide-border border-b md:grid-cols-9">
         {demoSteps.map((s, i) => (
           <li key={s.label}>
             <button
@@ -234,7 +263,7 @@ function Demo() {
               aria-current={step === i ? "step" : undefined}
               onClick={() => setStep(i)}
               className={cn(
-                "flex h-full w-full items-start gap-2.5 px-3 py-3 text-left transition-colors duration-150 ease-terminal sm:px-4",
+                "flex h-full w-full flex-col items-start justify-center gap-1.5 px-2 py-2.5 text-left transition-colors duration-150 ease-terminal sm:px-3",
                 step === i
                   ? "bg-terminal-green-soft"
                   : "hover:bg-accent focus-visible:bg-accent",
@@ -242,7 +271,7 @@ function Demo() {
             >
               <span
                 className={cn(
-                  "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[3px] font-mono text-caption transition-colors duration-150",
+                  "grid size-5 shrink-0 place-items-center rounded-[3px] font-mono text-caption transition-colors duration-150",
                   step === i
                     ? "bg-terminal-green text-background"
                     : "border text-muted-foreground",
@@ -251,42 +280,15 @@ function Demo() {
               >
                 {i + 1}
               </span>
-              <span className="min-w-0">
-                <span className="block font-mono text-small font-medium">
-                  {s.label}
-                </span>
-                <span className="mt-0.5 hidden font-mono text-caption text-muted-foreground md:block">
-                  {s.caption}
-                </span>
+              <span className="block font-mono text-caption font-medium sm:text-small">
+                {s.label}
               </span>
             </button>
           </li>
         ))}
       </ol>
-      <div className="p-4 sm:p-5">
+      <div className="min-h-[10rem] p-4 sm:p-5">
         <DemoPanel step={step} />
-      </div>
-      {/* Additional modules, same workspace */}
-      <div className="border-t bg-muted/40 px-4 py-3 sm:px-5">
-        <p className="font-mono text-caption text-muted-foreground">
-          right next to it in the same workspace
-        </p>
-        <ul className="mt-2 flex flex-wrap gap-2">
-          {demoModules.map((m) => (
-            <li
-              key={m.label}
-              className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 shadow-hairline transition-colors duration-150 ease-terminal hover:border-terminal-green/40"
-            >
-              <m.icon className={cn("size-4", moduleTileText(m.id))} aria-hidden />
-              <span className="font-mono text-caption font-medium">
-                {m.label}
-              </span>
-              <span className="font-mono text-caption text-muted-foreground">
-                {m.caption}
-              </span>
-            </li>
-          ))}
-        </ul>
       </div>
     </div>
   );
