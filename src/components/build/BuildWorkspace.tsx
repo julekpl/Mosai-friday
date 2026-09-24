@@ -91,7 +91,7 @@ export function BuildIdeaScreen({
     try {
       const res = await generate({ buildId, message: text.trim() });
       toast.success(`Built ${res.written.length} pages`, {
-        description: "The preview is live — refine it in chat.",
+        description: "The preview is updated — refine it in chat.",
       });
       onDone();
     } catch (e) {
@@ -155,11 +155,14 @@ export function BuildIdeaScreen({
 function ChatPanel({
   buildId,
   mode,
+  activePagePath,
   onModeChange,
   onSiteGenerated,
 }: {
   buildId: Id<"builds">;
   mode: "plan" | "build";
+  /** The page shown in the preview; Build-mode edits target it. */
+  activePagePath: string | null;
   onModeChange: (m: "plan" | "build") => void;
   onSiteGenerated: () => void;
 }) {
@@ -184,7 +187,13 @@ function ChatPanel({
       if (mode === "plan") {
         await plan({ buildId, message });
       } else {
-        await edit({ buildId, message });
+        // Edit the page the user is looking at, never a silent homepage
+        // fallback; the server checks the path belongs to this build's site.
+        await edit({
+          buildId,
+          message,
+          ...(activePagePath ? { pagePath: activePagePath } : {}),
+        });
         onSiteGenerated();
       }
     } catch (e) {
@@ -218,7 +227,7 @@ function ChatPanel({
         <p className="ml-auto font-mono text-caption text-muted-foreground">
           {mode === "plan"
             ? "shape strategy — nothing renders yet"
-            : "edits apply to the live draft"}
+            : "edits apply to the draft"}
         </p>
       </div>
 
@@ -293,6 +302,14 @@ function ChatPanel({
 
       {/* composer */}
       <div className="border-t p-3">
+        {mode === "build" && activePagePath && (
+          <p
+            className="mb-1.5 font-mono text-caption text-muted-foreground"
+            aria-live="polite"
+          >
+            Editing: <span className="text-foreground">{activePagePath}</span>
+          </p>
+        )}
         <div className="rounded-md border bg-card p-1.5">
           <Textarea
             value={text}
@@ -521,6 +538,7 @@ export function BuildWorkspace({
           <ChatPanel
             buildId={build._id}
             mode={mode}
+            activePagePath={activePage?.fullPath ?? null}
             onModeChange={setMode}
             onSiteGenerated={() => undefined}
           />

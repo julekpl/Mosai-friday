@@ -1,9 +1,24 @@
-import { internalQuery, internalMutation } from "./_generated/server";
+import {
+  internalQuery,
+  internalMutation,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { projectAccessFor } from "./guards";
-import { validateDocument, type PageDocument } from "../lib/cms/blocks";
+import {
+  sanitizeDocument,
+  validateDocument,
+  type PageDocument,
+} from "../lib/cms/blocks";
+import {
+  normalizeSitePath,
+  normalizeSlugSegment,
+  parentSitePath,
+  slugForSitePath,
+} from "./lib/sitePaths";
 
 /* ── Build workspace internals (shared by buildChat actions) ──────────────
  *
@@ -52,6 +67,7 @@ export const getPagesBySite = internalQuery({
       .collect(),
 });
 
+/** The page at `path` on the project's own site (null when absent). */
 export const getPageByPath = internalQuery({
   args: { projectId: v.id("projects"), path: v.string() },
   handler: async (ctx, { projectId, path }) => {
@@ -60,51 +76,69 @@ export const getPageByPath = internalQuery({
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .first();
     if (!site) return null;
-    return ctx.db
+    const page = await ctx.db
       .query("cmsPages")
       .withIndex("by_site_path", (q) =>
         q.eq("siteId", site._id).eq("fullPath", path),
       )
       .first();
+    return page && page.projectId === projectId ? page : null;
   },
 });
+
+type SnapshotPage = {
+  pageId: Id<"cmsPages">;
+  title: string;
+  slug: string;
+  fullPath: string;
+  draft: string;
+};
+
+/** Every page's current draft on the project's site, as version rows. */
+async function snapshotPagesFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<SnapshotPage[]> {
+  const site = await ctx.db
+    .query("sites")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .first();
+  if (!site) return [];
+  const pages = await ctx.db
+    .query("cmsPages")
+    .withIndex("by_site", (q) => q.eq("siteId", site._id))
+    .collect();
+  const out: SnapshotPage[] = [];
+  for (const p of pages) {
+    const rev = p.latestDraftRevisionId
+      ? await ctx.db.get(p.latestDraftRevisionId)
+      : null;
+    out.push({
+      pageId: p._id,
+      title: p.title,
+      slug: p.slug,
+      fullPath: p.fullPath,
+      draft: JSON.stringify(
+        rev?.document ?? { schemaVersion: 1, blocks: [] },
+      ),
+    });
+  }
+  return out;
+}
+
+function sameSnapshot(a: SnapshotPage[], b: SnapshotPage[]): boolean {
+  if (a.length !== b.length) return false;
+  const key = (p: SnapshotPage) =>
+    JSON.stringify([p.pageId, p.fullPath, p.title, p.slug, p.draft]);
+  const left = a.map(key).sort();
+  const right = b.map(key).sort();
+  return left.every((value, index) => value === right[index]);
+}
 
 /** Snapshot of every page's current draft for version history. */
 export const collectSnapshot = internalQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const site = await ctx.db
-      .query("sites")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .first();
-    if (!site) return [];
-    const pages = await ctx.db
-      .query("cmsPages")
-      .withIndex("by_site", (q) => q.eq("siteId", site._id))
-      .collect();
-    const out: {
-      pageId: Id<"cmsPages">;
-      title: string;
-      slug: string;
-      fullPath: string;
-      draft: string;
-    }[] = [];
-    for (const p of pages) {
-      const rev = p.latestDraftRevisionId
-        ? await ctx.db.get(p.latestDraftRevisionId)
-        : null;
-      out.push({
-        pageId: p._id,
-        title: p.title,
-        slug: p.slug,
-        fullPath: p.fullPath,
-        draft: JSON.stringify(
-          rev?.document ?? { schemaVersion: 1, blocks: [] },
-        ),
-      });
-    }
-    return out;
-  },
+  handler: async (ctx, { projectId }) => snapshotPagesFor(ctx, projectId),
 });
 
 export const listMessagesInternal = internalQuery({
@@ -148,7 +182,13 @@ export const patchBuild = internalMutation({
   },
 });
 
-/** Create the site (idempotent) and any planned pages that don't exist yet. */
+/**
+ * Create the site (idempotent) and any planned pages that don't exist yet.
+ * Paths go through the one shared normalizer (`lib/sitePaths.ts`), so the
+ * path the generator writes to is exactly the path created here; nested
+ * paths keep their `/`. Returns the resolved `{ path → pageId }` map so the
+ * caller never has to re-derive a path to find the page it planned.
+ */
 export const ensureSiteWithPages = internalMutation({
   args: {
     projectId: v.id("projects"),
@@ -168,14 +208,6 @@ export const ensureSiteWithPages = internalMutation({
       throw new Error("Not found");
     }
 
-    const norm = (raw: string) =>
-      raw
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 80);
-
     let site = await ctx.db
       .query("sites")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -185,7 +217,7 @@ export const ensureSiteWithPages = internalMutation({
       const siteId = await ctx.db.insert("sites", {
         projectId,
         name: projectName,
-        slug: norm(projectName) || "site",
+        slug: normalizeSlugSegment(projectName) || "site",
         status: "draft",
         createdBy: userId,
         createdAt: now,
@@ -199,20 +231,39 @@ export const ensureSiteWithPages = internalMutation({
       .query("cmsPages")
       .withIndex("by_site", (q) => q.eq("siteId", site._id))
       .collect();
+    const byPath = new Map<string, Id<"cmsPages">>(
+      existing.map((page) => [page.fullPath, page._id]),
+    );
 
-    for (const p of pages) {
-      const cleanSlug = p.path === "/" ? "home" : norm(p.path);
-      if (!cleanSlug) continue;
-      const fullPath = p.path === "/" ? "/" : `/${cleanSlug}`;
-      if (existing.some((e) => e.fullPath === fullPath)) continue;
+    // Parents before children, so a nested page can link to its parent.
+    const planned = pages
+      .map((p) => ({ ...p, fullPath: normalizeSitePath(p.path, p.name) }))
+      .sort(
+        (a, b) =>
+          a.fullPath.split("/").length - b.fullPath.split("/").length,
+      );
+
+    const resolved: { path: string; pageId: Id<"cmsPages"> }[] = [];
+    for (const p of planned) {
+      const fullPath = p.fullPath;
+      const found = byPath.get(fullPath);
+      if (found) {
+        resolved.push({ path: fullPath, pageId: found });
+        continue;
+      }
+      const slug = slugForSitePath(fullPath);
+      const parentPath = parentSitePath(fullPath);
+      const parentId =
+        parentPath && parentPath !== "/" ? byPath.get(parentPath) : undefined;
 
       const pageId = await ctx.db.insert("cmsPages", {
         siteId: site._id,
         projectId,
-        title: p.name.trim() || cleanSlug,
-        slug: cleanSlug,
+        title: p.name.trim() || slug,
+        slug,
         fullPath,
-        pageType: p.path === "/" ? "homepage" : "standard",
+        ...(parentId ? { parentId } : {}),
+        pageType: fullPath === "/" ? "homepage" : "standard",
         status: "draft",
         createdBy: userId,
         createdAt: now,
@@ -228,15 +279,22 @@ export const ensureSiteWithPages = internalMutation({
         createdAt: now,
       });
       await ctx.db.patch(pageId, { latestDraftRevisionId: revId });
-      if (p.path === "/" && !site.homepageId) {
+      if (fullPath === "/" && !site.homepageId) {
         await ctx.db.patch(site._id, { homepageId: pageId });
       }
+      byPath.set(fullPath, pageId);
+      resolved.push({ path: fullPath, pageId });
     }
-    return site._id;
+    return { siteId: site._id, pages: resolved };
   },
 });
 
-/** Write a draft document into a page (patch live draft or create new one). */
+/**
+ * Write an AI-authored draft document into a page (patch the current draft
+ * or create a new one). Rich text is sanitized on save with the same
+ * allow-list `cms.saveDraft` uses (T0.7): AI HTML never reaches the database
+ * unsanitized. Callers take a checkpoint (`checkpointBeforeAiWrite`) first.
+ */
 export const saveDraftInternal = internalMutation({
   args: {
     pageId: v.id("cmsPages"),
@@ -252,7 +310,8 @@ export const saveDraftInternal = internalMutation({
       ),
     }),
   },
-  handler: async (ctx, { pageId, document }) => {
+  handler: async (ctx, { pageId, document: input }) => {
+    const document = sanitizeDocument(input as PageDocument);
     const errors = validateDocument(document);
     if (errors.length) throw new Error(errors[0]);
     const page = await ctx.db.get(pageId);
@@ -274,13 +333,106 @@ export const saveDraftInternal = internalMutation({
         projectId: page.projectId,
         version: nextRev,
         state: "draft",
-        document: document as PageDocument,
+        document,
         createdBy: page.createdBy,
         createdAt: Date.now(),
       });
       await ctx.db.patch(pageId, { latestDraftRevisionId: revId });
     }
     await ctx.db.patch(pageId, { updatedAt: Date.now() });
+  },
+});
+
+async function insertVersion(
+  ctx: MutationCtx,
+  args: {
+    projectId: Id<"projects">;
+    buildId: Id<"builds">;
+    label: string;
+    pages: SnapshotPage[];
+  },
+): Promise<number> {
+  const existing = await ctx.db
+    .query("buildVersions")
+    .withIndex("by_build", (q) => q.eq("buildId", args.buildId))
+    .collect();
+  const nextVersion = existing.reduce((m, ver) => Math.max(m, ver.version), 0) + 1;
+  await ctx.db.insert("buildVersions", {
+    buildId: args.buildId,
+    projectId: args.projectId,
+    version: nextVersion,
+    label: args.label.slice(0, 80) || `Version ${nextVersion}`,
+    pages: args.pages,
+    createdAt: Date.now(),
+  });
+  return nextVersion;
+}
+
+async function authorizeBuildWrite(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  buildId: Id<"builds">,
+) {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Not authenticated");
+  if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
+    throw new Error("Not found");
+  }
+  // Version the build the caller is working in, not whichever build of the
+  // project happens to come first.
+  const build = await ctx.db.get(buildId);
+  if (!build || build.projectId !== projectId) throw new Error("Build not found");
+  return build;
+}
+
+/**
+ * Pre-operation checkpoint (build backend review C5). Called immediately
+ * before every AI write: it snapshots the site's current drafts — including
+ * manual editor changes made since the last AI operation — as a version the
+ * user can restore. Collected inside this mutation, so the snapshot is
+ * consistent. Skipped (returns null) when the site has no pages yet or when
+ * the drafts are identical to the build's latest version, so an unchanged
+ * site does not grow duplicate versions.
+ */
+export const checkpointBeforeAiWrite = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    buildId: v.id("builds"),
+    label: v.string(),
+  },
+  handler: async (ctx, { projectId, buildId, label }) => {
+    await authorizeBuildWrite(ctx, projectId, buildId);
+    const pages = await snapshotPagesFor(ctx, projectId);
+    if (!pages.length) return null;
+    const versions = await ctx.db
+      .query("buildVersions")
+      .withIndex("by_build", (q) => q.eq("buildId", buildId))
+      .collect();
+    const latest = versions.reduce<(typeof versions)[number] | null>(
+      (best, row) => (!best || row.version > best.version ? row : best),
+      null,
+    );
+    if (latest && sameSnapshot(latest.pages, pages)) return null;
+    return insertVersion(ctx, {
+      projectId,
+      buildId,
+      label: `Before: ${label}`,
+      pages,
+    });
+  },
+});
+
+/** Snapshot the site's current drafts (after an AI write) as a new version. */
+export const snapshotVersion = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    buildId: v.id("builds"),
+    label: v.string(),
+  },
+  handler: async (ctx, { projectId, buildId, label }) => {
+    await authorizeBuildWrite(ctx, projectId, buildId);
+    const pages = await snapshotPagesFor(ctx, projectId);
+    return insertVersion(ctx, { projectId, buildId, label, pages });
   },
 });
 
@@ -301,30 +453,12 @@ export const applyEditWithSnapshot = internalMutation({
     ),
   },
   handler: async (ctx, { projectId, buildId, versionLabel, snapshotPages }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-    if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
-      throw new Error("Not found");
-    }
-
-    // Version the build the caller is working in, not whichever build of the
-    // project happens to come first.
-    const build = await ctx.db.get(buildId);
-    if (!build || build.projectId !== projectId) throw new Error("Build not found");
-
-    const existing = await ctx.db
-      .query("buildVersions")
-      .withIndex("by_build", (q) => q.eq("buildId", build._id))
-      .collect();
-    const nextVersion = existing.reduce((m, ver) => Math.max(m, ver.version), 0) + 1;
-    await ctx.db.insert("buildVersions", {
-      buildId: build._id,
+    await authorizeBuildWrite(ctx, projectId, buildId);
+    return insertVersion(ctx, {
       projectId,
-      version: nextVersion,
-      label: versionLabel.slice(0, 80) || `Version ${nextVersion}`,
+      buildId,
+      label: versionLabel,
       pages: snapshotPages,
-      createdAt: Date.now(),
     });
-    return nextVersion;
   },
 });
