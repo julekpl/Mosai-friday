@@ -31,6 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { pageStatusForDisplay } from "@/components/cms/releaseLabels";
 import { cn } from "@/lib/utils";
 
 /* ── Lovable/Caffeine-style chat + live preview workspace ─────────────────
@@ -633,7 +634,7 @@ export function BuildWorkspace({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent className="font-mono text-[10px]">
-                  {p.title} · {p.status}
+                  {p.title} · {pageStatusForDisplay(p.status)}
                 </TooltipContent>
               </Tooltip>
             ))}
