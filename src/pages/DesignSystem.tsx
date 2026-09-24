@@ -373,10 +373,38 @@ export default function DesignSystem() {
                 <Swatch name="--terminal-green-soft" value="var(--terminal-green-soft)" />
                 <Swatch name="--terminal-amber-soft" value="var(--terminal-amber-soft)" />
               </div>
+              {/* Tile ink: AA-safe text/icon tone per mosaic tile */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+                {(
+                  [
+                    ["teal", "bg-tile-teal-soft text-tile-teal-ink"],
+                    ["coral", "bg-tile-coral-soft text-tile-coral-ink"],
+                    ["violet", "bg-tile-violet-soft text-tile-violet-ink"],
+                    ["sky", "bg-tile-sky-soft text-tile-sky-ink"],
+                    ["rose", "bg-tile-rose-soft text-tile-rose-ink"],
+                    ["lime", "bg-tile-lime-soft text-tile-lime-ink"],
+                    ["amber", "bg-tile-amber-soft text-tile-amber-ink"],
+                  ] as const
+                ).map(([tile, cls]) => (
+                  <div key={tile} className={cn("rounded-md border p-3", cls)}>
+                    <p className="font-mono text-small font-semibold">{tile}</p>
+                    <p className="font-mono text-caption">--tile-{tile}-ink</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border border-terminal-green/40 bg-terminal-green-soft p-3 font-mono text-caption text-terminal-green-ink">
+                  --terminal-green-ink · status text on green-soft
+                </div>
+                <div className="rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-3 font-mono text-caption text-terminal-amber-ink">
+                  --terminal-amber-ink · status text on amber-soft
+                </div>
+              </div>
               <SpecDoc title="color rules">
                 <SpecRow name="ratio" value="≥ 4.5:1 body ink, ≥ 3:1 large text & borders-of-meaning" note="WCAG 2.2 AA" />
                 <SpecRow name="accents" value="green / amber / red / blue only as status" note="never decoration" />
                 <SpecRow name="soft variants" value="*-soft tokens tint chips & banners" note="accent text always uses the strong token" />
+                <SpecRow name="ink variants" value="text on a *-soft surface or a tile label uses *-ink (≥ 5.3:1 light, = tile in dark)" note="bright tiles are decoration only in light theme (2.5–3.2:1)" />
                 <SpecRow name="dark theme" value="full token parity from day one" note="see toggle, top right" />
               </SpecDoc>
             </Section>
@@ -435,8 +463,34 @@ export default function DesignSystem() {
                 <div className="bg-dots flex h-24 items-center justify-center rounded-md border font-mono text-caption text-muted-foreground">bg-dots · workspace</div>
                 <div className="bg-scanlines flex h-24 items-center justify-center rounded-md border font-mono text-caption text-muted-foreground">bg-scanlines · hero</div>
               </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border bg-card p-4 shadow-soft">
+                  <p className="font-mono text-small font-medium">shadow-soft</p>
+                  <p className="font-mono text-caption text-muted-foreground">calm resting card · pair with border</p>
+                </div>
+                <div className="rounded-lg border bg-card p-4 shadow-lift">
+                  <p className="font-mono text-small font-medium">shadow-lift</p>
+                  <p className="font-mono text-caption text-muted-foreground">featured / hovered card</p>
+                </div>
+                <a href="#sec-04" className="block rounded-lg border bg-card p-4 shadow-soft hover-lift focus-ring">
+                  <p className="font-mono text-small font-medium">hover-lift + focus-ring</p>
+                  <p className="font-mono text-caption text-muted-foreground">hover, press or tab to me</p>
+                </a>
+                <div className="relative overflow-hidden rounded-lg border bg-mosaic-tiles">
+                  <div className="m-3 rounded-md border p-3 surface-glass">
+                    <p className="font-mono text-small font-medium">surface-glass</p>
+                    <p className="font-mono text-caption text-muted-foreground">sticky bars over content</p>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex h-24 items-center justify-center rounded-lg border bg-surface-gradient font-mono text-caption text-muted-foreground">bg-surface-gradient · next-action panel</div>
+                <div className="flex h-24 items-center justify-center rounded-lg border bg-hero-wash font-mono text-caption text-muted-foreground">bg-hero-wash · welcome header</div>
+              </div>
               <SpecDoc title="elevation rules">
-                <SpecRow name="blur" value="backdrop-blur only on the sticky top bar" note="context, not everywhere" />
+                <SpecRow name="soft scale" value="shadow-soft · shadow-lift — tinted by --shadow-tint × --shadow-strength" note="dark theme deepens both automatically" />
+                <SpecRow name="motion" value="hover-lift: 2px rise + lift shadow, 180ms ease-terminal; press settles" note="travel dropped under reduced motion" />
+                <SpecRow name="glass" value="surface-glass: --glass fill + 14px backdrop blur; text stays on card-level contrast" />
                 <SpecRow name="shadows" value="4-step scale; every step includes a 1px border" />
                 <SpecRow name="z-index" value="dropdown 50 · sheet 50 · dialog 50 · toast 100" />
               </SpecDoc>

@@ -110,6 +110,32 @@
   --tile-amber: var(--terminal-amber);
   --tile-amber-soft: var(--terminal-amber-soft);
 
+  /* Tile ink — the AA-safe text/icon tone of each tile. The bright tile
+     colours are ~2.5–3.2:1 on light paper (fine for decoration, not for
+     text or meaningful icons); every ink is ≥ 5.3:1 on its own soft tile
+     and ≥ 6:1 on card. Use `text-tile-*-ink` for labels and icons. */
+  --tile-teal-ink: oklch(0.46 0.11 190);
+  --tile-coral-ink: oklch(0.46 0.12 40);
+  --tile-violet-ink: oklch(0.46 0.12 295);
+  --tile-sky-ink: oklch(0.46 0.11 240);
+  --tile-rose-ink: oklch(0.46 0.12 5);
+  --tile-lime-ink: oklch(0.46 0.12 125);
+  --tile-amber-ink: oklch(0.46 0.11 70);
+  /* Status ink for text sitting on a *-soft status surface (≥ 6:1). */
+  --terminal-green-ink: oklch(0.44 0.1 150);
+  --terminal-amber-ink: oklch(0.46 0.11 70);
+
+  /* Soft elevation: one tint drives every soft shadow so dark mode can
+     swap it for a deeper, stronger shade. */
+  --shadow-tint: oklch(0.25 0.02 145);
+  --shadow-strength: 1;
+
+  /* Gradient & glass surfaces */
+  --surface-gradient-from: var(--card);
+  --surface-gradient-to: oklch(0.965 0.016 150);
+  --glass: oklch(0.99 0.004 95 / 72%);
+  --glass-border: oklch(0.3 0.02 145 / 10%);
+
   /* Charts: green ramp + amber + slate for comparison series */
   --chart-1: oklch(0.53 0.125 150);
   --chart-2: oklch(0.66 0.11 155);
@@ -173,6 +199,26 @@
   --tile-amber: oklch(0.79 0.13 80);
   --tile-amber-soft: oklch(0.33 0.05 80);
 
+  /* On dark paper the tile itself is already AA (≥ 4.4:1 on its soft tile,
+     ≥ 5.7:1 on card), so ink = tile. */
+  --tile-teal-ink: var(--tile-teal);
+  --tile-coral-ink: var(--tile-coral);
+  --tile-violet-ink: oklch(0.76 0.12 295); /* tile is 4.46:1 on its soft tile; nudged up */
+  --tile-sky-ink: var(--tile-sky);
+  --tile-rose-ink: var(--tile-rose);
+  --tile-lime-ink: var(--tile-lime);
+  --tile-amber-ink: var(--tile-amber);
+  --terminal-green-ink: var(--terminal-green);
+  --terminal-amber-ink: var(--terminal-amber);
+
+  --shadow-tint: oklch(0.1 0.01 140);
+  --shadow-strength: 2.4;
+
+  --surface-gradient-from: var(--card);
+  --surface-gradient-to: oklch(0.275 0.03 150);
+  --glass: oklch(0.25 0.014 140 / 70%);
+  --glass-border: oklch(0.93 0.02 130 / 12%);
+
   --chart-1: oklch(0.72 0.13 152);
   --chart-2: oklch(0.6 0.1 155);
   --chart-3: oklch(0.74 0.12 78);
@@ -206,6 +252,29 @@
   --color-tile-lime-soft: var(--tile-lime-soft);
   --color-tile-amber: var(--tile-amber);
   --color-tile-amber-soft: var(--tile-amber-soft);
+
+  /* AA-safe tile/status inks (text-tile-teal-ink, text-terminal-green-ink…) */
+  --color-tile-teal-ink: var(--tile-teal-ink);
+  --color-tile-coral-ink: var(--tile-coral-ink);
+  --color-tile-violet-ink: var(--tile-violet-ink);
+  --color-tile-sky-ink: var(--tile-sky-ink);
+  --color-tile-rose-ink: var(--tile-rose-ink);
+  --color-tile-lime-ink: var(--tile-lime-ink);
+  --color-tile-amber-ink: var(--tile-amber-ink);
+  --color-terminal-green-ink: var(--terminal-green-ink);
+  --color-terminal-amber-ink: var(--terminal-amber-ink);
+  --color-glass: var(--glass);
+  --color-glass-border: var(--glass-border);
+
+  /* Soft elevation (theme-aware through --shadow-tint/--shadow-strength).
+     soft = resting cards on calm pages · lift = hovered / featured card.
+     Unlike shadow-card these carry no 1px ring: pair them with `border`. */
+  --shadow-soft:
+    0 1px 2px color-mix(in oklab, var(--shadow-tint) calc(5% * var(--shadow-strength)), transparent),
+    0 4px 14px -6px color-mix(in oklab, var(--shadow-tint) calc(10% * var(--shadow-strength)), transparent);
+  --shadow-lift:
+    0 2px 4px color-mix(in oklab, var(--shadow-tint) calc(5% * var(--shadow-strength)), transparent),
+    0 14px 32px -12px color-mix(in oklab, var(--shadow-tint) calc(18% * var(--shadow-strength)), transparent);
 }
 
 @theme {
@@ -381,6 +450,78 @@
     linear-gradient(45deg, color-mix(in oklab, var(--tile-violet) 6%, transparent) 0 12px, transparent 12px 25px);
   background-size: 84px 84px;
 }
+/* ── Calm surfaces (app home, wizard) ──────────────────────────────────
+   All theme-aware through tokens; documented on /system §04. */
+
+/* A barely-there green lift from card to a tinted card: featured panels. */
+@utility bg-surface-gradient {
+  background-image: linear-gradient(
+    160deg,
+    var(--surface-gradient-from) 0%,
+    var(--surface-gradient-to) 100%
+  );
+}
+
+/* Welcome wash: soft mosaic-colour glows in two corners over card.
+   Low alpha so body text keeps its card contrast. */
+@utility bg-hero-wash {
+  background-color: var(--card);
+  background-image:
+    radial-gradient(
+      60% 90% at 100% 0%,
+      color-mix(in oklab, var(--tile-teal) 16%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 80% at 0% 100%,
+      color-mix(in oklab, var(--tile-violet) 10%, transparent),
+      transparent 70%
+    );
+}
+
+/* Frosted surface for things that float over content (sticky bars,
+   overlays on busy backgrounds). */
+@utility surface-glass {
+  background-color: var(--glass);
+  border-color: var(--glass-border);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+}
+
+/* Explicit focus ring for custom interactive surfaces (cards-as-links).
+   Same 2px ring colour as the global :focus-visible, with a wider offset so
+   it clears rounded, shadowed cards. */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  &:focus-visible {
+    outline-color: var(--ring);
+  }
+}
+
+/* Gentle hover/press physics for clickable cards: 2px rise + lift shadow,
+   settles back on press. Transform/shadow only; reduced motion keeps the
+   state change but drops the travel (see the global media query). */
+@utility hover-lift {
+  transition-property: transform, box-shadow, border-color;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+  }
+  &:active {
+    transform: translateY(0) scale(0.99);
+    transition-duration: 90ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:hover,
+    &:active {
+      transform: none;
+    }
+  }
+}
+
 @utility bg-scanlines {
   background-image: repeating-linear-gradient(
     0deg,
