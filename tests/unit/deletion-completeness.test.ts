@@ -73,6 +73,41 @@ const fixtures: Fixture[] = [
   },
   { table: "contentDocs", doc: (s) => ({ pieceId: s.ids.contentPieces, updatedAt: at }) },
   {
+    table: "videos",
+    doc: (s) => ({
+      projectId: s.projectId,
+      title: "Video",
+      composition: {
+        version: 1,
+        aspect: "9:16",
+        fps: 30,
+        targetMs: 5_000,
+        style: { presetId: "clean" },
+        scenes: [],
+      },
+      fingerprint: "fixture",
+      revision: 1,
+      status: "draft",
+      createdBy: s.userId,
+      createdAt: at,
+      updatedAt: at,
+    }),
+  },
+  {
+    table: "videoAssets",
+    doc: (s) => ({
+      projectId: s.projectId,
+      videoId: s.ids.videos,
+      kind: "upload",
+      storageId: s.ids.videoStorage,
+      mimeType: "image/png",
+      sizeBytes: 5,
+      source: { provider: "user", aiGenerated: false },
+      createdBy: s.userId,
+      createdAt: at,
+    }),
+  },
+  {
     table: "journeyMaps",
     doc: (s) => ({
       projectId: s.projectId,
@@ -529,6 +564,7 @@ describe("R10 — deleting a project leaves nothing behind", () => {
     await t.run(async (ctx) => {
       const c = loose(ctx);
       seed.ids.storage = String(await c.storage.store(new Blob(["bytes"])));
+      seed.ids.videoStorage = String(await c.storage.store(new Blob(["video bytes"])));
       for (const fixture of fixtures) {
         const id = await c.db.insert(fixture.table, fixture.doc(seed));
         seed.ids[fixture.table] = String(id);
@@ -558,6 +594,8 @@ describe("R10 — deleting a project leaves nothing behind", () => {
 
     const blob = await t.run((ctx) => loose(ctx).storage.get(seed.ids.storage));
     expect(blob).toBeNull();
+    const videoBlob = await t.run((ctx) => loose(ctx).storage.get(seed.ids.videoStorage));
+    expect(videoBlob, "a video asset's stored file must be deleted with the project").toBeNull();
   });
 
   it("a project organization member cannot request deletion when they are not its owner", async () => {

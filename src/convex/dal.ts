@@ -185,7 +185,7 @@ export async function cascadeDeleteProjectStep(
       .withIndex(rule.index, (q: IndexQuery) => q.eq(rule.field, projectId))
       .first();
     if (row) {
-      if (table === "projectFiles") await ctx.storage.delete(row.storageId);
+      if (table === "projectFiles" || table === "videoAssets") await ctx.storage.delete(row.storageId);
       await ctx.db.delete(row._id);
       return { cursor, done: false };
     }
