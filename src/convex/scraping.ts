@@ -2,6 +2,8 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
@@ -18,6 +20,14 @@ import {
   type WebsitePageFinding,
   type WebsitePageExtraction,
 } from "./lib/websiteScan";
+import {
+  googleMapsFailure,
+  isEmptyGoogleMapsAnswer,
+  parseGoogleMapsPlace,
+  parseGoogleMapsSuggestions,
+  type GoogleMapsResponse,
+  type GoogleMapsSuggestion,
+} from "./lib/googleMaps";
 
 /* ── Open-source scraping (cheerio, server-side) ─────────────────────────
  *
@@ -169,262 +179,264 @@ export const scanWebsite = action({
   },
   handler: async (ctx, { url, ignoreRobots = false }): Promise<ScanResult> => {
     await requireActionUser(ctx);
-    const normalized = normalizeWebsiteUrl(url);
-    if (!normalized) throw new Error("Could not interpret that website URL");
-
-    const origin = new URL(normalized).origin;
-    const robots = await loadRobots(origin);
-    if (!isAllowed(normalized, robots, ignoreRobots)) {
-      throw new Error("This page is disallowed by robots.txt. Continue only if you control the site and choose the robots override.");
-    }
-    const sitemap = await discoverSitemapPages(origin, robots);
-
-    let homepageResponse: { text: string; url: string };
-    try {
-      homepageResponse = await fetchText(normalized, 8_000, 750_000);
-    } catch (e) {
-      throw new Error(
-        `Could not fetch ${normalized} (${e instanceof Error ? e.message : "network error"})`,
-      );
-    }
-    const homepageUrl = normalizeCrawlUrl(homepageResponse.url, origin);
-    if (!homepageUrl) throw new Error("The website redirected outside the supplied site, so MOSAI stopped the crawl.");
-    let homepage = extractWebsitePage(homepageResponse.text, homepageUrl);
-
-    // JS-render fallback: page looks empty (SPA) → try the jina reader proxy,
-    // which executes JS headlessly and returns rendered text.
-    if (homepage.headings.length < 3 && homepage.excerpt.length < 500 && homepageResponse.text.length < 30_000) {
-      try {
-        const rendered = await fetchText(`https://r.jina.ai/${normalized}`, 12_000, 500_000);
-        const renderedPage = extractWebsitePage(`<html><body>${rendered.text}</body></html>`, homepageUrl);
-        if (!renderedPage.title) {
-          const match = rendered.text.match(/^Title:\s*(.+)$/m);
-          if (match) renderedPage.title = match[1].trim();
-        }
-        if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl };
-      } catch {
-        // Keep the original HTML result and its honest evidence.
-      }
-    }
-
-    const candidates = new Set<string>();
-    let skippedByRobotsCount = 0;
-    const addCandidate = (candidate: string) => {
-      const safe = normalizeCrawlUrl(candidate, origin);
-      if (!safe || safe === homepageUrl || candidates.has(safe)) return;
-      if (!isAllowed(safe, robots, ignoreRobots)) {
-        skippedByRobotsCount += 1;
-        return;
-      }
-      if (candidates.size < MAX_DISCOVERED_URLS) candidates.add(safe);
-    };
-    sitemap.urls.forEach(addCandidate);
-    homepage.internalLinks.forEach((link) => addCandidate(link.url));
-
-    const pages: Array<Omit<WebsitePageExtraction, "internalLinks">> = [homepage];
-    const visited = new Set([homepageUrl]);
-    let failedPageCount = 0;
-    while (pages.length < MAX_CRAWLED_PAGES) {
-      const next = prioritizeSiteUrls(
-        [...candidates].filter((candidate) => !visited.has(candidate)),
-        Math.min(CRAWL_CONCURRENCY, MAX_CRAWLED_PAGES - pages.length),
-      );
-      if (!next.length) break;
-      next.forEach((pageUrl) => visited.add(pageUrl));
-      const outcomes = await Promise.all(next.map(async (pageUrl) => {
-        try {
-          const response = await fetchText(pageUrl, 6_000, 500_000);
-          const finalUrl = normalizeCrawlUrl(response.url, origin);
-          if (!finalUrl) throw new Error("Page redirected outside the supplied site");
-          return { pageUrl, page: extractWebsitePage(response.text, finalUrl) };
-        } catch {
-          return { pageUrl, page: null };
-        }
-      }));
-      for (const outcome of outcomes) {
-        if (!outcome.page) {
-          failedPageCount += 1;
-          continue;
-        }
-        const { internalLinks, ...finding } = outcome.page;
-        pages.push(finding);
-        internalLinks.forEach((link) => addCandidate(link.url));
-      }
-    }
-
-    const businessDetails: WebsiteBusinessDetails = {};
-    for (const page of pages) {
-      for (const [key, value] of Object.entries(page.businessDetails)) {
-        if (businessDetails[key as keyof WebsiteBusinessDetails] === undefined && value) {
-          Object.assign(businessDetails, { [key]: value });
-        }
-      }
-    }
-    const productsServices = [...new Set(pages.flatMap((page) => page.productsServices))].slice(0, 80);
-    const socialChannels = [...new Set(pages.flatMap((page) => page.socialChannels))].slice(0, 50);
-    const pendingDiscovered = [...candidates].filter((candidate) => !visited.has(candidate)).length;
-    const truncated = sitemap.truncated || candidates.size >= MAX_DISCOVERED_URLS || pendingDiscovered > 0;
-
-    return {
-      url: normalized,
-      scannedAt: Date.now(),
-      sitemapUrls: sitemap.urls.slice(0, MAX_SITEMAP_URLS),
-      pages: pages.map(({ url: pageUrl, title, description, headings, productsServices: names, excerpt }) => ({
-        url: pageUrl,
-        title,
-        description,
-        headings,
-        productsServices: names,
-        excerpt,
-      })),
-      titles: pages.map((page) => page.title).filter((title): title is string => Boolean(title)).slice(0, 40),
-      headings: [...new Set(pages.flatMap((page) => page.headings))].slice(0, 160),
-      metaDescription: homepage.description,
-      productsServices,
-      socialChannels,
-      businessDetails,
-      coverage: {
-        sitemapCount: sitemap.documentCount,
-        sitemapFailureCount: sitemap.failureCount,
-        discoveredPageCount: candidates.size + 1,
-        scannedPageCount: pages.length,
-        failedPageCount,
-        skippedByRobotsCount,
-        pageLimit: MAX_CRAWLED_PAGES,
-        truncated,
-      },
-    };
+    return await runWebsiteScan(url, ignoreRobots);
   },
 });
 
-/* ── SerpApi — Google My Business (google_maps engine) ──────────────────── */
+/**
+ * Re-scan a project's saved website from project settings. The scan runs and
+ * is stored entirely on the server (the browser never writes the findings),
+ * and an earlier Google Business result is kept.
+ */
+export const rescanProjectWebsite = action({
+  args: { projectId: v.id("projects"), ignoreRobots: v.optional(v.boolean()) },
+  handler: async (
+    ctx,
+    { projectId, ignoreRobots = false },
+  ): Promise<{ status: "scraped" | "partial"; scannedPageCount: number }> => {
+    const userId = await requireActionUser(ctx);
+    const project: Doc<"projects"> | null = await ctx.runQuery(internal.guards.projectAccessForAction, {
+      projectId,
+      userId,
+    });
+    if (!project) throw new Error("Not found");
+    if (!project.websiteUrl) throw new Error("Add the website address first, then scan it.");
+    await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "website_scan" });
+
+    const scan = await runWebsiteScan(project.websiteUrl, ignoreRobots);
+    const status =
+      scan.coverage.truncated || scan.coverage.failedPageCount > 0 || scan.coverage.sitemapFailureCount > 0
+        ? "partial"
+        : "scraped";
+    await ctx.runMutation(internal.projects.storeServerScan, {
+      projectId,
+      userId,
+      scan: {
+        status,
+        sitemapUrls: scan.sitemapUrls,
+        titles: scan.titles,
+        metaDescription: scan.metaDescription,
+        headings: scan.headings,
+        productsServices: scan.productsServices,
+        pages: scan.pages,
+        socialChannels: scan.socialChannels,
+        businessDetails: scan.businessDetails,
+        coverage: scan.coverage,
+      },
+    });
+    return { status, scannedPageCount: scan.coverage.scannedPageCount };
+  },
+});
+
+async function runWebsiteScan(url: string, ignoreRobots: boolean): Promise<ScanResult> {
+  const normalized = normalizeWebsiteUrl(url);
+  if (!normalized) throw new Error("Could not interpret that website URL");
+
+  const origin = new URL(normalized).origin;
+  const robots = await loadRobots(origin);
+  if (!isAllowed(normalized, robots, ignoreRobots)) {
+    throw new Error("This page is disallowed by robots.txt. Continue only if you control the site and choose the robots override.");
+  }
+  const sitemap = await discoverSitemapPages(origin, robots);
+
+  let homepageResponse: { text: string; url: string };
+  try {
+    homepageResponse = await fetchText(normalized, 8_000, 750_000);
+  } catch (e) {
+    throw new Error(
+      `Could not fetch ${normalized} (${e instanceof Error ? e.message : "network error"})`,
+    );
+  }
+  const homepageUrl = normalizeCrawlUrl(homepageResponse.url, origin);
+  if (!homepageUrl) throw new Error("The website redirected outside the supplied site, so MOSAI stopped the crawl.");
+  let homepage = extractWebsitePage(homepageResponse.text, homepageUrl);
+
+  // JS-render fallback: page looks empty (SPA) → try the jina reader proxy,
+  // which executes JS headlessly and returns rendered text.
+  if (homepage.headings.length < 3 && homepage.excerpt.length < 500 && homepageResponse.text.length < 30_000) {
+    try {
+      const rendered = await fetchText(`https://r.jina.ai/${normalized}`, 12_000, 500_000);
+      const renderedPage = extractWebsitePage(`<html><body>${rendered.text}</body></html>`, homepageUrl);
+      if (!renderedPage.title) {
+        const match = rendered.text.match(/^Title:\s*(.+)$/m);
+        if (match) renderedPage.title = match[1].trim();
+      }
+      if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl };
+    } catch {
+      // Keep the original HTML result and its honest evidence.
+    }
+  }
+
+  const candidates = new Set<string>();
+  let skippedByRobotsCount = 0;
+  const addCandidate = (candidate: string) => {
+    const safe = normalizeCrawlUrl(candidate, origin);
+    if (!safe || safe === homepageUrl || candidates.has(safe)) return;
+    if (!isAllowed(safe, robots, ignoreRobots)) {
+      skippedByRobotsCount += 1;
+      return;
+    }
+    if (candidates.size < MAX_DISCOVERED_URLS) candidates.add(safe);
+  };
+  sitemap.urls.forEach(addCandidate);
+  homepage.internalLinks.forEach((link) => addCandidate(link.url));
+
+  const pages: Array<Omit<WebsitePageExtraction, "internalLinks">> = [homepage];
+  const visited = new Set([homepageUrl]);
+  let failedPageCount = 0;
+  while (pages.length < MAX_CRAWLED_PAGES) {
+    const next = prioritizeSiteUrls(
+      [...candidates].filter((candidate) => !visited.has(candidate)),
+      Math.min(CRAWL_CONCURRENCY, MAX_CRAWLED_PAGES - pages.length),
+    );
+    if (!next.length) break;
+    next.forEach((pageUrl) => visited.add(pageUrl));
+    const outcomes = await Promise.all(next.map(async (pageUrl) => {
+      try {
+        const response = await fetchText(pageUrl, 6_000, 500_000);
+        const finalUrl = normalizeCrawlUrl(response.url, origin);
+        if (!finalUrl) throw new Error("Page redirected outside the supplied site");
+        return { pageUrl, page: extractWebsitePage(response.text, finalUrl) };
+      } catch {
+        return { pageUrl, page: null };
+      }
+    }));
+    for (const outcome of outcomes) {
+      if (!outcome.page) {
+        failedPageCount += 1;
+        continue;
+      }
+      const { internalLinks, ...finding } = outcome.page;
+      pages.push(finding);
+      internalLinks.forEach((link) => addCandidate(link.url));
+    }
+  }
+
+  const businessDetails: WebsiteBusinessDetails = {};
+  for (const page of pages) {
+    for (const [key, value] of Object.entries(page.businessDetails)) {
+      if (businessDetails[key as keyof WebsiteBusinessDetails] === undefined && value) {
+        Object.assign(businessDetails, { [key]: value });
+      }
+    }
+  }
+  const productsServices = [...new Set(pages.flatMap((page) => page.productsServices))].slice(0, 80);
+  const socialChannels = [...new Set(pages.flatMap((page) => page.socialChannels))].slice(0, 50);
+  const pendingDiscovered = [...candidates].filter((candidate) => !visited.has(candidate)).length;
+  const truncated = sitemap.truncated || candidates.size >= MAX_DISCOVERED_URLS || pendingDiscovered > 0;
+
+  return {
+    url: normalized,
+    scannedAt: Date.now(),
+    sitemapUrls: sitemap.urls.slice(0, MAX_SITEMAP_URLS),
+    pages: pages.map(({ url: pageUrl, title, description, headings, productsServices: names, excerpt }) => ({
+      url: pageUrl,
+      title,
+      description,
+      headings,
+      productsServices: names,
+      excerpt,
+    })),
+    titles: pages.map((page) => page.title).filter((title): title is string => Boolean(title)).slice(0, 40),
+    headings: [...new Set(pages.flatMap((page) => page.headings))].slice(0, 160),
+    metaDescription: homepage.description,
+    productsServices,
+    socialChannels,
+    businessDetails,
+    coverage: {
+      sitemapCount: sitemap.documentCount,
+      sitemapFailureCount: sitemap.failureCount,
+      discoveredPageCount: candidates.size + 1,
+      scannedPageCount: pages.length,
+      failedPageCount,
+      skippedByRobotsCount,
+      pageLimit: MAX_CRAWLED_PAGES,
+      truncated,
+    },
+  };
+}
+
+/* ── SerpApi — Google Business Profile (google_maps engine) ─────────────── */
 
 type GmbLookup = NonNullable<ScanResult["gmb"]> & { source: string };
-type GmbSuggestion = {
-  placeId: string;
-  title: string;
-  address?: string;
-  category?: string;
-  rating?: number;
-  reviews?: number;
-};
+
+const SERPAPI_SEARCH = "https://serpapi.com/search.json";
+const GOOGLE_MAPS_NOT_CONFIGURED =
+  "Google Business search isn't set up on this workspace yet. You can skip this step.";
+
+async function serpApiGoogleMaps(
+  params: Record<string, string>,
+): Promise<GoogleMapsResponse> {
+  const key = process.env.SERPAPI_KEY;
+  if (!key) throw new Error(GOOGLE_MAPS_NOT_CONFIGURED);
+  const query = new URLSearchParams({ engine: "google_maps", ...params, api_key: key });
+  let res: Response;
+  try {
+    res = await fetch(`${SERPAPI_SEARCH}?${query}`, { signal: AbortSignal.timeout(10_000) });
+  } catch {
+    throw new Error("Google Business search didn't respond. Try again in a moment.");
+  }
+  if (!res.ok) {
+    throw new Error("Google Business search is temporarily unavailable. Try again or skip this step.");
+  }
+  const data = (await res.json()) as GoogleMapsResponse;
+  // Provider error text is never shown to the user (it can echo parameters).
+  if (googleMapsFailure(data)) {
+    throw new Error("Google Business search is temporarily unavailable. Try again or skip this step.");
+  }
+  return data;
+}
 
 /**
  * Search a small, bounded set of Google Maps listings while the user types.
  * Suggestions are only candidates; the user reviews the selected listing later.
+ * An exact match comes back as `place_results` and an empty search as a
+ * documented "no results" answer — both are handled, neither is an outage.
  */
 export const suggestGoogleBusiness = action({
   args: { query: v.string() },
-  handler: async (ctx, { query }): Promise<GmbSuggestion[]> => {
-    await requireActionUser(ctx);
+  handler: async (ctx, { query }): Promise<GoogleMapsSuggestion[]> => {
+    const userId = await requireActionUser(ctx);
     const normalizedQuery = query.trim().slice(0, 160);
     if (normalizedQuery.length < 3) return [];
+    if (!process.env.SERPAPI_KEY) throw new Error(GOOGLE_MAPS_NOT_CONFIGURED);
+    await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "google_maps" });
 
-    const key = process.env.SERPAPI_KEY;
-    if (!key) {
-      throw new Error(
-        "SERPAPI_KEY is not configured — add it in the Keys / API keys panel.",
-      );
-    }
-
-    const params = new URLSearchParams({
-      engine: "google_maps",
-      type: "search",
-      q: normalizedQuery,
-      api_key: key,
-    });
-    const res = await fetch(`https://serpapi.com/search.json?${params}`, {
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!res.ok) throw new Error(`Google Maps search failed (HTTP ${res.status}).`);
-    const data = (await res.json()) as {
-      local_results?: Array<Record<string, unknown>>;
-      error?: string;
-    };
-    if (data.error) throw new Error("Google Maps suggestions are temporarily unavailable.");
-
-    const seen = new Set<string>();
-    return (data.local_results ?? [])
-      .filter((hit) => typeof hit.place_id === "string" && Boolean(hit.place_id.trim()) && typeof hit.title === "string")
-      .filter((hit) => {
-        const placeId = hit.place_id as string;
-        if (seen.has(placeId)) return false;
-        seen.add(placeId);
-        return true;
-      })
-      .slice(0, 5)
-      .map((hit) => ({
-        placeId: (hit.place_id as string).slice(0, 200),
-        title: (hit.title as string).slice(0, 200),
-        address: typeof hit.address === "string" ? hit.address.slice(0, 300) : undefined,
-        category: Array.isArray(hit.type)
-          ? typeof hit.type[0] === "string" ? hit.type[0].slice(0, 100) : undefined
-          : typeof hit.type === "string" ? hit.type.slice(0, 100) : undefined,
-        rating: typeof hit.rating === "number" ? hit.rating : undefined,
-        reviews: typeof hit.reviews === "number" ? hit.reviews : undefined,
-      }));
+    const data = await serpApiGoogleMaps({ type: "search", q: normalizedQuery });
+    if (isEmptyGoogleMapsAnswer(data)) return [];
+    return parseGoogleMapsSuggestions(data);
   },
 });
 
 /**
- * Look up a Google My Business listing via SerpApi's google_maps engine.
- * Requires SERPAPI_KEY env var (set through the Keys / API keys UI).
+ * Confirm one Google Business listing. With a `placeId` (picked from the
+ * suggestions) SerpApi resolves the exact place; `type`/`q` must not be sent
+ * with it. Without one, the best text match is used.
  */
-export const lookupGoogleBusiness = action({ 
+export const lookupGoogleBusiness = action({
   args: { name: v.string(), placeId: v.optional(v.string()) },
   handler: async (ctx, { name, placeId }): Promise<GmbLookup> => {
-    await requireActionUser(ctx);
-    const key = process.env.SERPAPI_KEY;
-    if (!key)
-      throw new Error(
-        "SERPAPI_KEY is not configured — add it in the Keys / API keys panel.",
-      );
+    const userId = await requireActionUser(ctx);
+    const title = name.trim().slice(0, 160);
+    const place = placeId?.trim().slice(0, 200);
+    if (!title && !place) throw new Error("Enter the business name to look it up.");
+    if (!process.env.SERPAPI_KEY) throw new Error(GOOGLE_MAPS_NOT_CONFIGURED);
+    await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "google_maps" });
 
-    const params = new URLSearchParams({
-      engine: "google_maps",
-      type: "search",
-      q: name,
-      api_key: key,
-    });
-    if (placeId) params.set("place_id", placeId);
+    const data = await serpApiGoogleMaps(
+      place ? { place_id: place } : { type: "search", q: title },
+    );
+    const hit = isEmptyGoogleMapsAnswer(data) ? null : parseGoogleMapsPlace(data, title);
+    if (!hit) throw new Error(`No Google Business listing found for "${title || "this place"}".`);
 
-    const res = await fetch(`https://serpapi.com/search.json?${params}`);
-    if (!res.ok) throw new Error(`SerpApi error HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      local_results?: Array<Record<string, unknown>>;
-      place_results?: Record<string, unknown>;
-      error?: string;
-    };
-    if (data.error) throw new Error(`SerpApi: ${data.error}`);
-
-    const hit =
-      data.place_results ?? (data.local_results?.[0] as Record<string, unknown> | undefined);
-    if (!hit) throw new Error(`No Google Maps listing found for "${name}"`);
-
-    const gps = (hit.gps_coordinates ?? {}) as Record<string, number>;
-    const address = (hit.address ?? "") as string;
-
+    const { latitude, longitude, ...listing } = hit;
     return {
-      title: (hit.title as string) ?? name,
-      address: address || undefined,
-      phone: ((hit.phone ?? "") as string) || undefined,
-      website: ((hit.website ?? "") as string) || undefined,
-      rating: typeof hit.rating === "number" ? hit.rating : undefined,
-      reviews:
-        typeof hit.reviews === "number"
-          ? hit.reviews
-          : typeof (hit.reviews as { original?: number })?.original === "number"
-            ? (hit.reviews as { original: number }).original
-            : undefined,
-      category: Array.isArray(hit.type)
-        ? (hit.type as string[])[0]
-        : ((hit.type as string) ?? undefined),
-      openHours: hit.operating_hours
-        ? Object.entries(hit.operating_hours as Record<string, string>)
-            .map(([d, h]) => `${d}: ${h}`)
-            .join(" · ")
-        : undefined,
-      source: `serpapi:google_maps${gps.lat ? ` @${gps.lat.toFixed(3)},${gps.lng.toFixed(3)}` : ""}`,
+      ...listing,
+      source: `serpapi:google_maps${
+        latitude !== undefined && longitude !== undefined
+          ? ` @${latitude.toFixed(3)},${longitude.toFixed(3)}`
+          : ""
+      }`,
     } satisfies GmbLookup;
   },
 });

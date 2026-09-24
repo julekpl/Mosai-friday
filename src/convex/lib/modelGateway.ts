@@ -3,9 +3,13 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { vly } from "../../lib/vly-integrations";
 
-// The site generator emits a structured multi-page plan and requests 3,000
-// tokens. Keep the gateway limit aligned with that supported output size.
-export const MODEL_GATEWAY_MAX_OUTPUT_TOKENS = 3_000;
+// The site generator emits a structured multi-page plan (3-6 pages x 3-6
+// blocks); 3,000 tokens truncated it in practice. Long-form content and full
+// site plans need room, so the ceiling is 8,000 output tokens per request.
+export const MODEL_GATEWAY_MAX_OUTPUT_TOKENS = 8_000;
+export const MODEL_GATEWAY_TIMEOUT_MS = 90_000;
+/** Structured outputs that fail validation get one repair attempt. */
+export const MODEL_GATEWAY_REPAIR_ATTEMPTS = 1;
 export const MODEL_GATEWAY_MAX_INPUT_CHARS = 100_000;
 
 export type ModelProvider = "vly" | "openrouter";
@@ -32,7 +36,9 @@ export type ModelGatewayRequest = {
   autonomy: AiAutonomy;
   contextSources: string[];
   provider?: ModelProvider;
-  model: string;
+  /** Omit to use the operator-configured model for this project
+   *  (aiModels.resolveForRequest). Feature code should omit it. */
+  model?: string;
   messages: ModelMessage[];
   maxOutputTokens: number;
   temperature?: number;
@@ -103,7 +109,7 @@ function validateRequest(request: ModelGatewayRequest): AiErrorCategory | null {
   if (
     !request.agentId.trim() ||
     !request.promptVersion.trim() ||
-    !request.model.trim() ||
+    !request.model?.trim() ||
     request.model.length > 120 ||
     !Number.isInteger(maxTokens) ||
     maxTokens < 1 ||
@@ -145,7 +151,7 @@ async function persistRunFinish(
   }
 }
 
-async function callVly(request: ModelGatewayRequest, maxTokens: number) {
+async function callVly(request: ResolvedRequest, maxTokens: number) {
   const result = await vly.ai.completion({
     model: request.model,
     messages: request.messages,
@@ -164,7 +170,7 @@ async function callVly(request: ModelGatewayRequest, maxTokens: number) {
   };
 }
 
-async function callOpenRouter(request: ModelGatewayRequest, maxTokens: number) {
+async function callOpenRouter(request: ResolvedRequest, maxTokens: number) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("provider configuration unavailable");
 
@@ -174,7 +180,7 @@ async function callOpenRouter(request: ModelGatewayRequest, maxTokens: number) {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://mosai.app",
-      "X-Title": "MOSAI Ads Copilot",
+      "X-Title": "MOSAI",
     },
     body: JSON.stringify({
       model: request.model,
@@ -182,7 +188,7 @@ async function callOpenRouter(request: ModelGatewayRequest, maxTokens: number) {
       max_tokens: maxTokens,
       temperature: request.temperature ?? 0.7,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(MODEL_GATEWAY_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error("provider request failed");
 
@@ -203,6 +209,60 @@ export async function modelComplete(
   request: ModelGatewayRequest,
 ): Promise<ModelGatewayResult> {
   const provider = request.provider ?? "vly";
+  const model =
+    request.model ??
+    (
+      await request.ctx.runQuery(internal.aiModels.resolveForRequest, {
+        projectId: request.projectId,
+      })
+    ).modelId;
+  const resolved: ResolvedRequest = { ...request, provider, model };
+
+  let messages = resolved.messages;
+  for (let attempt = 0; ; attempt += 1) {
+    const outcome = await runOnce({ ...resolved, messages });
+    if (outcome.ok) return outcome.result;
+    const canRepair =
+      outcome.error === "invalid_output" &&
+      Boolean(request.validateOutput) &&
+      attempt < MODEL_GATEWAY_REPAIR_ATTEMPTS;
+    if (!canRepair) throw new Error(errorMessage(outcome.error));
+    // One repair turn: show the model its own reply and restate the contract.
+    // The rejected text is model output (never user data), bounded in size.
+    messages = [
+      ...resolved.messages,
+      { role: "assistant", content: outcome.text.slice(0, 12_000) },
+      {
+        role: "user",
+        content:
+          "That reply could not be used: it did not match the required format or was cut off. Reply again with ONLY the complete output in exactly the requested format — no commentary, no markdown fences — and keep it within the length limit.",
+      },
+    ];
+  }
+}
+
+function errorMessage(category: AiErrorCategory): string {
+  switch (category) {
+    case "invalid_request":
+      return "AI request is outside the configured gateway limits.";
+    case "empty_response":
+      return "AI returned an empty response.";
+    case "invalid_output":
+      return "AI returned an invalid response.";
+    default:
+      return "AI provider request failed. Try again later.";
+  }
+}
+
+type ResolvedRequest = ModelGatewayRequest & { provider: ModelProvider; model: string };
+
+type AttemptOutcome =
+  | { ok: true; result: ModelGatewayResult }
+  | { ok: false; error: AiErrorCategory; text: string };
+
+/** One recorded provider call: its own aiRuns row, so cost stays honest. */
+async function runOnce(request: ResolvedRequest): Promise<AttemptOutcome> {
+  const provider = request.provider;
   const maxTokens = Math.min(
     request.maxOutputTokens,
     MODEL_GATEWAY_MAX_OUTPUT_TOKENS,
@@ -230,7 +290,7 @@ export async function modelComplete(
       finishedAt: Date.now(),
       latencyMs: Date.now() - startedAt,
     });
-    throw new Error("AI request is outside the configured gateway limits.");
+    return { ok: false, error: invalidRequest, text: "" };
   }
 
   let result:
@@ -252,7 +312,7 @@ export async function modelComplete(
       finishedAt: Date.now(),
       latencyMs: Date.now() - startedAt,
     });
-    throw new Error("AI provider request failed. Try again later.");
+    return { ok: false, error: "provider_error", text: "" };
   }
 
   const errorCategory: AiErrorCategory | null = result.failed
@@ -276,14 +336,6 @@ export async function modelComplete(
     finishedAt: Date.now(),
     latencyMs: Date.now() - startedAt,
   });
-  if (outputError === "provider_error") {
-    throw new Error("AI provider request failed. Try again later.");
-  }
-  if (outputError === "empty_response") {
-    throw new Error("AI returned an empty response.");
-  }
-  if (outputError === "invalid_output") {
-    throw new Error("AI returned an invalid response.");
-  }
-  return { text: result.text, usage: result.usage };
+  if (outputError) return { ok: false, error: outputError, text: result.text };
+  return { ok: true, result: { text: result.text, usage: result.usage } };
 }

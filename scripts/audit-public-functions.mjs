@@ -48,6 +48,10 @@ const ORG_ACCESS = /\baccess\s*\.\s*(userId|organizationIds|require\w+|owned\w+)
 const RECORD_ARG = /\bv\s*\.\s*id\s*\(/;
 /** Helpers that authenticate but leave authorization to the caller. */
 const WEAK_GUARDS = /\b(getAuthUserId|maybeUser)\b/;
+/** `await getAuthUserId(ctx);` as a bare statement: the result (null for a
+ *  signed-out caller) is thrown away, so nothing is authenticated at all. This
+ *  is how `files.generateUploadUrl` let anonymous callers mint upload URLs. */
+const DISCARDED_AUTH = /^\s*await\s+(getAuthUserId|maybeUser)\s*\([^)]*\)\s*;/m;
 
 /** Every wrapper that produces a public Convex function, including the T2.2
  *  org-scoped builders and the T2.3 capability-enforcing module builders. */
@@ -140,6 +144,11 @@ for (const file of walk(CONVEX_DIR)) {
       guarded++;
       continue;
     }
+    // Calling the auth helper and discarding its result is no sign-in check.
+    if (DISCARDED_AUTH.test(fn.body)) {
+      findings.push({ key, file: rel, line: fn.line, name: fn.name, kind: fn.kind });
+      continue;
+    }
     if (ORG_ACCESS.test(fn.body) && !RECORD_ARG.test(fn.body)) {
       guarded++;
       continue;
@@ -156,8 +165,10 @@ for (const file of walk(CONVEX_DIR)) {
       // A function that names a record (`v.id(...)`) but only authenticates is
       // unscoped: it will happily read or write another tenant's row. That is
       // a failure, not a review note. A function with no record argument is
-      // self-scoped (``currentUser``, ``generateUploadUrl``, admin settings),
-      // so it stays a warning for a human to read.
+      // self-scoped (``currentUser``, admin settings), so it stays a warning for
+      // a human to read. Minting storage upload URLs is not self-scoped: it
+      // writes storage, so ``files.generateUploadUrl`` takes a projectId and
+      // authorizes it.
       if (RECORD_ARG.test(fn.body)) unscoped.push(entry);
       else weak.push(entry);
       continue;

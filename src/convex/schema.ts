@@ -17,6 +17,33 @@ export const roleValidator = v.union(
 );
 export type Role = Infer<typeof roleValidator>;
 
+export const businessProfileFields = {
+  summary: v.string(),
+  businessModel: v.union(
+    v.literal("b2b"),
+    v.literal("b2c"),
+    v.literal("b2b2c"),
+    v.literal("nonprofit"),
+    v.literal("public_sector"),
+    v.literal("mixed"),
+  ),
+  offerings: v.array(v.string()),
+  customerSegments: v.array(v.string()),
+  notTheAudience: v.array(v.string()),
+  customerProblems: v.array(v.string()),
+  primaryGoals: v.array(v.string()),
+  market: v.optional(v.string()),
+  differentiators: v.array(v.string()),
+  contentThemes: v.array(v.string()),
+};
+
+const businessProfileValidator = v.object({
+  ...businessProfileFields,
+  status: v.union(v.literal("ai_draft"), v.literal("confirmed")),
+  updatedAt: v.number(),
+  confirmedAt: v.optional(v.number()),
+});
+
 const schema = defineSchema(
   {
     // default auth tables using convex auth.
@@ -198,6 +225,20 @@ const schema = defineSchema(
       goals: v.optional(v.array(v.string())),
       kpis: v.optional(v.array(v.string())),
       channels: v.optional(v.array(v.string())),
+      // Who the business sells to and what those customers struggle with, as
+      // the owner describes it (onboarding step 3 / project settings).
+      targetAudience: v.optional(v.array(v.string())),
+      customerPains: v.optional(v.array(v.string())),
+      serviceArea: v.optional(v.string()),
+      // The owner's own marketing problems ("high ad costs"). Kept apart from
+      // customerPains so they never become the audience's problems in prompts.
+      marketingChallenges: v.optional(v.array(v.string())),
+      // The project's chosen AI model (one of the operator-enabled aiModels).
+      aiModelId: v.optional(v.string()),
+      // The reviewed "what this business is" statement every AI prompt is
+      // grounded in (lib/businessProfile.ts). Drafted by AI on the server,
+      // confirmed by the owner in project settings.
+      businessProfile: v.optional(businessProfileValidator),
       // The organization this project belongs to (T2.1). Optional only so the
       // migration can backfill pre-organization projects; every project
       // created after T2.1 is written with its owner's personal organization.
@@ -1050,6 +1091,155 @@ const schema = defineSchema(
       .index("by_state", ["state"])
       .index("by_user", ["createdBy"]),
 
+    // ── Grow: one Google connection per project (GA4, Search Console, Ads) ──
+
+    // OAuth tokens + the resources the signed-in Google account can reach.
+    // Tokens are server-only: public queries project explicit safe fields.
+    // `status` is written only by the OAuth callback / refresh bookkeeping.
+    googleConnections: defineTable({
+      projectId: v.id("projects"),
+      accessToken: v.string(),
+      refreshToken: v.optional(v.string()),
+      expiresAt: v.optional(v.number()),
+      scope: v.optional(v.string()),
+      accountEmail: v.optional(v.string()),
+      status: v.union(v.literal("connected"), v.literal("needs_reconnect")),
+      tokenVersion: v.optional(v.number()),
+      refreshLeaseId: v.optional(v.string()),
+      refreshLeaseUntil: v.optional(v.number()),
+      connectedBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      // Resource lists from the last successful listing (bounded).
+      resourcesListedAt: v.optional(v.number()),
+      ga4Properties: v.optional(
+        v.array(v.object({ id: v.string(), name: v.string(), account: v.optional(v.string()) })),
+      ),
+      gscSites: v.optional(
+        v.array(v.object({ siteUrl: v.string(), permission: v.optional(v.string()) })),
+      ),
+      adsCustomers: v.optional(
+        v.array(
+          v.object({
+            id: v.string(),
+            name: v.optional(v.string()),
+            currency: v.optional(v.string()),
+            manager: v.optional(v.boolean()),
+            usable: v.boolean(),
+          }),
+        ),
+      ),
+      resourceErrors: v.optional(
+        v.array(
+          v.object({
+            source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+            state: v.union(v.literal("needs_setup"), v.literal("error")),
+            code: v.optional(v.string()),
+            message: v.string(),
+          }),
+        ),
+      ),
+      // What the owner picked. Validated against the listed resources.
+      ga4PropertyId: v.optional(v.string()),
+      ga4PropertyName: v.optional(v.string()),
+      gscSiteUrl: v.optional(v.string()),
+      adsCustomerId: v.optional(v.string()),
+      adsCustomerName: v.optional(v.string()),
+    }).index("by_project", ["projectId"]),
+
+    // One sync job (AGENTS.md rule 13 states). Each source records its own
+    // outcome; errors are plain-language plus an enum-like provider code.
+    googleSyncRuns: defineTable({
+      projectId: v.id("projects"),
+      trigger: v.union(v.literal("manual"), v.literal("cron"), v.literal("connect")),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("succeeded"),
+        v.literal("partially_succeeded"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+      idempotencyKey: v.string(),
+      requestedBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      startedAt: v.optional(v.number()),
+      finishedAt: v.optional(v.number()),
+      sources: v.array(
+        v.object({
+          source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+          status: v.union(v.literal("succeeded"), v.literal("failed"), v.literal("skipped")),
+          rows: v.number(),
+          code: v.optional(v.string()),
+          message: v.optional(v.string()),
+        }),
+      ),
+      message: v.optional(v.string()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_created", ["projectId", "createdAt"])
+      .index("by_idempotency", ["idempotencyKey"]),
+
+    // Daily totals per source (56 days: the last 28 plus the 28 before).
+    // Money is integer micros of `currency`.
+    googleMetricsDaily: defineTable({
+      projectId: v.id("projects"),
+      source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+      resourceId: v.string(),
+      date: v.string(), // YYYY-MM-DD in the provider's reporting timezone
+      sessions: v.optional(v.number()),
+      users: v.optional(v.number()),
+      keyEvents: v.optional(v.number()),
+      engagementRate: v.optional(v.number()),
+      clicks: v.optional(v.number()),
+      impressions: v.optional(v.number()),
+      ctr: v.optional(v.number()),
+      position: v.optional(v.number()),
+      costMicros: v.optional(v.number()),
+      conversions: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      syncedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_source_date", ["projectId", "source", "date"]),
+
+    // Period totals (first run is the headline pair: current vs previous 28
+    // days) and bounded top lists (queries, pages, landing pages, channels,
+    // campaigns) for the last 28 days.
+    googleTopItems: defineTable({
+      projectId: v.id("projects"),
+      source: v.union(v.literal("ga4"), v.literal("gsc"), v.literal("gads")),
+      kind: v.union(
+        v.literal("totals_current"),
+        v.literal("totals_previous"),
+        v.literal("query"),
+        v.literal("page"),
+        v.literal("landing_page"),
+        v.literal("channel"),
+        v.literal("campaign"),
+      ),
+      rank: v.number(),
+      label: v.string(),
+      key: v.optional(v.string()),
+      status: v.optional(v.string()),
+      sessions: v.optional(v.number()),
+      users: v.optional(v.number()),
+      keyEvents: v.optional(v.number()),
+      engagementRate: v.optional(v.number()),
+      clicks: v.optional(v.number()),
+      impressions: v.optional(v.number()),
+      ctr: v.optional(v.number()),
+      position: v.optional(v.number()),
+      costMicros: v.optional(v.number()),
+      conversions: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      periodStart: v.string(),
+      periodEnd: v.string(),
+      syncedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_project_source", ["projectId", "source"]),
+
     // Ad accounts discovered for each connected platform.
     adsAccounts: defineTable({
       projectId: v.id("projects"),
@@ -1191,6 +1381,64 @@ const schema = defineSchema(
 
     // Every operator action is recorded (T2.4). Full cross-tenant access is
     // powerful; the trail is what makes it reviewable.
+    // Operator-managed plan & add-on catalog (billingPlans.ts). Global: no
+    // tenant data. Money is integer minor units + ISO currency (AGENTS.md
+    // rule 7). A row never grants anything by itself: entitlement comes from
+    // a verified Stripe subscription item or an audited operator grant.
+    billingPlans: defineTable({
+      key: v.string(), // slug; for kind "plan" also the value stored in users.plan
+      kind: v.union(v.literal("plan"), v.literal("addon")),
+      name: v.string(),
+      description: v.optional(v.string()),
+      modules: v.array(v.string()), // registry ModuleIds this row unlocks
+      priceMinor: v.number(), // e.g. 2900 = 29.00
+      currency: v.string(), // ISO 4217, e.g. "EUR"
+      interval: v.union(v.literal("month"), v.literal("year")),
+      stripePriceId: v.optional(v.string()),
+      trialDays: v.optional(v.number()),
+      highlights: v.array(v.string()),
+      status: v.union(v.literal("draft"), v.literal("active"), v.literal("archived")),
+      sortOrder: v.number(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      updatedBy: v.id("users"),
+    })
+      .index("by_key", ["key"])
+      .index("by_stripe_price", ["stripePriceId"]),
+
+    // Add-ons an organization holds on top of its plan (mix and match).
+    // Written only by the verified Stripe webhook or an audited operator
+    // grant — never by a client-callable mutation.
+    organizationAddons: defineTable({
+      organizationId: v.id("organizations"),
+      addonKey: v.string(),
+      status: v.union(v.literal("active"), v.literal("canceled")),
+      source: v.union(v.literal("stripe"), v.literal("operator")),
+      stripeSubscriptionId: v.optional(v.string()),
+      reason: v.optional(v.string()),
+      grantedBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_addon", ["organizationId", "addonKey"]),
+
+    // Operator-managed allow-list of OpenRouter models (aiModels.ts). Global:
+    // no tenant data. The gateway resolves the model from here.
+    aiModels: defineTable({
+      modelId: v.string(), // e.g. "anthropic/claude-sonnet-5"
+      label: v.string(),
+      description: v.optional(v.string()),
+      enabled: v.boolean(),
+      isDefault: v.boolean(),
+      contextLength: v.optional(v.number()),
+      promptUsdPerMillion: v.optional(v.number()),
+      completionUsdPerMillion: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      updatedBy: v.id("users"),
+    }).index("by_model", ["modelId"]),
+
     adminAuditLog: defineTable({
       actorId: v.id("users"),
       actorEmail: v.optional(v.string()),
@@ -1234,6 +1482,9 @@ const schema = defineSchema(
       // The plan id from the capability registry, resolved from the price's
       // metadata. Never a free-text tier invented here.
       plan: v.string(),
+      // Catalog add-on keys this subscription pays for (one per item whose
+      // price is a billingPlans add-on). Mirrors Stripe; never client-written.
+      addonKeys: v.optional(v.array(v.string())),
       status: v.string(), // canonical provider status (active, past_due, …)
       livemode: v.boolean(),
       currentPeriodEnd: v.optional(v.number()),
@@ -1548,6 +1799,16 @@ const schema = defineSchema(
       windowStart: v.number(), // epoch ms, aligned to AI_QUOTA_WINDOW_MS
       count: v.number(),
     }).index("by_user_window", ["userId", "windowStart"]),
+
+    // Per-user budget for paid lookup APIs (SerpApi Google Maps search while
+    // typing, business-listing confirmation). Separate from the AI quota so
+    // typing in a search box never eats the user's AI requests.
+    lookupRateLimits: defineTable({
+      userId: v.id("users"),
+      kind: v.string(), // e.g. "google_maps"
+      windowStart: v.number(), // epoch ms, aligned to LOOKUP_QUOTA_WINDOW_MS
+      count: v.number(),
+    }).index("by_user_kind_window", ["userId", "kind", "windowStart"]),
 
     // Safe AI usage telemetry only: no prompt, output, or provider error text.
     // One row records one model request; userId is the data owner even when a

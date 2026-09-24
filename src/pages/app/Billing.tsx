@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PlanCatalogEntry } from "@/convex/lib/billingCatalog";
+import { CatalogPlans } from "@/components/billing/CatalogPlans";
 
 type BillingCatalog = {
   configured: boolean;
@@ -97,6 +98,13 @@ export default function Billing() {
     };
   }, [loadCatalog]);
 
+  // The operator catalog (admin > Plans) drives mix-and-match billing once it
+  // has anything to sell; until then the legacy tier grid stays.
+  const publicCatalog = useQuery(api.billingPlans.publicCatalog, {});
+  const useOperatorCatalog = Boolean(
+    publicCatalog &&
+      (publicCatalog.plans.some((plan) => plan.priceMinor > 0) || publicCatalog.addons.length > 0),
+  );
   const changePlan = useMutation(api.billing.changePlan);
   const deleteAccount = useMutation(api.billing.deleteAccount);
   const [busy, setBusy] = useState<string | null>(null);
@@ -305,95 +313,114 @@ export default function Billing() {
         </div>
       )}
 
-      {catalogLoading && (
-        <p role="status" className="mb-4 font-mono text-caption text-muted-foreground">
-          Loading Stripe test prices…
-        </p>
-      )}
-      {catalogError && (
-        <p role="alert" className="mb-4 rounded-md border border-terminal-red/40 bg-card px-3 py-2 font-mono text-caption text-terminal-red">
-          Billing prices could not be loaded. {catalogError}
-        </p>
-      )}
+      {useOperatorCatalog && publicCatalog && organizationId && billingState ? (
+        <CatalogPlans
+          catalog={publicCatalog}
+          organizationId={organizationId}
+          checkoutReady={checkoutReady}
+          holding={{
+            planKey: billingState.planKey,
+            activeAddons: billingState.activeAddons,
+            hasSubscription: Boolean(
+              billingState.subscription &&
+                ["active", "trialing", "past_due"].includes(billingState.subscription.status),
+            ),
+            canManage: billingState.canManage,
+          }}
+        />
+      ) : (
+        <>
+        {catalogLoading && (
+          <p role="status" className="mb-4 font-mono text-caption text-muted-foreground">
+            Loading prices…
+          </p>
+        )}
+        {catalogError && (
+          <p role="alert" className="mb-4 rounded-md border border-terminal-red/40 bg-card px-3 py-2 font-mono text-caption text-terminal-red">
+            Billing prices could not be loaded. {catalogError}
+          </p>
+        )}
 
-      {billing && !catalogLoading && !catalogError && !checkoutReady && (
-        <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 font-mono text-caption text-muted-foreground">
-          {catalog?.setupIssue ?? "Billing is not configured on this deployment."}
-        </p>
-      )}
+        {billing && !catalogLoading && !catalogError && !checkoutReady && (
+          <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 font-mono text-caption text-muted-foreground">
+            {catalog?.setupIssue ?? "Billing is not configured on this deployment."}
+          </p>
+        )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {PLAN_CARDS.map((p) => {
-          const isCurrent = p.id === currentPlan;
-          const price = catalogPlan(p.id);
-          const productName = p.id === "free"
-            ? "Free"
-            : price?.productName ?? "Provider price unavailable";
-          const canBuy =
-            p.id !== "free" && checkoutReady && configuredPlan(p.id) && Boolean(organizationId);
-          return (
-            <Card
-              key={p.id}
-              className={cn(
-                "gap-4 py-4",
-                isCurrent && "border-terminal-green/60 shadow-pop",
-              )}
-            >
-              <CardHeader className="px-4">
-                <CardTitle className="flex items-center gap-2 font-mono text-h3">
-                  {productName}
-                  {isCurrent && (
-                    <Badge
-                      variant="outline"
-                      className="border-terminal-green/40 bg-terminal-green-soft font-mono text-caption text-terminal-green"
-                    >
-                      current
-                    </Badge>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {PLAN_CARDS.map((p) => {
+            const isCurrent = p.id === currentPlan;
+            const price = catalogPlan(p.id);
+            const productName = p.id === "free"
+              ? "Free"
+              : price?.productName ?? "Provider price unavailable";
+            const canBuy =
+              p.id !== "free" && checkoutReady && configuredPlan(p.id) && Boolean(organizationId);
+            return (
+              <Card
+                key={p.id}
+                className={cn(
+                  "gap-4 py-4",
+                  isCurrent && "border-terminal-green/60 shadow-pop",
+                )}
+              >
+                <CardHeader className="px-4">
+                  <CardTitle className="flex items-center gap-2 font-mono text-h3">
+                    {productName}
+                    {isCurrent && (
+                      <Badge
+                        variant="outline"
+                        className="border-terminal-green/40 bg-terminal-green-soft font-mono text-caption text-terminal-green"
+                      >
+                        current
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  {price?.configured && price.taxBehavior && (
+                    <CardDescription className="font-mono text-caption">
+                      {price.taxBehavior === "inclusive"
+                        ? "Tax included"
+                        : price.taxBehavior === "exclusive"
+                          ? "Tax added at checkout"
+                          : "Tax calculated at checkout"}
+                    </CardDescription>
                   )}
-                </CardTitle>
-                {price?.configured && price.taxBehavior && (
-                  <CardDescription className="font-mono text-caption">
-                    {price.taxBehavior === "inclusive"
-                      ? "Tax included"
-                      : price.taxBehavior === "exclusive"
-                        ? "Tax added at checkout"
-                        : "Tax calculated at checkout"}
-                  </CardDescription>
-                )}
-                {selfServe && (
-                  <CardDescription className="font-mono text-caption">
-                    Demo only — switching plans here does not create a Stripe subscription or charge.
-                  </CardDescription>
-                )}
-              </CardHeader>
-              <CardContent className="px-4">
-                <p className="font-mono text-metric">{formatProviderPrice(price)}</p>
-                <Button
-                  className="mt-4 w-full"
-                  size="sm"
-                  variant={isCurrent ? "outline" : "default"}
-                  aria-busy={busy === p.id}
-                  disabled={isCurrent || busy === p.id || catalogLoading || (!selfServe && !canBuy)}
-                  onClick={() =>
-                    canBuy && !selfServe ? doCheckout(p.id) : doChange(p.id)
-                  }
-                >
-                  {busy === p.id && <Loader2 className="size-4 animate-spin" />}
-                  {busy === p.id
-                    ? canBuy && !selfServe ? "Opening checkout…" : "Updating plan…"
-                    : isCurrent
-                    ? "Active"
-                    : canBuy
-                      ? "Upgrade"
-                      : selfServe
-                        ? "Demo switch"
-                        : "Unavailable"}
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+                  {selfServe && (
+                    <CardDescription className="font-mono text-caption">
+                      Demo only — switching plans here does not create a Stripe subscription or charge.
+                    </CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent className="px-4">
+                  <p className="font-mono text-metric">{formatProviderPrice(price)}</p>
+                  <Button
+                    className="mt-4 w-full"
+                    size="sm"
+                    variant={isCurrent ? "outline" : "default"}
+                    aria-busy={busy === p.id}
+                    disabled={isCurrent || busy === p.id || catalogLoading || (!selfServe && !canBuy)}
+                    onClick={() =>
+                      canBuy && !selfServe ? doCheckout(p.id) : doChange(p.id)
+                    }
+                  >
+                    {busy === p.id && <Loader2 className="size-4 animate-spin" />}
+                    {busy === p.id
+                      ? canBuy && !selfServe ? "Opening checkout…" : "Updating plan…"
+                      : isCurrent
+                      ? "Active"
+                      : canBuy
+                        ? "Upgrade"
+                        : selfServe
+                          ? "Demo switch"
+                          : "Unavailable"}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+        </>
+      )}
 
       <div className="mt-8 flex flex-wrap items-center gap-3 rounded-md border bg-card p-4 shadow-card">
         <div className="min-w-0">
@@ -401,7 +428,7 @@ export default function Billing() {
           <p className="font-mono text-caption text-muted-foreground">
             {billingState?.subscription?.cancelAtPeriodEnd
               ? `Cancellation scheduled for ${billingState.subscription.currentPeriodEnd
-                  ? new Date(billingState.subscription.currentPeriodEnd * 1000).toLocaleDateString()
+                  ? new Date(billingState.subscription.currentPeriodEnd).toLocaleDateString()
                   : "the period end"}. Paid access remains until Stripe confirms the change.`
               : "Cancellation takes effect at the end of the current billing period."}
           </p>

@@ -89,7 +89,7 @@ export function ProjectFilesSection({
     setUploading(true);
     try {
       for (const file of Array.from(list).slice(0, 10)) {
-        const uploadUrl = await getUploadUrl();
+        const uploadUrl = await getUploadUrl({ projectId });
         const res = await fetch(uploadUrl, {
           method: "POST",
           headers: { "Content-Type": file.type || "application/octet-stream" },

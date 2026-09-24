@@ -1,5 +1,3 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation } from "./_generated/server";
 import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
 
@@ -16,11 +14,14 @@ export const list = orgQuery({
   },
 });
 
-/** Short-lived upload URL the client PUTs the raw file bytes to. */
-export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await getAuthUserId(ctx);
+/** Short-lived upload URL the client PUTs the raw file bytes to. Minting one
+ *  lets the caller write a blob to storage, so it is scoped to a project the
+ *  caller can access: an unauthenticated or foreign caller is refused before
+ *  any URL is issued (storage abuse / cost). */
+export const generateUploadUrl = orgMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }, access) => {
+    await access.requireProject(projectId);
     return await ctx.storage.generateUploadUrl();
   },
 });

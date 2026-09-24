@@ -8,6 +8,7 @@ import {
   MOSAI_ORG_METADATA_KEY,
   MOSAI_PLAN_METADATA_KEY,
   WIND_DOWN_GRACE_MS,
+  mapSubscriptionItems,
   planForSubscription,
   planStatusForState,
   stateIsEntitled,
@@ -112,6 +113,57 @@ async function governingSubscription(
   return [...rows].sort((a, b) => rank(a.status) - rank(b.status))[0] ?? null;
 }
 
+/** A plan key the mirror may hold: a registry tier or a non-draft catalog plan. */
+async function isKnownPlanKey(ctx: MutationCtx, key: string): Promise<boolean> {
+  if (isPlan(key)) return true;
+  const row = await ctx.db
+    .query("billingPlans")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .unique();
+  return Boolean(row && row.kind === "plan" && row.status !== "draft");
+}
+
+/** Make the organization's Stripe-sourced add-ons match what the governing
+ *  subscription pays for. Operator grants are left untouched. */
+async function syncStripeAddons(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  paidKeys: readonly string[],
+): Promise<void> {
+  const now = Date.now();
+  const rows = await ctx.db
+    .query("organizationAddons")
+    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+    .take(100);
+  for (const row of rows) {
+    if (row.source !== "stripe") continue;
+    const shouldBeActive = paidKeys.includes(row.addonKey);
+    if (shouldBeActive && row.status !== "active") {
+      await ctx.db.patch(row._id, { status: "active", updatedAt: now });
+    } else if (!shouldBeActive && row.status === "active") {
+      await ctx.db.patch(row._id, { status: "canceled", updatedAt: now });
+    }
+  }
+  for (const key of paidKeys) {
+    const existing = rows.find((row) => row.addonKey === key);
+    if (existing) {
+      // An operator grant for the same add-on becomes a paid one.
+      if (existing.source !== "stripe") {
+        await ctx.db.patch(existing._id, { source: "stripe", status: "active", updatedAt: now });
+      }
+      continue;
+    }
+    await ctx.db.insert("organizationAddons", {
+      organizationId,
+      addonKey: key,
+      status: "active",
+      source: "stripe",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+}
+
 /** Write the local entitlement mirror (the org owner's `plan`/`planStatus`,
  *  which is exactly what `guards.planForOrganization` reads). */
 async function syncEntitlement(
@@ -122,8 +174,9 @@ async function syncEntitlement(
   if (!organization) return { plan: "free", planStatus: "canceled" };
   const governing = await governingSubscription(ctx, organizationId);
 
+  const entitled = Boolean(governing && stateIsEntitled(governing.status));
   const plan =
-    governing && stateIsEntitled(governing.status) && isPlan(governing.plan)
+    governing && entitled && (await isKnownPlanKey(ctx, governing.plan))
       ? governing.plan
       : "free";
   const planStatus = governing
@@ -131,6 +184,7 @@ async function syncEntitlement(
     : "canceled";
 
   await ctx.db.patch(organization.ownerId, { plan, planStatus });
+  await syncStripeAddons(ctx, organizationId, entitled ? (governing?.addonKeys ?? []) : []);
   return { plan, planStatus };
 }
 
@@ -191,13 +245,24 @@ async function upsertSubscription(
     };
   }
 
-  const price = input.subscription.items?.data?.[0]?.price;
-  const plan = planForSubscription({
-    priceId: price?.id,
-    planMetadata:
-      input.subscription.metadata?.[MOSAI_PLAN_METADATA_KEY] ??
-      price?.metadata?.[MOSAI_PLAN_METADATA_KEY],
-  });
+  // Each subscription item's price is matched against the operator catalog:
+  // a catalog plan sets the plan, catalog add-ons become add-on keys. Items
+  // the catalog doesn't know fall back to the legacy registry mapping for the
+  // plan and are otherwise ignored — nothing is guessed.
+  const items = input.subscription.items?.data ?? [];
+  const catalogRows = (await ctx.db.query("billingPlans").take(60))
+    .filter((row) => row.status !== "draft" && row.stripePriceId)
+    .map((row) => ({ key: row.key, kind: row.kind, stripePriceId: row.stripePriceId as string }));
+  const { planKey: catalogPlanKey, planPriceId, addonKeys } = mapSubscriptionItems(items, catalogRows);
+  const price = items.find((item) => item.price?.id === planPriceId)?.price ?? items[0]?.price;
+  const plan =
+    catalogPlanKey ??
+    planForSubscription({
+      priceId: price?.id,
+      planMetadata:
+        input.subscription.metadata?.[MOSAI_PLAN_METADATA_KEY] ??
+        price?.metadata?.[MOSAI_PLAN_METADATA_KEY],
+    });
 
   const existing = await ctx.db
     .query("subscriptions")
@@ -220,6 +285,7 @@ async function upsertSubscription(
     customerId: customerId ?? "",
     priceId: price?.id,
     plan,
+    addonKeys,
     status,
     livemode: input.livemode,
     currentPeriodEnd: input.subscription.current_period_end

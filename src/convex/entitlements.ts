@@ -23,6 +23,7 @@ import {
 
 type MatrixView = {
   plan: string;
+  addons: string[];
   role: string;
   country: string;
   modules: ModuleCapabilityView[];
@@ -54,7 +55,8 @@ export const matrix = orgQuery({
       plan: tenant.plan,
       role: tenant.role,
       country: policy.label,
-      modules: capabilityMatrix({ plan: tenant.plan, role: tenant.role }),
+      addons: tenant.entitlement.addonKeys,
+      modules: capabilityMatrix({ plan: tenant.plan, role: tenant.role, modules: tenant.modules }),
     };
   },
 });

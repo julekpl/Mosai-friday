@@ -32,7 +32,7 @@ export function ContextInspector({ projectId, buildId }: { projectId: Id<"projec
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-caption font-medium">{item.title}</span>
                     <Badge variant="outline">{item.source}</Badge>
-                    <Badge variant="outline">{item.trust === "untrusted_source_text" ? "untrusted source text" : "workspace entry"}</Badge>
+                    <Badge variant="outline">{item.trust === "untrusted_source_text" ? "untrusted source text" : item.trust === "provider_data" ? "provider data" : "workspace entry"}</Badge>
                     {item.truncated && <Badge variant="outline">excerpt shortened for context budget</Badge>}
                   </div>
                   <p className="mt-1 whitespace-pre-wrap break-words font-mono text-caption text-muted-foreground">

@@ -6,6 +6,7 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   Bot,
   ChevronsUpDown,
+  Home,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -14,6 +15,7 @@ import {
   Plus,
   Route,
   Search,
+  Settings2,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
@@ -186,8 +188,32 @@ export function AppShell({
 
         {/* Module nav — each module wears its mosaic tile colour */}
         <nav className="flex-1 overflow-y-auto p-2">
+          {current ? (
+            <>
+              <NavLink
+                to={`/app/${current._id}`}
+                end
+                className={({ isActive }) =>
+                  cn(
+                    "mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small ease-terminal hover:bg-accent",
+                    isActive && "bg-accent font-medium",
+                  )
+                }
+              >
+                <Home className="size-4 shrink-0 text-terminal-green" aria-hidden="true" />
+                Home
+              </NavLink>
+              <NavLink
+                to={`/app/${current._id}?edit=details`}
+                className="mb-0.5 flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-small text-muted-foreground ease-terminal hover:bg-accent hover:text-foreground"
+              >
+                <Settings2 className="size-4 shrink-0" aria-hidden="true" />
+                Edit project
+              </NavLink>
+            </>
+          ) : null}
           <p className="px-2 pb-1 pt-2 font-mono text-caption text-muted-foreground">
-            modules
+            tools
           </p>
           {modules.map((m) => {
             // While the entitlement query is loading, render without locks.
@@ -356,6 +382,27 @@ export function AppShell({
                   )}
                 </div>
               ))}
+              {current ? (
+                <>
+                  <SheetClose asChild>
+                    <NavLink
+                      to={`/app/${current._id}`}
+                      end
+                      className="mt-1 block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Home
+                    </NavLink>
+                  </SheetClose>
+                  <SheetClose asChild>
+                    <NavLink
+                      to={`/app/${current._id}?edit=details`}
+                      className="block min-h-11 truncate rounded-sm px-2 py-2 font-mono text-small hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Edit project
+                    </NavLink>
+                  </SheetClose>
+                </>
+              ) : null}
               <SheetClose asChild>
                 <NavLink
                   to="/app/new"

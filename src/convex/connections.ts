@@ -17,6 +17,7 @@ export type Provider = (typeof PROVIDERS)[number];
 
 const isProvider = (provider: string): provider is Provider =>
   (PROVIDERS as readonly string[]).includes(provider);
+const GOOGLE_PROVIDERS: readonly Provider[] = ["ga4", "gsc", "gads"];
 const AUTHORIZATION_TIMEOUT_MS = 10 * 60_000;
 
 /**
@@ -66,6 +67,11 @@ export const beginAuthorization = moduleMutation("grow", {
     // the defect regression in tests/unit/entitlements.test.ts).
     await access.requireProject(projectId);
     if (!isProvider(provider)) throw new Error("Unsupported provider");
+    // GA4, Search Console and Google Ads connect through the verified Google
+    // OAuth flow (google/oauth.ts), which alone may mark them connected.
+    if (GOOGLE_PROVIDERS.includes(provider)) {
+      throw new Error("Use “Connect Google” in Grow to connect this provider.");
+    }
 
     const existing = await ctx.db
       .query("connections")
