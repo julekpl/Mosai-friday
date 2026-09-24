@@ -2,5 +2,6 @@
   "_comment": "Public Convex functions that are intentionally reachable without a signed-in user. Every entry needs a reason and a reviewer. Adding an entry here is how you silence scripts/audit-public-functions.mjs, so keep it tiny and justify each line. See MOSAI pack T0.6.",
   "src/convex/ads/oauth.ts::oauthCallback": "Provider redirect target. Caller is not yet authenticated; the request is validated against the single-use state row in oauthStates before any token is stored.",
   "src/convex/social/oauth.ts::socialOauthCallback": "Provider redirect target, same state-row validation as the ads callback.",
+  "src/convex/google/oauth.ts::googleOauthCallback": "Google redirect target for the Grow connection. Validated against the single-use, user+project bound, 10-minute oauthStates row (platform google_grow) before any code is exchanged or token stored.",
   "src/convex/cms.ts::getPublishedByPath": "Public read path for a published site: resolves site to page to publishedRevisionId only, so it can never return a draft (CMS-REFERENCE-CONTRACT.md)."
 }

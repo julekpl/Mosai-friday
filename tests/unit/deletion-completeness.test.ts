@@ -338,6 +338,52 @@ const fixtures: Fixture[] = [
     }),
   },
   {
+    table: "googleConnections",
+    doc: (s) => ({
+      projectId: s.projectId,
+      accessToken: "token",
+      status: "connected",
+      connectedBy: s.userId,
+      createdAt: at,
+      updatedAt: at,
+    }),
+  },
+  {
+    table: "googleSyncRuns",
+    doc: (s) => ({
+      projectId: s.projectId,
+      trigger: "manual",
+      status: "succeeded",
+      idempotencyKey: "k",
+      createdAt: at,
+      sources: [],
+    }),
+  },
+  {
+    table: "googleMetricsDaily",
+    doc: (s) => ({
+      projectId: s.projectId,
+      source: "gsc",
+      resourceId: "sc-domain:example.com",
+      date: "2026-01-01",
+      clicks: 1,
+      syncedAt: at,
+    }),
+  },
+  {
+    table: "googleTopItems",
+    doc: (s) => ({
+      projectId: s.projectId,
+      source: "gsc",
+      kind: "query",
+      rank: 0,
+      label: "q",
+      periodStart: "2026-01-01",
+      periodEnd: "2026-01-28",
+      syncedAt: at,
+    }),
+  },
+  {
     table: "adsAccounts",
     doc: (s) => ({
       projectId: s.projectId,

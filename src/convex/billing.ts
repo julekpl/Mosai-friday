@@ -29,6 +29,7 @@ import {
   assertTrustedBillingReturnUrl,
   checkoutConfigured,
   planCatalog,
+  mapSubscriptionItems,
   planForSubscription,
   priceIdForPlan,
   type PlanCatalogEntry,
@@ -330,16 +331,26 @@ export const subscription = orgQuery({
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .first();
 
+    const addons = await ctx.db
+      .query("organizationAddons")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(50);
+
     return {
       organizationId,
       name: scope.organization.name,
       plan: owner?.plan && isPlan(owner.plan) ? owner.plan : DEFAULT_PLAN,
+      planKey: owner?.plan ?? DEFAULT_PLAN,
       planStatus: owner?.planStatus ?? "active",
       canManage: roleCan(scope.membership.role, "organization.update"),
+      activeAddons: addons
+        .filter((addon) => addon.status === "active")
+        .map((addon) => ({ key: addon.addonKey, source: addon.source })),
       subscription: governing
         ? {
             subscriptionId: governing.subscriptionId,
             plan: governing.plan,
+            addonKeys: governing.addonKeys ?? [],
             status: governing.status,
             currentPeriodEnd: governing.currentPeriodEnd,
             cancelAtPeriodEnd: governing.cancelAtPeriodEnd,
@@ -409,6 +420,7 @@ export const startCheckout = orgAction({
     if (stripeMode() !== "test") {
       throw new Error("Customer checkout is available only from the Stripe test catalog.");
     }
+    await assertNoCurrentSubscription(ctx, organizationId);
     const currentPrice = await providerPlanPrice(plan);
     if (!currentPrice.configured || !currentPrice.priceId) {
       throw new Error(`${plan} is not available — its Stripe test price is not configured.`);
@@ -472,6 +484,249 @@ export const startCheckout = orgAction({
     );
     if (!session.url) throw new Error("Stripe returned no checkout URL.");
     return { url: session.url };
+  },
+});
+
+/** A second checkout would create a second subscription and bill twice
+ *  (audit 24 Sep 2026). Plan changes and add-ons go through the existing
+ *  subscription instead. */
+async function assertNoCurrentSubscription(
+  ctx: ActionCtx,
+  organizationId: Id<"organizations">,
+): Promise<void> {
+  const current = await ctx.runQuery(internal.billing.subscriptionForOrganization, {
+    organizationId,
+  });
+  if (current) {
+    throw new Error(
+      "You already have a subscription. Add or remove tools from this page, or manage it in the billing portal, instead of starting a new checkout.",
+    );
+  }
+}
+
+type VerifiedLine = { key: string; kind: "plan" | "addon"; priceId: string; amountMinor: number; currency: string };
+
+/** Confirm a catalog row against Stripe: the price must exist in test mode,
+ *  be active and recurring on the same interval, and cost exactly what the
+ *  operator's catalog says. Any mismatch refuses the purchase. */
+async function verifiedCatalogLine(row: Doc<"billingPlans">): Promise<VerifiedLine> {
+  if (row.status !== "active" || !row.stripePriceId) {
+    throw new Error(`${row.name} isn't available to buy right now.`);
+  }
+  const price = await stripeRequest<StripeCatalogPrice>(
+    `/prices/${encodeURIComponent(row.stripePriceId)}`,
+  );
+  if (
+    price.id !== row.stripePriceId ||
+    price.livemode ||
+    !price.active ||
+    !price.recurring ||
+    price.recurring.interval !== row.interval ||
+    price.unit_amount !== row.priceMinor ||
+    price.currency.toUpperCase() !== row.currency
+  ) {
+    throw new Error(`The price for ${row.name} changed. Refresh the page and review it before buying.`);
+  }
+  return {
+    key: row.key,
+    kind: row.kind,
+    priceId: price.id,
+    amountMinor: row.priceMinor,
+    currency: row.currency,
+  };
+}
+
+async function ensureCustomer(
+  ctx: ActionCtx,
+  organizationId: Id<"organizations">,
+  userId: Id<"users">,
+): Promise<string> {
+  const existing: string | null = await ctx.runQuery(internal.billing.customerForOrganization, {
+    organizationId,
+  });
+  if (existing) return existing;
+  const created = await stripeRequest<{ id: string }>("/customers", {
+    method: "POST",
+    idempotencyKey: `mosai-customer-${organizationId}`,
+    params: { metadata: { [MOSAI_ORG_METADATA_KEY]: organizationId } },
+  });
+  await ctx.runMutation(internal.billing.recordCustomer, {
+    organizationId,
+    customerId: created.id,
+    createdBy: userId,
+    livemode: stripeMode() === "live",
+  });
+  return created.id;
+}
+
+async function requireBillingScope(
+  ctx: ActionCtx,
+  access: OrgAccess,
+  organizationId: Id<"organizations">,
+) {
+  const scope = await access.requireOrganization(organizationId);
+  const pendingDeletion = await ctx.runQuery(internal.billing.pendingDeletionForUser, { userId: scope.userId });
+  if (pendingDeletion) throw new Error("Billing changes are unavailable while account deletion is pending. Cancel the deletion request first.");
+  if (!roleCan(scope.membership.role, "organization.update")) {
+    throw new Error("Your role in this organization does not allow billing changes.");
+  }
+  assertStripeModeAllowed();
+  if (stripeMode() !== "test") {
+    throw new Error("Customer billing is available only from the Stripe test catalog.");
+  }
+  return scope;
+}
+
+/**
+ * Checkout for the operator catalog (mix and match): an optional plan plus
+ * any number of add-ons, as one subscription. The browser shows the prices
+ * it will pay (`expectedLines`); the server re-reads the catalog and Stripe
+ * and refuses on any difference. Returns a URL; only the verified webhook
+ * grants anything.
+ */
+export const startCatalogCheckout = orgAction({
+  args: {
+    organizationId: v.id("organizations"),
+    planKey: v.optional(v.string()),
+    addonKeys: v.array(v.string()),
+    expectedLines: v.array(
+      v.object({ key: v.string(), amountMinor: v.number(), currency: v.string() }),
+    ),
+    successUrl: v.string(),
+    cancelUrl: v.string(),
+  },
+  handler: async (ctx, args, access): Promise<{ url: string }> => {
+    const scope = await requireBillingScope(ctx, access, args.organizationId);
+    const safeSuccessUrl = billingReturnUrl(args.successUrl);
+    const safeCancelUrl = billingReturnUrl(args.cancelUrl);
+    await assertNoCurrentSubscription(ctx, args.organizationId);
+
+    const addonKeys = [...new Set(args.addonKeys)].slice(0, 10);
+    const keys = [...(args.planKey ? [args.planKey] : []), ...addonKeys];
+    if (!keys.length) throw new Error("Choose a plan or at least one tool to add.");
+    const rows: Doc<"billingPlans">[] = await ctx.runQuery(internal.billingPlans.rowsForKeys, { keys });
+    const planRow = args.planKey ? rows.find((row) => row.key === args.planKey && row.kind === "plan") : undefined;
+    if (args.planKey && !planRow) throw new Error("That plan isn't available.");
+    const addonRows = addonKeys.map((key) => {
+      const row = rows.find((candidate) => candidate.key === key && candidate.kind === "addon");
+      if (!row) throw new Error("One of the selected tools isn't available.");
+      return row;
+    });
+    const paidRows = [...(planRow && planRow.priceMinor > 0 ? [planRow] : []), ...addonRows];
+    if (!paidRows.length) throw new Error("Nothing to pay for — the core bundle is already included.");
+
+    const lines: VerifiedLine[] = [];
+    for (const row of paidRows) lines.push(await verifiedCatalogLine(row));
+    const currencies = new Set(lines.map((line) => line.currency));
+    if (currencies.size > 1) throw new Error("Everything in one checkout must use the same currency.");
+    for (const line of lines) {
+      const expected = args.expectedLines.find((item) => item.key === line.key);
+      if (!expected || expected.amountMinor !== line.amountMinor || expected.currency.toUpperCase() !== line.currency) {
+        throw new Error("Prices changed. Refresh the page and review them before checkout.");
+      }
+    }
+    if (args.expectedLines.length !== lines.length) {
+      throw new Error("Prices changed. Refresh the page and review them before checkout.");
+    }
+
+    const customerId = await ensureCustomer(ctx, args.organizationId, scope.userId);
+    const planKey = planRow?.key ?? DEFAULT_PLAN;
+    const trialDays = planRow?.trialDays;
+    const metadata = {
+      [MOSAI_ORG_METADATA_KEY]: args.organizationId,
+      [MOSAI_PLAN_METADATA_KEY]: planKey,
+    };
+    const session = await stripeRequest<{ id: string; url: string | null }>("/checkout/sessions", {
+      method: "POST",
+      idempotencyKey: `mosai-catalog-checkout-${args.organizationId}-${lines.map((line) => line.priceId).sort().join("+")}-${dayBucket()}`,
+      params: {
+        mode: "subscription",
+        customer: customerId,
+        client_reference_id: args.organizationId,
+        line_items: lines.map((line) => ({ price: line.priceId, quantity: 1 })),
+        success_url: safeSuccessUrl,
+        cancel_url: safeCancelUrl,
+        automatic_tax: { enabled: true },
+        subscription_data: {
+          metadata,
+          ...(trialDays ? { trial_period_days: trialDays } : {}),
+        },
+        metadata,
+      },
+    });
+    if (!session.url) throw new Error("Stripe returned no checkout URL.");
+    return { url: session.url };
+  },
+});
+
+/**
+ * Add one tool to the existing subscription (Stripe prorates the rest of the
+ * period). Access starts when Stripe's `customer.subscription.updated` webhook
+ * arrives — never on this call's return.
+ */
+export const addAddon = orgAction({
+  args: {
+    organizationId: v.id("organizations"),
+    addonKey: v.string(),
+    expectedAmountMinor: v.number(),
+    expectedCurrency: v.string(),
+  },
+  handler: async (ctx, args, access): Promise<{ status: "pending_confirmation" }> => {
+    await requireBillingScope(ctx, access, args.organizationId);
+    const governing = await ctx.runQuery(internal.billing.subscriptionForOrganization, {
+      organizationId: args.organizationId,
+    });
+    if (!governing || !["active", "trialing"].includes(governing.status)) {
+      throw new Error("Start a subscription first — then tools can be added to it.");
+    }
+    if (governing.addonKeys?.includes(args.addonKey)) return { status: "pending_confirmation" };
+    const [row]: Doc<"billingPlans">[] = await ctx.runQuery(internal.billingPlans.rowsForKeys, { keys: [args.addonKey] });
+    if (!row || row.kind !== "addon") throw new Error("That tool isn't available.");
+    const line = await verifiedCatalogLine(row);
+    if (line.amountMinor !== args.expectedAmountMinor || line.currency !== args.expectedCurrency.toUpperCase()) {
+      throw new Error("The price changed. Refresh the page and review it before adding.");
+    }
+    await stripeRequest("/subscription_items", {
+      method: "POST",
+      idempotencyKey: `mosai-addon-add-${governing.subscriptionId}-${row.key}-${line.priceId}`,
+      params: {
+        subscription: governing.subscriptionId,
+        price: line.priceId,
+        quantity: 1,
+        proration_behavior: "create_prorations",
+      },
+    });
+    return { status: "pending_confirmation" };
+  },
+});
+
+/** Remove one tool from the subscription (prorated credit). Access ends when
+ *  the webhook confirms the change. */
+export const removeAddon = orgAction({
+  args: { organizationId: v.id("organizations"), addonKey: v.string() },
+  handler: async (ctx, args, access): Promise<{ status: "pending_confirmation" }> => {
+    await requireBillingScope(ctx, access, args.organizationId);
+    const governing = await ctx.runQuery(internal.billing.subscriptionForOrganization, {
+      organizationId: args.organizationId,
+    });
+    if (!governing) throw new Error("There is no subscription to change.");
+    const [row]: Doc<"billingPlans">[] = await ctx.runQuery(internal.billingPlans.rowsForKeys, { keys: [args.addonKey] });
+    if (!row?.stripePriceId) throw new Error("That tool isn't part of your subscription.");
+    const subscription = await stripeRequest<{
+      id: string;
+      items: { data: Array<{ id: string; price: { id: string } }> };
+    }>(`/subscriptions/${encodeURIComponent(governing.subscriptionId)}`);
+    const item = subscription.items.data.find((candidate) => candidate.price.id === row.stripePriceId);
+    if (!item) return { status: "pending_confirmation" };
+    if (subscription.items.data.length === 1) {
+      throw new Error("This is the only item on your subscription. Cancel the subscription instead.");
+    }
+    await stripeRequest(`/subscription_items/${encodeURIComponent(item.id)}`, {
+      method: "DELETE",
+      idempotencyKey: `mosai-addon-remove-${governing.subscriptionId}-${item.id}`,
+      params: { proration_behavior: "create_prorations" },
+    });
+    return { status: "pending_confirmation" };
   },
 });
 
@@ -592,15 +847,19 @@ export const cancelSubscriptionAtPeriodEnd = orgAction({
         `Stripe returned status ${confirmed.status} after the cancellation request; no scheduled-cancellation receipt was recorded. Refresh billing status before retrying.`,
       );
     }
+    // Stripe reports seconds; the mirror stores epoch milliseconds everywhere
+    // (the webhook writes ms too), so the UI renders one unit.
+    const periodEndMs =
+      confirmed.current_period_end === undefined ? undefined : confirmed.current_period_end * 1000;
     await ctx.runMutation(internal.billing.recordPeriodEndCancellation, {
       organizationId,
       subscriptionId: confirmed.id,
-      currentPeriodEnd: confirmed.current_period_end,
+      currentPeriodEnd: periodEndMs,
       eventId: idempotencyKey,
     });
     return {
       cancelAtPeriodEnd: true,
-      currentPeriodEnd: confirmed.current_period_end ?? null,
+      currentPeriodEnd: periodEndMs ?? null,
     };
   },
 });
@@ -778,6 +1037,7 @@ export const reconcileNow = internalAction({
       status: string;
       priceId?: string;
     }> = [];
+    const catalogRows = await ctx.runQuery(internal.billingPlans.catalogPriceRows, {});
     let startingAfter: string | undefined;
     for (let page = 0; page < 10; page++) {
       const response = await stripeRequest<{
@@ -789,16 +1049,21 @@ export const reconcileNow = internalAction({
       for (const sub of response.data) {
         const organizationId = sub.metadata?.[MOSAI_ORG_METADATA_KEY];
         if (!organizationId) continue;
-        const price = sub.items?.data?.[0]?.price;
+        const mapped = mapSubscriptionItems(sub.items?.data ?? [], catalogRows);
+        const price =
+          sub.items?.data?.find((item) => item.price?.id === mapped.planPriceId)?.price ??
+          sub.items?.data?.[0]?.price;
         providerRows.push({
           organizationId,
           subscriptionId: sub.id,
-          plan: planForSubscription({
-            priceId: price?.id,
-            planMetadata:
-              sub.metadata?.[MOSAI_PLAN_METADATA_KEY] ??
-              price?.metadata?.[MOSAI_PLAN_METADATA_KEY],
-          }),
+          plan:
+            mapped.planKey ??
+            planForSubscription({
+              priceId: price?.id,
+              planMetadata:
+                sub.metadata?.[MOSAI_PLAN_METADATA_KEY] ??
+                price?.metadata?.[MOSAI_PLAN_METADATA_KEY],
+            }),
           status: sub.status,
           priceId: price?.id,
         });

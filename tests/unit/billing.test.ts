@@ -737,12 +737,19 @@ describe("BP-06/S1 — customer catalog and cancellation", () => {
     const result = await user.as.action(api.billing.cancelSubscriptionAtPeriodEnd, {
       organizationId,
     });
-    expect(result).toEqual({ cancelAtPeriodEnd: true, currentPeriodEnd: 2_000_000_000 });
+    // Stripe reports seconds; the mirror and the UI use epoch milliseconds,
+    // the same unit the webhook writes (audit 24 Sep 2026: the UI showed a
+    // date around the year 50,000 after a webhook).
+    expect(result).toEqual({ cancelAtPeriodEnd: true, currentPeriodEnd: 2_000_000_000_000 });
     const owner = await t.run((ctx) => ctx.db.get(user.userId as Id<"users">));
     expect(owner?.plan).toBe("starter");
     expect(owner?.planStatus).toBe("active");
     const subscription = await t.run((ctx) => ctx.db.query("subscriptions").first());
-    expect(subscription).toMatchObject({ status: "active", cancelAtPeriodEnd: true });
+    expect(subscription).toMatchObject({
+      status: "active",
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: 2_000_000_000_000,
+    });
     const receipts = await t.run((ctx) => ctx.db.query("billingReceipts").collect());
     expect(receipts).toContainEqual(expect.objectContaining({
       eventType: "subscription.cancel_at_period_end.confirmed",

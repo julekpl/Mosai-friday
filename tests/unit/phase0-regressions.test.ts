@@ -348,14 +348,20 @@ describe("R8 — a fake connection is refused (T0.10)", () => {
     expect(publicMutations).toEqual(["beginAuthorization", "disconnect"]);
     expect(internalMutations).toEqual(["markNeedsAttention", "markVerified"]);
 
+    // GA4 / Search Console / Google Ads only connect through the verified
+    // Google OAuth flow — the generic intent path refuses them outright.
+    await expect(
+      alice.as.mutation(api.connections.beginAuthorization, { projectId, provider: "ga4" }),
+    ).rejects.toThrow(/Connect Google/);
+
     // `beginAuthorization` records intent only, however many times it runs.
     await alice.as.mutation(api.connections.beginAuthorization, {
       projectId,
-      provider: "ga4",
+      provider: "posthog",
     });
     await alice.as.mutation(api.connections.beginAuthorization, {
       projectId,
-      provider: "ga4",
+      provider: "posthog",
     });
     const rows = await t.run((ctx) =>
       ctx.db
@@ -377,7 +383,7 @@ describe("R8 — a fake connection is refused (T0.10)", () => {
       detail: "Authorization timed out after 10 minutes. Start again to retry.",
     });
 
-    await alice.as.mutation(api.connections.beginAuthorization, { projectId, provider: "ga4" });
+    await alice.as.mutation(api.connections.beginAuthorization, { projectId, provider: "posthog" });
     const restarted = await alice.as.query(api.connections.list, { projectId });
     expect(restarted[0].status).toBe("authorizing");
     expect(restarted[0].authorizationStartedAt).toEqual(expect.any(Number));
@@ -385,7 +391,7 @@ describe("R8 — a fake connection is refused (T0.10)", () => {
     // The internal path exists and can promote the row (server-only receipt).
     await alice.as.mutation(internal.connections.markVerified, {
       projectId,
-      provider: "ga4",
+      provider: "posthog",
       providerAccountId: "acct-1",
     });
     const verified = await t.run((ctx) =>
