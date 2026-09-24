@@ -300,12 +300,77 @@ export const scanWebsite = action({
 /* ── SerpApi — Google My Business (google_maps engine) ──────────────────── */
 
 type GmbLookup = NonNullable<ScanResult["gmb"]> & { source: string };
+type GmbSuggestion = {
+  placeId: string;
+  title: string;
+  address?: string;
+  category?: string;
+  rating?: number;
+  reviews?: number;
+};
+
+/**
+ * Search a small, bounded set of Google Maps listings while the user types.
+ * Suggestions are only candidates; the user reviews the selected listing later.
+ */
+export const suggestGoogleBusiness = action({
+  args: { query: v.string() },
+  handler: async (ctx, { query }): Promise<GmbSuggestion[]> => {
+    await requireActionUser(ctx);
+    const normalizedQuery = query.trim().slice(0, 160);
+    if (normalizedQuery.length < 3) return [];
+
+    const key = process.env.SERPAPI_KEY;
+    if (!key) {
+      throw new Error(
+        "SERPAPI_KEY is not configured — add it in the Keys / API keys panel.",
+      );
+    }
+
+    const params = new URLSearchParams({
+      engine: "google_maps",
+      type: "search",
+      q: normalizedQuery,
+      api_key: key,
+    });
+    const res = await fetch(`https://serpapi.com/search.json?${params}`, {
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) throw new Error(`Google Maps search failed (HTTP ${res.status}).`);
+    const data = (await res.json()) as {
+      local_results?: Array<Record<string, unknown>>;
+      error?: string;
+    };
+    if (data.error) throw new Error("Google Maps suggestions are temporarily unavailable.");
+
+    const seen = new Set<string>();
+    return (data.local_results ?? [])
+      .filter((hit) => typeof hit.place_id === "string" && Boolean(hit.place_id.trim()) && typeof hit.title === "string")
+      .filter((hit) => {
+        const placeId = hit.place_id as string;
+        if (seen.has(placeId)) return false;
+        seen.add(placeId);
+        return true;
+      })
+      .slice(0, 5)
+      .map((hit) => ({
+        placeId: (hit.place_id as string).slice(0, 200),
+        title: (hit.title as string).slice(0, 200),
+        address: typeof hit.address === "string" ? hit.address.slice(0, 300) : undefined,
+        category: Array.isArray(hit.type)
+          ? typeof hit.type[0] === "string" ? hit.type[0].slice(0, 100) : undefined
+          : typeof hit.type === "string" ? hit.type.slice(0, 100) : undefined,
+        rating: typeof hit.rating === "number" ? hit.rating : undefined,
+        reviews: typeof hit.reviews === "number" ? hit.reviews : undefined,
+      }));
+  },
+});
 
 /**
  * Look up a Google My Business listing via SerpApi's google_maps engine.
  * Requires SERPAPI_KEY env var (set through the Keys / API keys UI).
  */
-export const lookupGoogleBusiness = action({
+export const lookupGoogleBusiness = action({ 
   args: { name: v.string(), placeId: v.optional(v.string()) },
   handler: async (ctx, { name, placeId }): Promise<GmbLookup> => {
     await requireActionUser(ctx);

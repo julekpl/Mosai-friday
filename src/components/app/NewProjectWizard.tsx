@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { ScanResult } from "@/convex/scraping";
@@ -10,10 +10,8 @@ import {
   Globe,
   Loader2,
   MapPin,
-  PackageSearch,
   Plus,
   ScanSearch,
-  Share2,
   Sparkles,
   Store,
   X,
@@ -43,6 +41,15 @@ type BusinessListing = {
   category?: string;
   openHours?: string;
 };
+type BusinessSuggestion = {
+  placeId: string;
+  title: string;
+  address?: string;
+  category?: string;
+  rating?: number;
+  reviews?: number;
+};
+type BusinessSearchState = "idle" | "loading" | "results" | "empty" | "error";
 
 const steps = [
   { key: "start", label: "Your business" },
@@ -193,60 +200,58 @@ const PAIN_SUGGESTIONS = [
   "low repeat purchases",
 ];
 
-function BusinessMapIllustration({
+function OnboardingPreview({
+  workspaceName,
   website,
-  businessName,
-  scanning,
+  listingQuery,
+  listingSelected,
 }: {
-  website: string;
-  businessName: string;
-  scanning: boolean;
+  workspaceName: string;
+  website: string | null;
+  listingQuery: string;
+  listingSelected: boolean;
 }) {
-  const items = [
-    { icon: PackageSearch, title: "What you offer", detail: "Products and services", color: "text-tile-teal", surface: "bg-tile-teal-soft" },
-    { icon: MapPin, title: "Where you are", detail: "Location and contact details", color: "text-tile-coral", surface: "bg-tile-coral-soft" },
-    { icon: Globe, title: "Your online home", detail: "Key pages and website links", color: "text-tile-violet", surface: "bg-tile-violet-soft" },
-    { icon: Share2, title: "Where people find you", detail: "Public social links", color: "text-tile-sky", surface: "bg-tile-sky-soft" },
-  ];
-
   return (
-    <aside className="relative overflow-hidden rounded-lg border bg-card p-5 shadow-card sm:p-6" aria-label="What your business map can include">
-      <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 size-40 rounded-full bg-tile-lime-soft opacity-70 blur-3xl" />
-      <div className="relative">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 font-mono text-caption text-terminal-green">
-            <Sparkles className="size-3.5" aria-hidden="true" /> YOUR BUSINESS MAP
-          </span>
-          {scanning && <span role="status" className="inline-flex items-center gap-1.5 font-mono text-caption text-terminal-green"><Loader2 className="size-3.5 animate-spin" />Finding public details…</span>}
-        </div>
-        <h2 className="mt-5 font-mono text-h2 font-semibold">A clearer picture. A better next step.</h2>
-        <p className="mt-2 max-w-md font-mono text-caption text-muted-foreground">Start with what’s already out there. MOSAI organizes the useful bits so your workspace can give you more relevant ideas.</p>
-
-        <div className="mt-5 rounded-lg border bg-background p-4 sm:p-5">
-          <div className="flex items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-md bg-tile-teal-soft text-tile-teal"><Store className="size-5" aria-hidden="true" /></span>
-            <div className="min-w-0">
-              <p className="truncate font-mono text-small font-semibold">{businessName || "Your business"}</p>
-              <p className="truncate font-mono text-caption text-muted-foreground">{website ? displayDomain(website) : "Your starting point"}</p>
-            </div>
-            <span className="ml-auto rounded-full border px-2 py-1 font-mono text-caption text-muted-foreground">DRAFT</span>
-          </div>
-          <div className="my-4 border-t" />
-          <div className="grid gap-2 sm:grid-cols-2">
-            {items.map(({ icon: Icon, title, detail, color, surface }) => (
-              <div key={title} className="flex min-w-0 items-center gap-3 rounded-md border bg-card p-3 transition-transform duration-200 ease-mosaic hover:-translate-y-0.5">
-                <span className={cn("grid size-9 shrink-0 place-items-center rounded-md", surface, color)}><Icon className="size-4" aria-hidden="true" /></span>
-                <span className="min-w-0"><span className="block truncate font-mono text-caption font-semibold text-foreground">{title}</span><span className="mt-0.5 block truncate font-mono text-caption text-muted-foreground">{detail}</span></span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-4 flex items-start gap-2 rounded-md border border-terminal-green/30 bg-terminal-green-soft p-3">
-          <Check className="mt-0.5 size-4 shrink-0 text-terminal-green" aria-hidden="true" />
-          <p className="font-mono text-caption text-foreground">You stay in control. Review the sources, correct details, and choose what belongs in your workspace.</p>
-        </div>
+    <aside className="grid gap-5 rounded-lg border bg-card p-5 shadow-card sm:p-6" aria-labelledby="onboarding-preview-title">
+      <div>
+        <span className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 font-mono text-caption text-terminal-green">
+          <ScanSearch className="size-3.5" aria-hidden="true" /> WHAT HAPPENS NEXT
+        </span>
+        <h2 id="onboarding-preview-title" className="mt-4 font-mono text-h2 font-semibold">Start with one real source.</h2>
+        <p className="mt-2 font-mono text-caption text-muted-foreground">This step only sets your starting point. Nothing is scanned or added to your workspace until you continue and review the findings.</p>
       </div>
+
+      <div className="grid gap-3">
+        <div className="flex items-start gap-3 rounded-md border bg-background p-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-tile-teal-soft text-tile-teal"><Store className="size-4" aria-hidden="true" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-caption text-muted-foreground">Private workspace</p>
+            <p className="truncate font-mono text-small font-semibold">{workspaceName || "Your workspace name"}</p>
+          </div>
+        </div>
+        <div className="flex items-start gap-3 rounded-md border bg-background p-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-tile-violet-soft text-tile-violet"><Globe className="size-4" aria-hidden="true" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-caption text-muted-foreground">Website source</p>
+            <p className="truncate font-mono text-small font-semibold">{website ? displayDomain(website) : "Not added yet"}</p>
+            <p className="mt-1 font-mono text-caption text-muted-foreground">{website ? "Will be scanned after you continue" : "Optional — you can start with a listing instead"}</p>
+          </div>
+        </div>
+        {(listingQuery || listingSelected) && <div className="flex items-start gap-3 rounded-md border bg-background p-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-tile-sky-soft text-tile-sky"><MapPin className="size-4" aria-hidden="true" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-caption text-muted-foreground">Google Business search</p>
+            <p className="truncate font-mono text-small font-semibold">{listingSelected ? "Listing selected · review still required" : listingQuery}</p>
+            <p className="mt-1 font-mono text-caption text-muted-foreground">A match is only a candidate until you confirm it.</p>
+          </div>
+        </div>}
+      </div>
+
+      <ol className="grid gap-3 border-t pt-4 font-mono text-caption">
+        <li className="flex items-start gap-3"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-terminal-green-soft font-semibold text-terminal-green">1</span><span><strong className="font-semibold">Choose a source</strong><span className="mt-0.5 block text-muted-foreground">A website, a business listing, or neither for now.</span></span></li>
+        <li className="flex items-start gap-3"><span className="grid size-6 shrink-0 place-items-center rounded-full border font-semibold text-muted-foreground">2</span><span><strong className="font-semibold">Review what’s found</strong><span className="mt-0.5 block text-muted-foreground">Edit or skip every suggested detail.</span></span></li>
+        <li className="flex items-start gap-3"><span className="grid size-6 shrink-0 place-items-center rounded-full border font-semibold text-muted-foreground">3</span><span><strong className="font-semibold">Describe your audience</strong><span className="mt-0.5 block text-muted-foreground">Add who you serve and what you want to achieve.</span></span></li>
+      </ol>
     </aside>
   );
 }
@@ -326,6 +331,10 @@ export function NewProjectWizard() {
   const [businessName, setBusinessName] = useState("");
   const [websiteInput, setWebsiteInput] = useState("");
   const [gmbName, setGmbName] = useState("");
+  const [selectedBusiness, setSelectedBusiness] = useState<BusinessSuggestion | null>(null);
+  const [businessSuggestions, setBusinessSuggestions] = useState<BusinessSuggestion[]>([]);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const [businessSearchState, setBusinessSearchState] = useState<BusinessSearchState>("idle");
   const [ignoreRobots, setIgnoreRobots] = useState(false);
   const [competitors, setCompetitors] = useState<CompetitorEntry[]>([]);
   const [industry, setIndustry] = useState("");
@@ -352,7 +361,34 @@ export function NewProjectWizard() {
   const saveScan = useMutation(api.projects.saveScan);
   const scanWebsite = useAction(api.scraping.scanWebsite);
   const lookupGmb = useAction(api.scraping.lookupGoogleBusiness);
+  const suggestGmb = useAction(api.scraping.suggestGoogleBusiness);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const query = gmbName.trim();
+    if (query.length < 3 || selectedBusiness) return;
+
+    let current = true;
+    const timeout = window.setTimeout(() => {
+      setBusinessSearchState("loading");
+      void suggestGmb({ query }).then((suggestions) => {
+        if (!current) return;
+        setBusinessSuggestions(suggestions);
+        setActiveSuggestionIndex(-1);
+        setBusinessSearchState(suggestions.length ? "results" : "empty");
+      }).catch(() => {
+        if (!current) return;
+        setBusinessSuggestions([]);
+        setActiveSuggestionIndex(-1);
+        setBusinessSearchState("error");
+      });
+    }, 600);
+
+    return () => {
+      current = false;
+      window.clearTimeout(timeout);
+    };
+  }, [gmbName, selectedBusiness, suggestGmb]);
 
   const normalizedUrl = normalizeWebsiteUrl(websiteInput);
   const updateBusinessDetail = (field: keyof NonNullable<ScanResult["businessDetails"]>, value: string) => {
@@ -404,7 +440,7 @@ export function NewProjectWizard() {
 
     if (gmbName.trim()) {
       jobs.push(
-        lookupGmb({ name: gmbName.trim() })
+        lookupGmb({ name: selectedBusiness?.title ?? gmbName.trim(), placeId: selectedBusiness?.placeId })
           .then((g) => {
             gmbFound = true;
             setBusinessCandidate({
@@ -596,11 +632,79 @@ export function NewProjectWizard() {
                 <Input
                   id="np-gmb"
                   value={gmbName}
-                  onChange={(e) => setGmbName(e.target.value)}
+                  onChange={(e) => {
+                    setGmbName(e.target.value);
+                    setSelectedBusiness(null);
+                    setBusinessSuggestions([]);
+                    setActiveSuggestionIndex(-1);
+                    setBusinessSearchState("idle");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown" && businessSuggestions.length) {
+                      event.preventDefault();
+                      setActiveSuggestionIndex((index) => Math.min(index + 1, businessSuggestions.length - 1));
+                    } else if (event.key === "ArrowUp" && businessSuggestions.length) {
+                      event.preventDefault();
+                      setActiveSuggestionIndex((index) => Math.max(index - 1, 0));
+                    } else if (event.key === "Enter" && activeSuggestionIndex >= 0) {
+                      event.preventDefault();
+                      const suggestion = businessSuggestions[activeSuggestionIndex];
+                      if (suggestion) {
+                        setSelectedBusiness(suggestion);
+                        setGmbName(suggestion.title);
+                        setBusinessSuggestions([]);
+                        setActiveSuggestionIndex(-1);
+                        setBusinessSearchState("idle");
+                      }
+                    } else if (event.key === "Escape") {
+                      setBusinessSuggestions([]);
+                      setActiveSuggestionIndex(-1);
+                      setBusinessSearchState("idle");
+                    }
+                  }}
                   placeholder="e.g. Northside Coffee, Bristol"
                   className="h-11"
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={businessSuggestions.length > 0}
+                  aria-controls="np-gmb-suggestions"
+                  aria-activedescendant={activeSuggestionIndex >= 0 ? `np-gmb-suggestion-${activeSuggestionIndex}` : undefined}
+                  aria-describedby="np-gmb-hint np-gmb-search-status"
                 />
-                <p className="font-mono text-caption text-muted-foreground">We’ll show you the result first. Nothing is used unless you confirm it.</p>
+                <p id="np-gmb-hint" className="font-mono text-caption text-muted-foreground">Suggestions appear as you type. Choose a match, then review it before it’s used.</p>
+                <div id="np-gmb-search-status" role="status" aria-live="polite" className="font-mono text-caption text-muted-foreground">
+                  {businessSearchState === "loading" && "Searching Google Maps…"}
+                  {businessSearchState === "empty" && "No matches found. Try adding a city or checking the spelling."}
+                  {businessSearchState === "error" && "Couldn’t load suggestions. You can still continue with this search and review the result."}
+                </div>
+                {selectedBusiness && <div className="flex items-start gap-2 rounded-md border border-terminal-green/30 bg-terminal-green-soft p-3 font-mono text-caption" role="status">
+                  <Check className="mt-0.5 size-4 shrink-0 text-terminal-green" aria-hidden="true" />
+                  <span><strong className="font-semibold">Candidate selected:</strong> {selectedBusiness.title}. You’ll still confirm it in the next step.</span>
+                </div>}
+                {businessSuggestions.length > 0 && <div id="np-gmb-suggestions" role="listbox" aria-label="Google Business suggestions" className="grid gap-1 rounded-md border bg-background p-1">
+                  {businessSuggestions.map((suggestion, index) => <button
+                    key={suggestion.placeId}
+                    id={`np-gmb-suggestion-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeSuggestionIndex}
+                    tabIndex={-1}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setSelectedBusiness(suggestion);
+                      setGmbName(suggestion.title);
+                      setBusinessSuggestions([]);
+                      setActiveSuggestionIndex(-1);
+                      setBusinessSearchState("idle");
+                    }}
+                    className={cn("w-full rounded-sm px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", index === activeSuggestionIndex && "bg-muted")}
+                  >
+                    <span className="block truncate font-mono text-caption font-semibold">{suggestion.title}</span>
+                    {suggestion.address && <span className="mt-0.5 block truncate font-mono text-caption text-muted-foreground">{suggestion.address}</span>}
+                    {(suggestion.category || suggestion.rating != null) && <span className="mt-0.5 block font-mono text-caption text-muted-foreground">{[suggestion.category, suggestion.rating != null ? `${suggestion.rating}★${suggestion.reviews != null ? ` · ${suggestion.reviews} reviews` : ""}` : null].filter(Boolean).join(" · ")}</span>}
+                  </button>)}
+                </div>}
               </div>
             </details>
 
@@ -637,7 +741,12 @@ export function NewProjectWizard() {
             </details>
           </section>
 
-          <BusinessMapIllustration website={websiteInput} businessName={name} scanning={isScanning} />
+          <OnboardingPreview
+            workspaceName={name}
+            website={normalizedUrl}
+            listingQuery={gmbName}
+            listingSelected={Boolean(selectedBusiness)}
+          />
         </div>
       )}
 
