@@ -2,6 +2,13 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
 import { orgRoleValidator } from "./lib/roles";
+import {
+  compositionValidator,
+  videoAssetKindValidator,
+  videoAssetSourceValidator,
+  videoJobStatusValidator,
+  videoStatusValidator,
+} from "./modules/video/validators";
 
 // default user roles. can add / remove based on the project as needed
 export const ROLES = {
@@ -1013,6 +1020,52 @@ const schema = defineSchema(
 
     // Collaborative document editor state. BaseYjs updates are stored as a
     // document snapshot; comments/mentions are out of scope for now.
+    // Create → Video (E3.11). A video's composition is the single source of
+    // truth for the editor preview and the browser export
+    // (src/shared/video/composition.ts). `revision` gives optimistic
+    // concurrency to `videos.save`.
+    videos: defineTable({
+      projectId: v.id("projects"),
+      pieceId: v.optional(v.id("contentPieces")),
+      title: v.string(),
+      composition: compositionValidator,
+      fingerprint: v.string(),
+      revision: v.number(),
+      status: videoStatusValidator,
+      storyboardStatus: v.optional(videoJobStatusValidator),
+      storyboardError: v.optional(v.string()),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_piece", ["pieceId"]),
+
+    // Media a video uses (uploads, stock) and the files it produced (browser
+    // exports). Provenance is required. Blobs are deleted with the row.
+    videoAssets: defineTable({
+      projectId: v.id("projects"),
+      videoId: v.id("videos"),
+      kind: videoAssetKindValidator,
+      storageId: v.id("_storage"),
+      mimeType: v.string(),
+      sizeBytes: v.number(),
+      name: v.optional(v.string()),
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+      durationMs: v.optional(v.number()),
+      source: videoAssetSourceValidator,
+      // Exports only: which composition and renderer produced the file, as
+      // reported by the browser. Recorded, not verified (blueprint §10).
+      fingerprint: v.optional(v.string()),
+      rendererVersion: v.optional(v.string()),
+      codec: v.optional(v.string()),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_video", ["videoId"]),
+
     contentDocs: defineTable({
       pieceId: v.id("contentPieces"),
       snapshot: v.optional(v.bytes()), // latest Yjs update (binary)
