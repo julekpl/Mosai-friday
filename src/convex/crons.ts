@@ -55,4 +55,12 @@ crons.daily(
   {},
 );
 
+// Bounded cleanup of OTP SMTP acceptance receipts after their 30-day window.
+crons.interval(
+  "otp-email-receipt-expiry",
+  { minutes: 5 },
+  internal.auth.otpDelivery.sweepExpired,
+  {},
+);
+
 export default crons;

@@ -56,6 +56,24 @@ const schema = defineSchema(
       .index("email", ["email"]) // index for the email. do not remove or modify
       .index("by_deletion_requested", ["deletionRequestedAt"]),
 
+    // No email address or OTP is stored here. A server-keyed digest claims
+    // one SMTP attempt per code and keeps only the provider acceptance receipt.
+    otpEmailReceipts: defineTable({
+      idempotencyKey: v.string(),
+      recipientDigest: v.string(),
+      status: v.union(
+        v.literal("claimed"),
+        v.literal("accepted"),
+        v.literal("uncertain"),
+      ),
+      providerMessageId: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      expiresAt: v.number(),
+    })
+      .index("by_idempotency_key", ["idempotencyKey"])
+      .index("by_expiry", ["expiresAt"]),
+
     // ── MOSAI: organizations, memberships, roles and invitations (T2.1) ──
     // Tenancy starts here. Every project belongs to exactly one organization;
     // a user reaches a project through an active membership in its
