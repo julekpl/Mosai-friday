@@ -388,15 +388,6 @@ async function organizationForProject(
   return await ctx.db.get(project.organizationId);
 }
 
-/** The plan a user acts on when there is no organization (legacy rows). */
-async function planForUser(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-): Promise<Plan> {
-  const user = await ctx.db.get(userId);
-  return user?.plan && isPlan(user.plan) ? user.plan : DEFAULT_PLAN;
-}
-
 /**
  * The plan an **organization** acts on: its owner's plan.
  *
