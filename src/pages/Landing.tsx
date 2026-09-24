@@ -287,7 +287,7 @@ function Demo() {
           </li>
         ))}
       </ol>
-      <div className="min-h-[10rem] p-4 sm:p-5">
+      <div className="min-h-[10rem] px-4 py-6 sm:px-5 sm:py-8">
         <DemoPanel step={step} />
       </div>
     </div>
