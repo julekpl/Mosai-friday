@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
@@ -178,133 +179,182 @@ export const scanWebsite = action({
   },
   handler: async (ctx, { url, ignoreRobots = false }): Promise<ScanResult> => {
     await requireActionUser(ctx);
-    const normalized = normalizeWebsiteUrl(url);
-    if (!normalized) throw new Error("Could not interpret that website URL");
-
-    const origin = new URL(normalized).origin;
-    const robots = await loadRobots(origin);
-    if (!isAllowed(normalized, robots, ignoreRobots)) {
-      throw new Error("This page is disallowed by robots.txt. Continue only if you control the site and choose the robots override.");
-    }
-    const sitemap = await discoverSitemapPages(origin, robots);
-
-    let homepageResponse: { text: string; url: string };
-    try {
-      homepageResponse = await fetchText(normalized, 8_000, 750_000);
-    } catch (e) {
-      throw new Error(
-        `Could not fetch ${normalized} (${e instanceof Error ? e.message : "network error"})`,
-      );
-    }
-    const homepageUrl = normalizeCrawlUrl(homepageResponse.url, origin);
-    if (!homepageUrl) throw new Error("The website redirected outside the supplied site, so MOSAI stopped the crawl.");
-    let homepage = extractWebsitePage(homepageResponse.text, homepageUrl);
-
-    // JS-render fallback: page looks empty (SPA) → try the jina reader proxy,
-    // which executes JS headlessly and returns rendered text.
-    if (homepage.headings.length < 3 && homepage.excerpt.length < 500 && homepageResponse.text.length < 30_000) {
-      try {
-        const rendered = await fetchText(`https://r.jina.ai/${normalized}`, 12_000, 500_000);
-        const renderedPage = extractWebsitePage(`<html><body>${rendered.text}</body></html>`, homepageUrl);
-        if (!renderedPage.title) {
-          const match = rendered.text.match(/^Title:\s*(.+)$/m);
-          if (match) renderedPage.title = match[1].trim();
-        }
-        if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl };
-      } catch {
-        // Keep the original HTML result and its honest evidence.
-      }
-    }
-
-    const candidates = new Set<string>();
-    let skippedByRobotsCount = 0;
-    const addCandidate = (candidate: string) => {
-      const safe = normalizeCrawlUrl(candidate, origin);
-      if (!safe || safe === homepageUrl || candidates.has(safe)) return;
-      if (!isAllowed(safe, robots, ignoreRobots)) {
-        skippedByRobotsCount += 1;
-        return;
-      }
-      if (candidates.size < MAX_DISCOVERED_URLS) candidates.add(safe);
-    };
-    sitemap.urls.forEach(addCandidate);
-    homepage.internalLinks.forEach((link) => addCandidate(link.url));
-
-    const pages: Array<Omit<WebsitePageExtraction, "internalLinks">> = [homepage];
-    const visited = new Set([homepageUrl]);
-    let failedPageCount = 0;
-    while (pages.length < MAX_CRAWLED_PAGES) {
-      const next = prioritizeSiteUrls(
-        [...candidates].filter((candidate) => !visited.has(candidate)),
-        Math.min(CRAWL_CONCURRENCY, MAX_CRAWLED_PAGES - pages.length),
-      );
-      if (!next.length) break;
-      next.forEach((pageUrl) => visited.add(pageUrl));
-      const outcomes = await Promise.all(next.map(async (pageUrl) => {
-        try {
-          const response = await fetchText(pageUrl, 6_000, 500_000);
-          const finalUrl = normalizeCrawlUrl(response.url, origin);
-          if (!finalUrl) throw new Error("Page redirected outside the supplied site");
-          return { pageUrl, page: extractWebsitePage(response.text, finalUrl) };
-        } catch {
-          return { pageUrl, page: null };
-        }
-      }));
-      for (const outcome of outcomes) {
-        if (!outcome.page) {
-          failedPageCount += 1;
-          continue;
-        }
-        const { internalLinks, ...finding } = outcome.page;
-        pages.push(finding);
-        internalLinks.forEach((link) => addCandidate(link.url));
-      }
-    }
-
-    const businessDetails: WebsiteBusinessDetails = {};
-    for (const page of pages) {
-      for (const [key, value] of Object.entries(page.businessDetails)) {
-        if (businessDetails[key as keyof WebsiteBusinessDetails] === undefined && value) {
-          Object.assign(businessDetails, { [key]: value });
-        }
-      }
-    }
-    const productsServices = [...new Set(pages.flatMap((page) => page.productsServices))].slice(0, 80);
-    const socialChannels = [...new Set(pages.flatMap((page) => page.socialChannels))].slice(0, 50);
-    const pendingDiscovered = [...candidates].filter((candidate) => !visited.has(candidate)).length;
-    const truncated = sitemap.truncated || candidates.size >= MAX_DISCOVERED_URLS || pendingDiscovered > 0;
-
-    return {
-      url: normalized,
-      scannedAt: Date.now(),
-      sitemapUrls: sitemap.urls.slice(0, MAX_SITEMAP_URLS),
-      pages: pages.map(({ url: pageUrl, title, description, headings, productsServices: names, excerpt }) => ({
-        url: pageUrl,
-        title,
-        description,
-        headings,
-        productsServices: names,
-        excerpt,
-      })),
-      titles: pages.map((page) => page.title).filter((title): title is string => Boolean(title)).slice(0, 40),
-      headings: [...new Set(pages.flatMap((page) => page.headings))].slice(0, 160),
-      metaDescription: homepage.description,
-      productsServices,
-      socialChannels,
-      businessDetails,
-      coverage: {
-        sitemapCount: sitemap.documentCount,
-        sitemapFailureCount: sitemap.failureCount,
-        discoveredPageCount: candidates.size + 1,
-        scannedPageCount: pages.length,
-        failedPageCount,
-        skippedByRobotsCount,
-        pageLimit: MAX_CRAWLED_PAGES,
-        truncated,
-      },
-    };
+    return await runWebsiteScan(url, ignoreRobots);
   },
 });
+
+/**
+ * Re-scan a project's saved website from project settings. The scan runs and
+ * is stored entirely on the server (the browser never writes the findings),
+ * and an earlier Google Business result is kept.
+ */
+export const rescanProjectWebsite = action({
+  args: { projectId: v.id("projects"), ignoreRobots: v.optional(v.boolean()) },
+  handler: async (
+    ctx,
+    { projectId, ignoreRobots = false },
+  ): Promise<{ status: "scraped" | "partial"; scannedPageCount: number }> => {
+    const userId = await requireActionUser(ctx);
+    const project: Doc<"projects"> | null = await ctx.runQuery(internal.guards.projectAccessForAction, {
+      projectId,
+      userId,
+    });
+    if (!project) throw new Error("Not found");
+    if (!project.websiteUrl) throw new Error("Add the website address first, then scan it.");
+    await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "website_scan" });
+
+    const scan = await runWebsiteScan(project.websiteUrl, ignoreRobots);
+    const status =
+      scan.coverage.truncated || scan.coverage.failedPageCount > 0 || scan.coverage.sitemapFailureCount > 0
+        ? "partial"
+        : "scraped";
+    await ctx.runMutation(internal.projects.storeServerScan, {
+      projectId,
+      userId,
+      scan: {
+        status,
+        sitemapUrls: scan.sitemapUrls,
+        titles: scan.titles,
+        metaDescription: scan.metaDescription,
+        headings: scan.headings,
+        productsServices: scan.productsServices,
+        pages: scan.pages,
+        socialChannels: scan.socialChannels,
+        businessDetails: scan.businessDetails,
+        coverage: scan.coverage,
+      },
+    });
+    return { status, scannedPageCount: scan.coverage.scannedPageCount };
+  },
+});
+
+async function runWebsiteScan(url: string, ignoreRobots: boolean): Promise<ScanResult> {
+  const normalized = normalizeWebsiteUrl(url);
+  if (!normalized) throw new Error("Could not interpret that website URL");
+
+  const origin = new URL(normalized).origin;
+  const robots = await loadRobots(origin);
+  if (!isAllowed(normalized, robots, ignoreRobots)) {
+    throw new Error("This page is disallowed by robots.txt. Continue only if you control the site and choose the robots override.");
+  }
+  const sitemap = await discoverSitemapPages(origin, robots);
+
+  let homepageResponse: { text: string; url: string };
+  try {
+    homepageResponse = await fetchText(normalized, 8_000, 750_000);
+  } catch (e) {
+    throw new Error(
+      `Could not fetch ${normalized} (${e instanceof Error ? e.message : "network error"})`,
+    );
+  }
+  const homepageUrl = normalizeCrawlUrl(homepageResponse.url, origin);
+  if (!homepageUrl) throw new Error("The website redirected outside the supplied site, so MOSAI stopped the crawl.");
+  let homepage = extractWebsitePage(homepageResponse.text, homepageUrl);
+
+  // JS-render fallback: page looks empty (SPA) → try the jina reader proxy,
+  // which executes JS headlessly and returns rendered text.
+  if (homepage.headings.length < 3 && homepage.excerpt.length < 500 && homepageResponse.text.length < 30_000) {
+    try {
+      const rendered = await fetchText(`https://r.jina.ai/${normalized}`, 12_000, 500_000);
+      const renderedPage = extractWebsitePage(`<html><body>${rendered.text}</body></html>`, homepageUrl);
+      if (!renderedPage.title) {
+        const match = rendered.text.match(/^Title:\s*(.+)$/m);
+        if (match) renderedPage.title = match[1].trim();
+      }
+      if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl };
+    } catch {
+      // Keep the original HTML result and its honest evidence.
+    }
+  }
+
+  const candidates = new Set<string>();
+  let skippedByRobotsCount = 0;
+  const addCandidate = (candidate: string) => {
+    const safe = normalizeCrawlUrl(candidate, origin);
+    if (!safe || safe === homepageUrl || candidates.has(safe)) return;
+    if (!isAllowed(safe, robots, ignoreRobots)) {
+      skippedByRobotsCount += 1;
+      return;
+    }
+    if (candidates.size < MAX_DISCOVERED_URLS) candidates.add(safe);
+  };
+  sitemap.urls.forEach(addCandidate);
+  homepage.internalLinks.forEach((link) => addCandidate(link.url));
+
+  const pages: Array<Omit<WebsitePageExtraction, "internalLinks">> = [homepage];
+  const visited = new Set([homepageUrl]);
+  let failedPageCount = 0;
+  while (pages.length < MAX_CRAWLED_PAGES) {
+    const next = prioritizeSiteUrls(
+      [...candidates].filter((candidate) => !visited.has(candidate)),
+      Math.min(CRAWL_CONCURRENCY, MAX_CRAWLED_PAGES - pages.length),
+    );
+    if (!next.length) break;
+    next.forEach((pageUrl) => visited.add(pageUrl));
+    const outcomes = await Promise.all(next.map(async (pageUrl) => {
+      try {
+        const response = await fetchText(pageUrl, 6_000, 500_000);
+        const finalUrl = normalizeCrawlUrl(response.url, origin);
+        if (!finalUrl) throw new Error("Page redirected outside the supplied site");
+        return { pageUrl, page: extractWebsitePage(response.text, finalUrl) };
+      } catch {
+        return { pageUrl, page: null };
+      }
+    }));
+    for (const outcome of outcomes) {
+      if (!outcome.page) {
+        failedPageCount += 1;
+        continue;
+      }
+      const { internalLinks, ...finding } = outcome.page;
+      pages.push(finding);
+      internalLinks.forEach((link) => addCandidate(link.url));
+    }
+  }
+
+  const businessDetails: WebsiteBusinessDetails = {};
+  for (const page of pages) {
+    for (const [key, value] of Object.entries(page.businessDetails)) {
+      if (businessDetails[key as keyof WebsiteBusinessDetails] === undefined && value) {
+        Object.assign(businessDetails, { [key]: value });
+      }
+    }
+  }
+  const productsServices = [...new Set(pages.flatMap((page) => page.productsServices))].slice(0, 80);
+  const socialChannels = [...new Set(pages.flatMap((page) => page.socialChannels))].slice(0, 50);
+  const pendingDiscovered = [...candidates].filter((candidate) => !visited.has(candidate)).length;
+  const truncated = sitemap.truncated || candidates.size >= MAX_DISCOVERED_URLS || pendingDiscovered > 0;
+
+  return {
+    url: normalized,
+    scannedAt: Date.now(),
+    sitemapUrls: sitemap.urls.slice(0, MAX_SITEMAP_URLS),
+    pages: pages.map(({ url: pageUrl, title, description, headings, productsServices: names, excerpt }) => ({
+      url: pageUrl,
+      title,
+      description,
+      headings,
+      productsServices: names,
+      excerpt,
+    })),
+    titles: pages.map((page) => page.title).filter((title): title is string => Boolean(title)).slice(0, 40),
+    headings: [...new Set(pages.flatMap((page) => page.headings))].slice(0, 160),
+    metaDescription: homepage.description,
+    productsServices,
+    socialChannels,
+    businessDetails,
+    coverage: {
+      sitemapCount: sitemap.documentCount,
+      sitemapFailureCount: sitemap.failureCount,
+      discoveredPageCount: candidates.size + 1,
+      scannedPageCount: pages.length,
+      failedPageCount,
+      skippedByRobotsCount,
+      pageLimit: MAX_CRAWLED_PAGES,
+      truncated,
+    },
+  };
+}
 
 /* ── SerpApi — Google Business Profile (google_maps engine) ─────────────── */
 

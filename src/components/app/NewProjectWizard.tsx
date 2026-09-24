@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation } from "convex/react";
+import { ChipInput } from "@/components/app/ChipInput";
 import { api } from "@/convex/_generated/api";
 import type { ScanResult } from "@/convex/scraping";
 import { useNavigate } from "react-router";
@@ -14,7 +15,6 @@ import {
   ScanSearch,
   Sparkles,
   Store,
-  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -57,84 +57,6 @@ const steps = [
   { key: "audience", label: "Who you serve" },
 ] as const;
 
-/* ── Chip input: type + Enter or comma, click ✕ to remove ─────────────── */
-
-function ChipInput({
-  values,
-  onChange,
-  placeholder,
-  renderChip,
-  id,
-}: {
-  values: string[];
-  onChange: (next: string[]) => void;
-  placeholder?: string;
-  renderChip?: (value: string) => React.ReactNode;
-  id?: string;
-}) {
-  const [draft, setDraft] = useState("");
-
-  const commit = () => {
-    const v = draft.trim().replace(/,+$/, "");
-    if (v && !values.includes(v)) onChange([...values, v]);
-    setDraft("");
-  };
-
-  return (
-    <div className="rounded-md border bg-card p-2">
-      {values.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {values.map((v) => (
-            <Badge
-              key={v}
-              variant="outline"
-              className="gap-1 border-terminal-green/40 bg-terminal-green-soft font-mono text-caption text-terminal-green"
-            >
-              {renderChip ? renderChip(v) : v}
-              <button
-                type="button"
-                aria-label={`Remove ${v}`}
-                className="ml-0.5 opacity-70 transition-opacity hover:opacity-100"
-                onClick={() => onChange(values.filter((x) => x !== v))}
-              >
-                <X className="size-3" />
-              </button>
-            </Badge>
-          ))}
-        </div>
-      )}
-      <Input
-        id={id}
-        value={draft}
-        onChange={(e) => {
-          const val = e.target.value;
-          // comma commits the chip immediately
-          if (val.includes(",")) {
-            const parts = val.split(",");
-            const head = parts[0].trim();
-            if (head && !values.includes(head)) onChange([...values, head]);
-            setDraft(parts.slice(1).join(""));
-          } else {
-            setDraft(val);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            commit();
-          }
-          if (e.key === "Backspace" && !draft && values.length) {
-            onChange(values.slice(0, -1));
-          }
-        }}
-        onBlur={commit}
-        placeholder={placeholder ?? "Type and press Enter"}
-        className="border-0 bg-transparent shadow-none focus-visible:ring-0"
-      />
-    </div>
-  );
-}
-
 /* ── Quick-add suggestion row for the interactive "who" step ───────────── */
 
 function Suggestions({
@@ -154,6 +76,7 @@ function Suggestions({
           <button
             key={o}
             type="button"
+            aria-pressed={active}
             onClick={() => onPick(o)}
             className={cn(
               "flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-caption transition-colors ease-terminal",
@@ -162,7 +85,7 @@ function Suggestions({
                 : "text-muted-foreground hover:border-terminal-green/40 hover:text-terminal-green",
             )}
           >
-            {active && <Check className="size-3" />}
+            {active && <Check className="size-3" aria-hidden="true" />}
             {o}
           </button>
         );
@@ -191,7 +114,7 @@ const GOAL_SUGGESTIONS = [
   "generate leads",
 ];
 
-const PAIN_SUGGESTIONS = [
+const MARKETING_CHALLENGE_SUGGESTIONS = [
   "hard to find us on Google",
   "too much manual work",
   "high ad costs",
@@ -343,7 +266,9 @@ export function NewProjectWizard() {
   const [productsServices, setProductsServices] = useState<string[]>([]);
   const [audience, setAudience] = useState<string[]>([]);
   const [goals, setGoals] = useState<string[]>([]);
-  const [pains, setPains] = useState<string[]>([]);
+  const [customerProblems, setCustomerProblems] = useState<string[]>([]);
+  const [marketingChallenges, setMarketingChallenges] = useState<string[]>([]);
+  const [serviceArea, setServiceArea] = useState("");
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState<
@@ -360,6 +285,7 @@ export function NewProjectWizard() {
 
   const create = useMutation(api.projects.create);
   const saveScan = useMutation(api.projects.saveScan);
+  const draftBusinessProfile = useAction(api.ai.generateBusinessProfile);
   const scanWebsite = useAction(api.scraping.scanWebsite);
   const lookupGmb = useAction(api.scraping.lookupGoogleBusiness);
   const suggestGmb = useAction(api.scraping.suggestGoogleBusiness);
@@ -529,8 +455,10 @@ export function NewProjectWizard() {
         googleBusinessName: scanSources.business === "succeeded" && gmbName.trim() ? gmbName.trim() : undefined,
         productsServices: productsServices.length ? productsServices : undefined,
         goals: goals.length ? goals : undefined,
-        kpis: undefined,
-        channels: undefined,
+        targetAudience: audience.length ? audience : undefined,
+        customerPains: customerProblems.length ? customerProblems : undefined,
+        marketingChallenges: marketingChallenges.length ? marketingChallenges : undefined,
+        serviceArea: serviceArea.trim() || undefined,
       });
 
       // Persist scan findings so every module can reuse the enriched context.
@@ -555,12 +483,15 @@ export function NewProjectWizard() {
         } catch {
           saved = false;
         }
-        if (!saved) toast.warning("Project created, but the website findings weren’t saved. You can scan it again in project settings.");
-        else toast.success("Your business map is ready", { description: "It’s saved as source material. Review its details before using them." });
-      } else {
-        toast.success("Project created", { description: "Start by describing your business in Understand." });
+        if (!saved) toast.warning("Project created, but the website findings weren’t saved. You can scan it again from Edit project.");
       }
-      navigate(`/app/${id}/understand`);
+      // Draft the business understanding on the server; the owner reviews it
+      // on Overview. It runs in the background and never blocks navigation.
+      void draftBusinessProfile({ projectId: id }).catch(() => undefined);
+      toast.success("Project created", {
+        description: "MOSAI is drafting a summary of your business. Check it on the next screen — everything else builds on it.",
+      });
+      navigate(`/app/${id}`);
     } catch (e) {
       toast.error("Could not create project", {
         description: e instanceof Error ? e.message : "Please try again.",
@@ -873,8 +804,9 @@ export function NewProjectWizard() {
           </div>
 
           <div className="grid gap-2">
-            <Label>Products / services detected</Label>
+            <Label htmlFor="np-offerings">What customers pay you for</Label>
             <ChipInput
+              id="np-offerings"
               values={productsServices}
               onChange={setProductsServices}
               placeholder="Add anything we missed — Enter to add"
@@ -894,7 +826,10 @@ export function NewProjectWizard() {
           </div>
 
           <div className="grid gap-2">
-            <Label>Audience</Label>
+            <Label htmlFor="np-audience">Who pays you? Your customers</Label>
+            <p id="np-audience-help" className="font-mono text-caption text-muted-foreground">
+              The people or organisations who buy from you — not your team. Be specific, e.g. “homeowners planning an extension”.
+            </p>
             <Suggestions
               options={AUDIENCE_SUGGESTIONS}
               picked={audience}
@@ -905,14 +840,40 @@ export function NewProjectWizard() {
               }
             />
             <ChipInput
+              id="np-audience"
+              ariaDescribedBy="np-audience-help"
               values={audience}
               onChange={setAudience}
-              placeholder="Describe your own audience — Enter to add"
+              placeholder="Describe a customer group — Enter to add"
             />
           </div>
 
           <div className="grid gap-2">
-            <Label>Goals</Label>
+            <Label htmlFor="np-problems">What problems do customers come to you with?</Label>
+            <p id="np-problems-help" className="font-mono text-caption text-muted-foreground">
+              In their words, e.g. “not sure what planning permission we need”. This steers personas and content.
+            </p>
+            <ChipInput
+              id="np-problems"
+              ariaDescribedBy="np-problems-help"
+              values={customerProblems}
+              onChange={setCustomerProblems}
+              placeholder="Add a customer problem — Enter to add"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="np-area">Where are your customers?</Label>
+            <Input
+              id="np-area"
+              value={serviceArea}
+              onChange={(e) => setServiceArea(e.target.value)}
+              placeholder="e.g. Kraków and surroundings, all of Poland, EU-wide online"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="np-goals">Your business goals</Label>
             <Suggestions
               options={GOAL_SUGGESTIONS}
               picked={goals}
@@ -922,21 +883,26 @@ export function NewProjectWizard() {
                 )
               }
             />
-            <ChipInput values={goals} onChange={setGoals} placeholder="Custom goals — Enter to add" />
+            <ChipInput id="np-goals" values={goals} onChange={setGoals} placeholder="Custom goals — Enter to add" />
           </div>
 
           <div className="grid gap-2">
-            <Label>Customer pains</Label>
+            <Label htmlFor="np-challenges">What’s holding your marketing back? (optional)</Label>
             <Suggestions
-              options={PAIN_SUGGESTIONS}
-              picked={pains}
+              options={MARKETING_CHALLENGE_SUGGESTIONS}
+              picked={marketingChallenges}
               onPick={(v) =>
-                setPains((prev) =>
+                setMarketingChallenges((prev) =>
                   prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v],
                 )
               }
             />
-            <ChipInput values={pains} onChange={setPains} placeholder="Custom pains — Enter to add" />
+            <ChipInput
+              id="np-challenges"
+              values={marketingChallenges}
+              onChange={setMarketingChallenges}
+              placeholder="Anything else — Enter to add"
+            />
           </div>
         </div>
       )}

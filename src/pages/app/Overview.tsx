@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
-import { Link } from "react-router";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   ArrowRight,
@@ -14,6 +14,7 @@ import {
   Megaphone,
   MessageSquareText,
   PenTool,
+  Pencil,
   Plus,
   Route,
   Search,
@@ -34,6 +35,10 @@ import {
   StatusBadge,
 } from "@/components/app/module-kit";
 import { ProjectFilesSection } from "@/components/app/ProjectFiles";
+import {
+  BusinessUnderstandingStatus,
+  ProjectSettingsSheet,
+} from "@/components/app/ProjectSettings";
 import { NextAction } from "@/components/app/NextAction";
 import { getNextActionModel } from "@/components/app/next-action-model";
 import { Button } from "@/components/ui/button";
@@ -328,6 +333,63 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
   );
 }
 
+/* ── Business understanding: the brief every AI feature is grounded in ──── */
+
+function BusinessUnderstandingCard({
+  project,
+  onReview,
+}: {
+  project: Doc<"projects"> | undefined;
+  onReview: () => void;
+}) {
+  if (!project) return null;
+  const profile = project.businessProfile;
+  if (profile?.status === "confirmed") {
+    return (
+      <section aria-labelledby="bu-title" className="mb-6 grid gap-2 rounded-md border bg-card p-4 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="bu-title" className="font-mono text-small font-medium">Your business, as MOSAI understands it</h2>
+          <div className="flex items-center gap-2">
+            <BusinessUnderstandingStatus profile={profile} />
+            <Button size="sm" variant="ghost" onClick={onReview}>Edit</Button>
+          </div>
+        </div>
+        <p className="font-mono text-caption text-muted-foreground">{profile.summary}</p>
+        {profile.customerSegments.length ? (
+          <p className="font-mono text-caption">Customers: {profile.customerSegments.join(" · ")}</p>
+        ) : null}
+      </section>
+    );
+  }
+  return (
+    <section
+      aria-labelledby="bu-title"
+      className="mb-6 grid gap-3 rounded-md border border-terminal-amber/40 bg-terminal-amber-soft p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="bu-title" className="font-mono text-small font-medium">
+          {profile ? "Check MOSAI’s summary of your business" : "MOSAI is getting to know your business"}
+        </h2>
+        <BusinessUnderstandingStatus profile={profile} />
+      </div>
+      <p className="font-mono text-caption text-muted-foreground" role="status">
+        {profile
+          ? profile.summary
+          : "No summary yet. If you’ve just created this project it’s being drafted now; otherwise open it and MOSAI will draft one."}
+      </p>
+      {profile?.customerSegments.length ? (
+        <p className="font-mono text-caption">Customers: {profile.customerSegments.join(" · ")}</p>
+      ) : null}
+      <p className="font-mono text-caption text-muted-foreground">
+        Customer profiles, content and your website are written for the customers in this summary — a minute here saves rewriting later.
+      </p>
+      <Button className="w-fit" onClick={onReview}>
+        {profile ? "Review and confirm" : "Open it now"} <ArrowRight className="size-4" aria-hidden="true" />
+      </Button>
+    </section>
+  );
+}
+
 /* ── Overview page ──────────────────────────────────────────────────────── */
 
 export default function Overview({
@@ -347,6 +409,24 @@ export default function Overview({
   const generate = useAction(api.ai.generatePersona);
   const createPersona = useMutation(api.personas.create);
   const [generating, setGenerating] = useState(false);
+  // `?edit=understanding|customers|details` opens Edit project on that tab
+  // (used by toasts and the project menu).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editParam = searchParams.get("edit");
+  const editTab =
+    editParam === "customers" || editParam === "details" ? editParam : "understanding";
+  const openEdit = (tab: "understanding" | "customers" | "details") =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("edit", tab);
+      return next;
+    });
+  const closeEdit = () =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("edit");
+      return next;
+    });
 
   const connected = new Set(
     connections.filter((c) => c.status === "connected").map((c) => c.provider),
@@ -390,7 +470,10 @@ export default function Overview({
           "The container for personas, content, connections and every module."
         }
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => openEdit("details")}>
+            <Pencil className="size-4" aria-hidden="true" /> Edit project
+          </Button>
           <Button variant="outline" onClick={downloadPack} disabled={!pack}>
             <FileDown className="size-4" /> Download pack
           </Button>
@@ -399,6 +482,18 @@ export default function Overview({
           </Badge>
         </div>
       </ModuleHeader>
+
+      <ProjectSettingsSheet
+        projectId={projectId}
+        open={editParam !== null}
+        onOpenChange={(open) => (open ? openEdit(editTab) : closeEdit())}
+        initialTab={editTab}
+      />
+
+      <BusinessUnderstandingCard
+        project={project ?? undefined}
+        onReview={() => openEdit("understanding")}
+      />
 
       <ModuleErrorBoundary>
         <OverviewNextAction projectId={projectId} modules={modules} />

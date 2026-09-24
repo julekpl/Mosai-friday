@@ -17,6 +17,7 @@ import type {
 } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { roleCan, type OrgCapability, type OrgRole } from "./lib/roles";
+import { businessBriefLines } from "./lib/businessProfile";
 import {
   isPlatformAdminEmail,
   normalizeEmail,
@@ -1180,6 +1181,10 @@ function buildContextPack(
     project.websiteUrl ? `Website: ${project.websiteUrl}` : "",
     project.productsServices?.length ? `Products/services: ${project.productsServices.join("; ")}` : "",
     project.goals?.length ? `Goals: ${project.goals.join("; ")}` : "",
+    project.targetAudience?.length ? `Customers (owner-described): ${project.targetAudience.join("; ")}` : "",
+    project.customerPains?.length ? `Customer problems (owner-described): ${project.customerPains.join("; ")}` : "",
+    project.serviceArea ? `Service area: ${project.serviceArea}` : "",
+    project.marketingChallenges?.length ? `Owner's own marketing challenges (for planning MOSAI work; not customer problems, never content subjects): ${project.marketingChallenges.join("; ")}` : "",
     project.competitors?.length ? `Competitors: ${project.competitors.join("; ")}` : "",
   ].filter(Boolean).join("\n").slice(0, 5_000);
   const evidence: ContextPack["evidence"] = [];
@@ -1409,6 +1414,7 @@ function buildContextPack(
   return {
     projectId: project._id,
     builtAt: Date.now(),
+    businessBrief: businessBriefLines(project).map((line) => line.slice(0, 1_000)),
     products: visibleProducts,
     personas: visiblePersonas,
     journeys: visibleJourneys,
@@ -1553,7 +1559,7 @@ export const consumeAiQuota = internalMutation({
 });
 
 export const LOOKUP_QUOTA_WINDOW_MS = 10 * 60_000;
-export const LOOKUP_QUOTA_LIMITS: Record<string, number> = { google_maps: 60 };
+export const LOOKUP_QUOTA_LIMITS: Record<string, number> = { google_maps: 60, website_scan: 6 };
 
 /** Per-user budget for paid lookup providers (SerpApi). Throws when spent. */
 export const consumeLookupQuota = internalMutation({

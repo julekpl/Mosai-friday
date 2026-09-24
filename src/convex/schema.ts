@@ -17,6 +17,33 @@ export const roleValidator = v.union(
 );
 export type Role = Infer<typeof roleValidator>;
 
+export const businessProfileFields = {
+  summary: v.string(),
+  businessModel: v.union(
+    v.literal("b2b"),
+    v.literal("b2c"),
+    v.literal("b2b2c"),
+    v.literal("nonprofit"),
+    v.literal("public_sector"),
+    v.literal("mixed"),
+  ),
+  offerings: v.array(v.string()),
+  customerSegments: v.array(v.string()),
+  notTheAudience: v.array(v.string()),
+  customerProblems: v.array(v.string()),
+  primaryGoals: v.array(v.string()),
+  market: v.optional(v.string()),
+  differentiators: v.array(v.string()),
+  contentThemes: v.array(v.string()),
+};
+
+const businessProfileValidator = v.object({
+  ...businessProfileFields,
+  status: v.union(v.literal("ai_draft"), v.literal("confirmed")),
+  updatedAt: v.number(),
+  confirmedAt: v.optional(v.number()),
+});
+
 const schema = defineSchema(
   {
     // default auth tables using convex auth.
@@ -198,6 +225,18 @@ const schema = defineSchema(
       goals: v.optional(v.array(v.string())),
       kpis: v.optional(v.array(v.string())),
       channels: v.optional(v.array(v.string())),
+      // Who the business sells to and what those customers struggle with, as
+      // the owner describes it (onboarding step 3 / project settings).
+      targetAudience: v.optional(v.array(v.string())),
+      customerPains: v.optional(v.array(v.string())),
+      serviceArea: v.optional(v.string()),
+      // The owner's own marketing problems ("high ad costs"). Kept apart from
+      // customerPains so they never become the audience's problems in prompts.
+      marketingChallenges: v.optional(v.array(v.string())),
+      // The reviewed "what this business is" statement every AI prompt is
+      // grounded in (lib/businessProfile.ts). Drafted by AI on the server,
+      // confirmed by the owner in project settings.
+      businessProfile: v.optional(businessProfileValidator),
       // The organization this project belongs to (T2.1). Optional only so the
       // migration can backfill pre-organization projects; every project
       // created after T2.1 is written with its owner's personal organization.

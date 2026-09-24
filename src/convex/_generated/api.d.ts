@@ -50,6 +50,7 @@ import type * as insights from "../insights.js";
 import type * as journeys from "../journeys.js";
 import type * as lib_billingCatalog from "../lib/billingCatalog.js";
 import type * as lib_billingReconcile from "../lib/billingReconcile.js";
+import type * as lib_businessProfile from "../lib/businessProfile.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_contextPack from "../lib/contextPack.js";
 import type * as lib_dataLifecycle from "../lib/dataLifecycle.js";
@@ -141,6 +142,7 @@ declare const fullApi: ApiFromModules<{
   journeys: typeof journeys;
   "lib/billingCatalog": typeof lib_billingCatalog;
   "lib/billingReconcile": typeof lib_billingReconcile;
+  "lib/businessProfile": typeof lib_businessProfile;
   "lib/capabilities": typeof lib_capabilities;
   "lib/contextPack": typeof lib_contextPack;
   "lib/dataLifecycle": typeof lib_dataLifecycle;

@@ -66,6 +66,8 @@ export type ContextPage = {
 export type ContextPack = {
   projectId: string;
   builtAt: number;
+  /** Plain-text business brief (lib/businessProfile.ts), first in every prompt. */
+  businessBrief: string[];
   products: Array<{ id: string; title: string; price?: string; description?: string }>;
   personas: ContextPersona[];
   journeys: ContextJourney[];
