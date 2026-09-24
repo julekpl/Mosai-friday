@@ -26,6 +26,7 @@
 - `node scripts/audit-public-functions.mjs` — passed authorization audit (235 scanned; three existing REVIEW notices remain for `billing.currentPlan`, `files.generateUploadUrl`, and `users.currentUser`).
 - `git diff --check` — passed.
 - Controller integration run with the bundled Bun binary: full unit suite **473/473**, `bun run typecheck`, `bun run lint` (0 errors, 28 pre-existing warnings), `bun run build`, `bun run audit:functions`, `bun run audit:capabilities`, and `bun run audit:data-registry` all passed in the shared checkout containing the uncommitted BP-13 slice. Hermetic `bun run test:e2e` passed **20**, with **1** live OTP test skipped; it does not exercise an authenticated CRM import. `bun run scan:secrets` failed on the pre-existing tracked `.env.keys` finding (value redacted). Codegen could not run without `CONVEX_DEPLOYMENT`; this slice adds a method to the already generated `contacts` module and does not add a Convex module file. No provider calls or deployment were made.
+- Exact development-main commit `a594cf75175287f63967264b2b5852cb4e3d792b`: [CI 35977893382](https://github.com/julekpl/Mosai-friday/actions/runs/35977893382) passed install, Convex codegen drift, typecheck, lint, unit, Playwright journeys and axe accessibility. The working-tree and full-history secret-scan jobs failed. Release remains blocked.
 
 ## Still open
 
