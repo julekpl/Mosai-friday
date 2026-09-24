@@ -179,16 +179,7 @@ function JourneyEditor({
       const persona = personas.find((p) => p._id === personaId);
       const result = await generate({
         projectId,
-        persona: persona
-          ? {
-              name: persona.name,
-              role: persona.role,
-              goals: persona.goals,
-              pains: persona.pains,
-              objections: persona.objections,
-              channels: persona.channels,
-            }
-          : undefined,
+        personaId: persona?._id,
         scenario: aiScenario.trim() || goal.trim() || undefined,
         stageCount: Math.max(4, Math.min(7, stages.length || 5)),
       });

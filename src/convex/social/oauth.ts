@@ -1,10 +1,7 @@
 import { v } from "convex/values";
-import {
-  httpAction,
-  internalMutation,
-  internalQuery,
-} from "../_generated/server";
-import { moduleMutation, moduleQuery } from "../guards";
+import { httpAction, internalMutation } from "../_generated/server";
+import { hasProjectAccess, moduleMutation, moduleQuery } from "../guards";
+import { configuredOAuthBaseUrl } from "../lib/oauthBaseUrl";
 import { internal } from "../_generated/api";
 import {
   SOCIAL_PLATFORMS,
@@ -35,14 +32,26 @@ export const status = moduleQuery("promote", {
       .query("socialCredentials")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
+    const appOrigin = configuredOAuthBaseUrl(
+      process.env.ADS_OAUTH_REDIRECT_BASE,
+    );
+    const callbackOrigin = configuredOAuthBaseUrl(process.env.CONVEX_SITE_URL);
 
     return SOCIAL_PLATFORMS.map((p) => {
       const cred = creds.find((c) => c.platform === p);
-      const env = socialPlatformEnv(p);
+      const providerConfigured = socialPlatformEnv(p) !== null;
+      const configured =
+        providerConfigured && appOrigin !== null && callbackOrigin !== null;
       return {
         platform: p,
-        // configured = deployment has the platform's client id/secret env vars
-        configured: env !== null,
+        configured,
+        setupDetail: !providerConfigured
+          ? "Provider client credentials are not configured for this deployment."
+          : !appOrigin
+            ? "The trusted MOSAI app return origin is not configured."
+            : !callbackOrigin
+              ? "The Convex OAuth callback origin is unavailable."
+              : undefined,
         connected: cred !== undefined,
         accountLabel: cred?.accountLabel,
         providerAccountId: cred?.providerAccountId,
@@ -67,8 +76,20 @@ export const start = moduleMutation("promote", {
         `${platform} OAuth is not configured in this deployment (missing client id/secret env vars).`,
       );
     }
+    const oauthBaseUrl = configuredOAuthBaseUrl(
+      process.env.ADS_OAUTH_REDIRECT_BASE,
+    );
+    if (!oauthBaseUrl) {
+      throw new Error(
+        "The MOSAI app return origin is not configured. Set ADS_OAUTH_REDIRECT_BASE to its trusted HTTPS origin (localhost is allowed for development).",
+      );
+    }
+    const callbackBaseUrl = configuredOAuthBaseUrl(process.env.CONVEX_SITE_URL);
+    if (!callbackBaseUrl) {
+      throw new Error("The Convex OAuth callback origin is unavailable.");
+    }
 
-    const state = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+    const state = crypto.randomUUID();
     // Reuse the shared oauthStates table (platform names are disjoint from
     // the ads platforms, and the callback routes are separate).
     await ctx.db.insert("oauthStates", {
@@ -79,7 +100,7 @@ export const start = moduleMutation("promote", {
       createdAt: Date.now(),
     });
 
-    const redirectUri = `${process.env.ADS_OAUTH_REDIRECT_BASE ?? ""}/api/social/callback`;
+    const redirectUri = `${callbackBaseUrl}/api/social/callback`;
     const url = new URL(env.authorizeUrl);
     for (const [k, v] of Object.entries({
       client_id: env.clientId,
@@ -101,17 +122,33 @@ export const socialOauthCallback = httpAction(async (ctx, request) => {
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
 
-  const appUrl = process.env.ADS_OAUTH_REDIRECT_BASE ?? `${url.protocol}//${url.host}`;
-
-  if (error || !state || !code) {
-    return redirectBack(appUrl, `error=${encodeURIComponent(error ?? "missing code or state")}`);
+  const appUrl = configuredOAuthBaseUrl(process.env.ADS_OAUTH_REDIRECT_BASE);
+  const callbackBaseUrl = configuredOAuthBaseUrl(process.env.CONVEX_SITE_URL);
+  if (!appUrl || !callbackBaseUrl) {
+    return new Response("OAuth redirect settings are not configured", {
+      status: 503,
+    });
   }
 
-  const stateRow = await ctx.runQuery(internal.social.oauth.getOauthState, { state });
-  if (!stateRow || Date.now() - stateRow.createdAt > STATE_TTL_MS) {
+  if (!state) {
     return redirectBack(appUrl, "error=expired_or_invalid_state");
   }
-  await ctx.runMutation(internal.social.oauth.consumeOauthState, { state });
+
+  // Claim once, in one transaction, before any provider exchange. A separate
+  // read and delete let parallel callbacks both pass the replay check.
+  const stateRow = await ctx.runMutation(
+    internal.social.oauth.claimOauthState,
+    { state },
+  );
+  if (!stateRow) {
+    return redirectBack(appUrl, "error=expired_or_invalid_state");
+  }
+  if (error || !code) {
+    return redirectBack(
+      appUrl,
+      `error=${encodeURIComponent(error ? "authorization_canceled" : "missing_code")}`,
+    );
+  }
 
   const platform = stateRow.platform;
   if (!isSocialPlatform(platform)) {
@@ -120,7 +157,7 @@ export const socialOauthCallback = httpAction(async (ctx, request) => {
   const env = socialPlatformEnv(platform);
   if (!env) return redirectBack(appUrl, "error=platform_not_configured");
 
-  const redirectUri = `${process.env.ADS_OAUTH_REDIRECT_BASE ?? `${url.protocol}//${url.host}`}/api/social/callback`;
+  const redirectUri = `${callbackBaseUrl}/api/social/callback`;
   try {
     const tokens = await exchangeSocialCode(platform, env, code, redirectUri);
     await ctx.runMutation(internal.social.oauth.storeCred, {
@@ -128,7 +165,9 @@ export const socialOauthCallback = httpAction(async (ctx, request) => {
       platform,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
+      expiresAt: tokens.expiresIn
+        ? Date.now() + tokens.expiresIn * 1000
+        : undefined,
       scope: tokens.scope,
       providerAccountId: tokens.providerAccountId,
       accountLabel: tokens.accountLabel,
@@ -164,7 +203,12 @@ type ExchangeResult = {
 
 export async function exchangeSocialCode(
   platform: SocialPlatform,
-  env: { clientId: string; clientSecret: string; tokenUrl: string; tokenExchange: "form" | "basic" },
+  env: {
+    clientId: string;
+    clientSecret: string;
+    tokenUrl: string;
+    tokenExchange: "form" | "basic";
+  },
   code: string,
   redirectUri: string,
 ): Promise<ExchangeResult> {
@@ -185,7 +229,10 @@ export async function exchangeSocialCode(
 
   const res = await fetch(env.tokenUrl, {
     method: "POST",
-    headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      ...headers,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
     body,
   });
   if (!res.ok) {
@@ -199,7 +246,8 @@ export async function exchangeSocialCode(
     expires_in?: number;
     scope?: string;
   };
-  if (!data.access_token) throw new Error("Token exchange returned no access token");
+  if (!data.access_token)
+    throw new Error("Token exchange returned no access token");
 
   return {
     accessToken: data.access_token,
@@ -211,24 +259,30 @@ export async function exchangeSocialCode(
 
 /* ── internal helpers for the callback ────────────────────────────────── */
 
-export const getOauthState = internalQuery({
-  args: { state: v.string() },
-  handler: async (ctx, { state }) => {
-    return await ctx.db
-      .query("oauthStates")
-      .withIndex("by_state", (q) => q.eq("state", state))
-      .first();
-  },
-});
-
-export const consumeOauthState = internalMutation({
+export const claimOauthState = internalMutation({
   args: { state: v.string() },
   handler: async (ctx, { state }) => {
     const row = await ctx.db
       .query("oauthStates")
       .withIndex("by_state", (q) => q.eq("state", state))
-      .first();
-    if (row) await ctx.db.delete(row._id);
+      .unique();
+    if (!row || !isSocialPlatform(row.platform)) return null;
+
+    await ctx.db.delete(row._id);
+    const now = Date.now();
+    if (row.createdAt > now || now - row.createdAt > STATE_TTL_MS) return null;
+
+    const project = await ctx.db.get(row.projectId);
+    const user = await ctx.db.get(row.createdBy);
+    if (
+      !project ||
+      !user ||
+      user.deletionRequestedAt !== undefined ||
+      !(await hasProjectAccess(ctx, project, row.createdBy))
+    ) {
+      return null;
+    }
+    return row;
   },
 });
 

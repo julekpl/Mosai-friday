@@ -57,7 +57,7 @@ export function PersonaChat({
       const reply = await chat({
         mode,
         projectId,
-        persona,
+        personaId,
         history: thread.slice(-16).map((m) => ({ role: m.role, content: m.content })),
         message,
       });
