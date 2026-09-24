@@ -546,34 +546,42 @@ export default function Overview({
         )}
       </section>
 
-      {/* Data connections */}
-      <section className="mb-8">
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="font-mono text-h3">Data connections</h2>
-          <span className="font-mono text-caption text-muted-foreground">
-            {connected.size}/{DATA_PROVIDERS.length} connected
-          </span>
+      {/* Only verified connections belong on the project overview. */}
+      <section className="mb-8 rounded-md border bg-card p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-mono text-h3">Connected data</h2>
+            <p className="font-mono text-caption text-muted-foreground">
+              Only verified connections are shown here.
+            </p>
+          </div>
+          {modules.includes("grow") && (
+            <Button asChild size="sm" variant="outline">
+              <Link to={`/app/${projectId}/grow`}>
+                Manage connections <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {DATA_PROVIDERS.map((p) => {
-            const isConnected = connected.has(p.id);
-            return (
+        {connected.size ? (
+          <div className="flex flex-wrap gap-2">
+            {DATA_PROVIDERS.filter((provider) => connected.has(provider.id)).map((provider) => (
               <span
-                key={p.id}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-caption",
-                  isConnected
-                    ? "border-terminal-green/40 bg-terminal-green-soft text-terminal-green"
-                    : "text-muted-foreground",
-                )}
-                title={p.detail}
+                key={provider.id}
+                className="flex items-center gap-1.5 rounded-md border border-terminal-green/40 bg-terminal-green-soft px-2.5 py-1.5 font-mono text-caption text-terminal-green"
+                title={provider.detail}
               >
-                {isConnected && <CheckCircle2 className="size-3.5" />}
-                {p.label}
+                <CheckCircle2 className="size-3.5" />
+                {provider.label}
               </span>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="font-mono text-caption text-muted-foreground">
+            No data sources are connected yet.
+            {modules.includes("grow") ? " Connect one in Grow when you’re ready." : ""}
+          </p>
+        )}
       </section>
 
       {/* Modules */}

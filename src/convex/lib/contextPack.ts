@@ -18,6 +18,16 @@ export type ContextPersona = {
   pains?: string[];
   objections?: string[];
   channels?: string[];
+  country?: string;
+  demographics?: string;
+  culturalContext?: string;
+  bigFive?: {
+    openness: number;
+    conscientiousness: number;
+    extraversion: number;
+    agreeableness: number;
+    neuroticism: number;
+  };
   evidence?: string;
 };
 

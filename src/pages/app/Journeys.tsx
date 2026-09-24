@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -781,10 +782,18 @@ export default function Journeys({
                     {j.goal}
                   </p>
                 )}
+                <p className="mt-3 font-mono text-caption text-muted-foreground">
+                  Stage bars show the persona’s experience score from 0–10: green is 7–10,
+                  amber is 4–6, red is 0–3. Gray means no score was entered.
+                </p>
                 {/* Mini stage strip */}
                 <div className="mt-3 flex items-end gap-1">
                   {j.stages.map((s, i) => (
-                    <div key={i} className="min-w-0 flex-1" title={s.cells.join("\n")}>
+                    <div
+                      key={i}
+                      className="min-w-0 flex-1"
+                      title={`${s.stage}: ${typeof s.score === "number" ? `${s.score}/10 experience score` : "no score entered"}${s.cells.length ? `\n${s.cells.join("\n")}` : ""}`}
+                    >
                       <div
                         className={cn(
                           "rounded-t-sm",
@@ -797,7 +806,7 @@ export default function Journeys({
                             : "bg-muted",
                         )}
                         style={{
-                          height: `${18 + (typeof s.score === "number" ? s.score : 5) * 3}px`,
+                          height: `${typeof s.score === "number" ? 18 + s.score * 3 : 18}px`,
                         }}
                       />
                       <p className="truncate pt-1 text-center font-mono text-caption text-muted-foreground">
@@ -806,6 +815,13 @@ export default function Journeys({
                     </div>
                   ))}
                 </div>
+                <Button asChild className="mt-4" size="sm" variant="outline">
+                  <Link
+                    to={`/app/${projectId}/create?personaId=${encodeURIComponent(j.personaId ?? "")}&journeyMapId=${encodeURIComponent(j._id)}`}
+                  >
+                    Identify content gaps <Route className="size-3.5" />
+                  </Link>
+                </Button>
               </div>
             );
           })}

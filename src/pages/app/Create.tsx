@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { useSearchParams } from "react-router";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ResearchSource } from "@/convex/research";
@@ -102,7 +103,12 @@ function summarizeSourceStatus(sources: ResearchSource[]): string {
 /* ══ Flow: tabs — Gaps · Topics · Content ═══════════════════════════════ */
 
 export default function Create({ projectId }: { projectId: Id<"projects"> }) {
+  const [searchParams] = useSearchParams();
+  const initialPersonaId = searchParams.get("personaId") ?? undefined;
+  const initialJourneyMapId = searchParams.get("journeyMapId") ?? undefined;
   const [tab, setTab] = useState("gaps");
+  const [selectedGapId, setSelectedGapId] = useState<Id<"contentGaps"> | undefined>();
+  const [selectedPieceId, setSelectedPieceId] = useState<Id<"contentPieces"> | undefined>();
 
   return (
     <div>
@@ -125,13 +131,18 @@ export default function Create({ projectId }: { projectId: Id<"projects"> }) {
         </TabsList>
 
         <TabsContent value="gaps">
-          <GapsTab projectId={projectId} onNext={() => setTab("topics")} />
+          <GapsTab
+            projectId={projectId}
+            initialPersonaId={initialPersonaId}
+            initialJourneyMapId={initialJourneyMapId}
+            onNext={(gapId) => { setSelectedGapId(gapId); setTab("topics"); }}
+          />
         </TabsContent>
         <TabsContent value="topics">
-          <TopicsTab projectId={projectId} onNext={() => setTab("content")} />
+          <TopicsTab projectId={projectId} initialGapId={selectedGapId} onNext={(pieceId) => { setSelectedPieceId(pieceId); setTab("content"); }} />
         </TabsContent>
         <TabsContent value="content">
-          <ContentTab projectId={projectId} onNext={() => setTab("topics")} />
+          <ContentTab projectId={projectId} initialPieceId={selectedPieceId} onNext={() => setTab("topics")} />
         </TabsContent>
       </Tabs>
     </div>
@@ -142,10 +153,14 @@ export default function Create({ projectId }: { projectId: Id<"projects"> }) {
 
 function GapsTab({
   projectId,
+  initialPersonaId,
+  initialJourneyMapId,
   onNext,
 }: {
   projectId: Id<"projects">;
-  onNext: () => void;
+  initialPersonaId?: string;
+  initialJourneyMapId?: string;
+  onNext: (gapId: Id<"contentGaps">) => void;
 }) {
   const gaps = (useQuery(api.contentPlanning.listGaps, { projectId }) ?? []) as Array<{
     _id: Id<"contentGaps">;
@@ -158,8 +173,10 @@ function GapsTab({
     status?: string;
     source?: string;
   }>;
-  const personas = useQuery(api.personas.list, { projectId }) ?? [];
-  const journeys = useQuery(api.journeys.list, { projectId }) ?? [];
+  const personasResult = useQuery(api.personas.list, { projectId });
+  const journeysResult = useQuery(api.journeys.list, { projectId });
+  const personas = personasResult ?? [];
+  const journeys = journeysResult ?? [];
   const detect = useAction(api.ai.detectContentGaps);
   const createGap = useMutation(api.contentPlanning.createGap);
   const removeGap = useMutation(api.contentPlanning.removeGap);
@@ -172,8 +189,25 @@ function GapsTab({
   const [mPersona, setMPersona] = useState("none");
   const [mJourney, setMJourney] = useState("none");
   const [mStage, setMStage] = useState("none");
+  const [requestedPersona, setRequestedPersona] = useState(initialPersonaId ?? "all");
+  const [requestedJourney, setRequestedJourney] = useState(initialJourneyMapId ?? "all");
+  const filterPersona = personas.some((persona) => persona._id === requestedPersona)
+    ? requestedPersona
+    : "all";
+  const filterJourney = journeys.some((journey) =>
+    journey._id === requestedJourney &&
+    (filterPersona === "all" || journey.personaId === filterPersona),
+  ) ? requestedJourney : "all";
 
   const selectedJourney = journeys.find((j) => j._id === mJourney);
+  const openGaps = gaps.filter((g) => g.status !== "dismissed");
+  const journeysForFilter = filterPersona === "all"
+    ? journeys
+    : journeys.filter((journey) => journey.personaId === filterPersona);
+  const visibleGaps = openGaps.filter((gap) =>
+    (filterPersona === "all" || gap.personaId === filterPersona) &&
+    (filterJourney === "all" || gap.journeyMapId === filterJourney),
+  );
 
   const runDetect = async () => {
     if (busy) return;
@@ -237,8 +271,6 @@ function GapsTab({
     low: "text-muted-foreground",
   };
 
-  const openGaps = gaps.filter((g) => g.status !== "dismissed");
-
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -261,6 +293,31 @@ function GapsTab({
         </span>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3 rounded-md border bg-card p-3">
+        <div className="grid min-w-48 gap-1.5">
+          <Label htmlFor="gap-filter-persona" className="font-mono text-caption">Persona</Label>
+          <Select value={filterPersona} onValueChange={(value) => { setRequestedPersona(value); setRequestedJourney("all"); }}>
+            <SelectTrigger id="gap-filter-persona"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All personas</SelectItem>
+              {personas.map((persona) => <SelectItem key={persona._id} value={persona._id}>{persona.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid min-w-48 gap-1.5">
+          <Label htmlFor="gap-filter-journey" className="font-mono text-caption">Journey map</Label>
+          <Select value={filterJourney} onValueChange={setRequestedJourney}>
+            <SelectTrigger id="gap-filter-journey"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All journeys</SelectItem>
+              {journeysForFilter.map((journey) => <SelectItem key={journey._id} value={journey._id}>{journey.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {(filterPersona !== "all" || filterJourney !== "all") && <Button variant="ghost" size="sm" onClick={() => { setRequestedPersona("all"); setRequestedJourney("all"); }}>Clear filters</Button>}
+        <span className="ml-auto font-mono text-caption text-muted-foreground">{visibleGaps.length} of {openGaps.length} gaps</span>
+      </div>
+
       {openGaps.length === 0 ? (
         <ModuleEmpty
           icon={AlertTriangle}
@@ -274,7 +331,9 @@ function GapsTab({
         />
       ) : (
         <div className="grid gap-3">
-          {openGaps.map((g) => {
+          {visibleGaps.length === 0 ? (
+            <p className="rounded-md border border-dashed p-4 font-mono text-caption text-muted-foreground">No gaps match this persona and journey. Try another selection or add a gap manually.</p>
+          ) : visibleGaps.map((g) => {
             const persona = personas.find((p) => p._id === g.personaId);
             const journey = journeys.find((j) => j._id === g.journeyMapId);
             return (
@@ -312,7 +371,7 @@ function GapsTab({
                       variant="outline"
                       className="h-7 font-mono text-caption"
                       onClick={() => {
-                        onNext();
+                          onNext(g._id);
                       }}
                     >
                       <Search className="size-3.5" /> Research topics
@@ -441,10 +500,12 @@ function GapsTab({
 
 function TopicsTab({
   projectId,
+  initialGapId,
   onNext,
 }: {
   projectId: Id<"projects">;
-  onNext: () => void;
+  initialGapId?: Id<"contentGaps">;
+  onNext: (pieceId: Id<"contentPieces">) => void;
 }) {
   const gaps = useQuery(api.contentPlanning.listGaps, { projectId }) ?? [];
   const topicsRaw = useQuery(api.contentPlanning.listTopics, { projectId });
@@ -459,7 +520,7 @@ function TopicsTab({
   const updateTopic = useMutation(api.contentPlanning.updateTopic);
   const removeTopic = useMutation(api.contentPlanning.removeTopic);
 
-  const [gapId, setGapId] = useState("none");
+  const [gapId, setGapId] = useState<string>(initialGapId ?? "none");
   const [busy, setBusy] = useState(false);
   const [researching, setResearching] = useState<string | null>(null);
   const [sourceStatusByTopic, setSourceStatusByTopic] = useState<Record<string, ResearchSource[]>>({});
@@ -579,7 +640,7 @@ function TopicsTab({
 
   const makeContent = async (t: TopicRow) => {
     try {
-      await createPiece({
+      const pieceId = await createPiece({
         projectId,
         topicId: t._id as never,
         gapId: t.gapId as never,
@@ -591,10 +652,10 @@ function TopicsTab({
         journeyMapId: gaps.find((g) => g._id === t.gapId)?.journeyMapId,
         journeyStage: gaps.find((g) => g._id === t.gapId)?.journeyStage,
       });
-      toast.success("Content piece created — open it in the Content tab", {
-        description: "The editor can AI-draft from the topic + research.",
+      toast.success("Content editor opened", {
+        description: "The topic, persona, journey stage and any saved research are attached.",
       });
-      onNext();
+      onNext(pieceId);
     } catch (e) {
       toast.error("Create failed", {
         description: e instanceof Error ? e.message : "Try again.",
@@ -770,6 +831,7 @@ function TopicsTab({
                     )}
                     <Button
                       size="sm"
+                      variant="outline"
                       className="h-7 font-mono text-caption"
                       onClick={() => void makeContent(t)}
                     >
@@ -824,7 +886,7 @@ function TopicsTab({
 
 /* ══ Tab 3: Content pieces + editor ═════════════════════════════════════ */
 
-function ContentTab({ projectId, onNext }: { projectId: Id<"projects">; onNext: () => void }) {
+function ContentTab({ projectId, initialPieceId, onNext }: { projectId: Id<"projects">; initialPieceId?: Id<"contentPieces">; onNext: () => void }) {
   const pieces = useQuery(api.content.list, { projectId }) ?? [];
   const remove = useMutation(api.content.remove);
   const update = useMutation(api.content.update);
@@ -833,7 +895,7 @@ function ContentTab({ projectId, onNext }: { projectId: Id<"projects">; onNext: 
   const [manualTitle, setManualTitle] = useState("");
   const [manualType, setManualType] = useState("blog");
 
-  const [openPiece, setOpenPiece] = useState<Id<"contentPieces"> | null>(null);
+  const [openPiece, setOpenPiece] = useState<Id<"contentPieces"> | null>(initialPieceId ?? null);
   const piece = pieces.find((p) => p._id === openPiece);
 
   if (openPiece && piece) {

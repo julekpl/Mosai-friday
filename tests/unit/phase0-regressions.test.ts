@@ -358,6 +358,22 @@ describe("R8 — a fake connection is refused (T0.10)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("authorizing");
 
+    await t.run(async (ctx) => {
+      await ctx.db.patch(rows[0]._id, {
+        authorizationStartedAt: Date.now() - 11 * 60_000,
+      });
+    });
+    const expired = await alice.as.query(api.connections.list, { projectId });
+    expect(expired[0]).toMatchObject({
+      status: "disconnected",
+      detail: "Authorization timed out after 10 minutes. Start again to retry.",
+    });
+
+    await alice.as.mutation(api.connections.beginAuthorization, { projectId, provider: "ga4" });
+    const restarted = await alice.as.query(api.connections.list, { projectId });
+    expect(restarted[0].status).toBe("authorizing");
+    expect(restarted[0].authorizationStartedAt).toEqual(expect.any(Number));
+
     // The internal path exists and can promote the row (server-only receipt).
     await alice.as.mutation(internal.connections.markVerified, {
       projectId,

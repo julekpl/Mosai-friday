@@ -1121,6 +1121,10 @@ function buildContextPack(
     pains: persona.pains?.slice(0, 3).map((value) => value.slice(0, 120)),
     objections: persona.objections?.slice(0, 3).map((value) => value.slice(0, 120)),
     channels: persona.channels?.slice(0, 3).map((value) => value.slice(0, 100)),
+    country: compactText(persona.country, 80),
+    demographics: compactText(persona.demographics, 240),
+    culturalContext: compactText(persona.culturalContext, 300),
+    bigFive: persona.bigFive,
     evidence: compactText(persona.evidence, 300),
   }));
   const journeys: ContextJourney[] = input.journeys.slice(0, 8).map((journey) => ({

@@ -254,7 +254,10 @@ export const exportPack = orgQuery({
 export const remove = orgMutation({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }, access) => {
-    const { userId } = await access.requireProject(id);
+    const { userId, project } = await access.requireProject(id);
+    if (project.ownerId !== userId) {
+      throw new Error("Only the project owner can delete this project");
+    }
     const idempotencyKey = `project-deletion:${id}`;
     const existing = await ctx.db.query("privacyJobs")
       .withIndex("by_idempotency", (q) => q.eq("idempotencyKey", idempotencyKey))

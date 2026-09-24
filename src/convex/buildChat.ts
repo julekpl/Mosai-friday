@@ -40,7 +40,7 @@ async function complete(
     autonomy: "draft",
     contextSources: ["build.context", "request.context"],
     provider: "openrouter",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     messages: [
       { role: "system" as const, content: system },
       { role: "user" as const, content: user },

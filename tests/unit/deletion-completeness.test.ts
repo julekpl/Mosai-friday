@@ -514,6 +514,30 @@ describe("R10 — deleting a project leaves nothing behind", () => {
     expect(blob).toBeNull();
   });
 
+  it("a project organization member cannot request deletion when they are not its owner", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, { plan: "scale" });
+    const member = await seedUser(t, { plan: "scale" });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "Shared project" });
+    const project = await t.run((ctx) => ctx.db.get(projectId));
+    if (!project?.organizationId) throw new Error("Project organization was not created");
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("memberships", {
+        organizationId: project.organizationId!,
+        userId: member.userId,
+        role: "member",
+        status: "active",
+        createdAt: at,
+        updatedAt: at,
+      });
+    });
+
+    await expect(member.as.mutation(api.projects.remove, { id: projectId }))
+      .rejects.toThrow("Only the project owner can delete this project");
+    expect(await t.run((ctx) => ctx.db.query("privacyJobs").collect())).toEqual([]);
+  });
+
   it("account deletion clears user-only AI runs and quota buckets", async () => {
     const t = newBackend();
     const alice = await seedUser(t);

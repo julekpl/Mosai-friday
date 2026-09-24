@@ -153,4 +153,35 @@ describe("research source provenance", () => {
     expect(JSON.stringify(result)).not.toContain("private provider detail");
     expect(JSON.stringify(result)).not.toContain("malformed private response");
   });
+
+  it("distinguishes rejected credentials and provider access restrictions", async () => {
+    process.env.SERPAPI_KEY = "fixture-serp-secret";
+    process.env.NEWSAPI_KEY = "fixture-news-secret";
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === "www.reddit.com") return json({}, 401);
+      if (url.hostname === "newsapi.org") return json({}, 403);
+      if (url.hostname === "en.wikipedia.org") return json({ query: { search: [] } });
+      if (url.hostname === "en.wikibooks.org") return json({ query: { search: [] } });
+      if (url.hostname === "api.gdeltproject.org") return json({ articles: [] });
+      if (url.hostname === "www.googleapis.com") return json({ items: [] });
+      if (url.hostname === "serpapi.com") {
+        switch (url.searchParams.get("engine")) {
+          case "youtube": return json({ video_results: [] });
+          case "google_trends": return json({ related_queries: { rising: [] } });
+          case "google":
+          case "google_news": return json({ news_results: [] });
+        }
+      }
+      throw new Error("Unexpected provider request");
+    });
+
+    const result = await research();
+    const byProvider = new Map(result.sources.map((source) => [source.provider, source]));
+
+    expect(byProvider.get("reddit")).toMatchObject({ status: "failed", errorCategory: "authentication" });
+    expect(byProvider.get("newsapi")).toMatchObject({ status: "failed", errorCategory: "access_denied" });
+    expect(JSON.stringify(result)).not.toContain("fixture-serp-secret");
+    expect(JSON.stringify(result)).not.toContain("fixture-news-secret");
+  });
 });

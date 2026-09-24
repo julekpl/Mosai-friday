@@ -20,6 +20,7 @@ export default defineConfig({
   },
   test: {
     environment: "edge-runtime",
+    setupFiles: ["./tests/unit/setup.ts"],
     include: ["tests/unit/**/*.test.ts"],
     // Playwright owns the browser journeys; keep them out of the Vitest run.
     exclude: ["tests/e2e/**", "node_modules/**", "dist/**"],

@@ -17,6 +17,7 @@ export type Provider = (typeof PROVIDERS)[number];
 
 const isProvider = (provider: string): provider is Provider =>
   (PROVIDERS as readonly string[]).includes(provider);
+const AUTHORIZATION_TIMEOUT_MS = 10 * 60_000;
 
 /**
  * Generic connection projection used by modules that only need to display
@@ -30,10 +31,23 @@ export const list = moduleQuery("grow", {
     // Grow capability, so a plan without the add-on reads nothing.
     const scope = await access.ownedProject(projectId);
     if (!scope) return [];
-    return await ctx.db
+    const rows = await ctx.db
       .query("connections")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
+    const now = Date.now();
+    return rows.map((row) => {
+      if (
+        row.status !== "authorizing" ||
+        row.authorizationStartedAt === undefined ||
+        now - row.authorizationStartedAt < AUTHORIZATION_TIMEOUT_MS
+      ) return row;
+      return {
+        ...row,
+        status: "disconnected" as const,
+        detail: "Authorization timed out after 10 minutes. Start again to retry.",
+      };
+    });
   },
 });
 
@@ -63,6 +77,7 @@ export const beginAuthorization = moduleMutation("grow", {
     if (existing) {
       await ctx.db.patch(existing._id, {
         status: "authorizing",
+        authorizationStartedAt: Date.now(),
         detail: "Authorization started — waiting for provider verification.",
       });
       return existing._id;
@@ -72,6 +87,7 @@ export const beginAuthorization = moduleMutation("grow", {
       projectId,
       provider,
       status: "authorizing",
+      authorizationStartedAt: Date.now(),
       detail: "Authorization started — waiting for provider verification.",
     });
   },
@@ -107,6 +123,7 @@ export const markVerified = internalMutation({
 
     await ctx.db.patch(existing._id, {
       status: "connected",
+      authorizationStartedAt: undefined,
       accountLabel,
       providerAccountId,
       lastSyncedAt: Date.now(),
@@ -137,6 +154,7 @@ export const markNeedsAttention = internalMutation({
 
     await ctx.db.patch(existing._id, {
       status: "needs_attention",
+      authorizationStartedAt: undefined,
       detail,
     });
   },
@@ -159,6 +177,7 @@ export const disconnect = moduleMutation("grow", {
     if (existing) {
       await ctx.db.patch(existing._id, {
         status: "disconnected",
+        authorizationStartedAt: undefined,
         detail: "Disconnected by the project owner. Historical data is preserved.",
       });
     }

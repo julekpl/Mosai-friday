@@ -30,7 +30,7 @@ export type ResearchHit = {
 };
 
 export type SourceStatus = "ok" | "empty" | "needs_setup" | "rate_limited" | "failed";
-export type SourceErrorCategory = "timeout" | "rate_limit" | "network" | "provider_error" | "invalid_response";
+export type SourceErrorCategory = "timeout" | "rate_limit" | "network" | "authentication" | "access_denied" | "provider_error" | "invalid_response";
 export type ResearchSource = {
   provider: string;
   status: SourceStatus;
@@ -62,7 +62,14 @@ async function fetchJson<T>(
       redirect: "follow",
     });
     if (!res.ok) {
-      throw new SourceRequestError(res.status === 429 ? "rate_limit" : "provider_error");
+      const category: SourceErrorCategory = res.status === 429
+        ? "rate_limit"
+        : res.status === 401
+          ? "authentication"
+          : res.status === 403
+            ? "access_denied"
+            : "provider_error";
+      throw new SourceRequestError(category);
     }
     try {
       return (await res.json()) as T;
