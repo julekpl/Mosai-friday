@@ -31,6 +31,9 @@ async function complete(
     promptVersion: "v1",
     autonomy: "assistive",
     contextSources: opts.contextSources ?? ["request.context"],
+    // MOSAI's configured AI integration is OpenRouter. Selecting it here is
+    // required because the gateway otherwise defaults to the legacy provider.
+    provider: "openrouter",
     model: "gpt-4o-mini",
     messages: [
       {
