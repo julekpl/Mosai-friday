@@ -57,11 +57,13 @@ function ChipInput({
   onChange,
   placeholder,
   renderChip,
+  id,
 }: {
   values: string[];
   onChange: (next: string[]) => void;
   placeholder?: string;
   renderChip?: (value: string) => React.ReactNode;
+  id?: string;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -95,6 +97,7 @@ function ChipInput({
         </div>
       )}
       <Input
+        id={id}
         value={draft}
         onChange={(e) => {
           const val = e.target.value;
@@ -199,39 +202,51 @@ function BusinessMapIllustration({
   businessName: string;
   scanning: boolean;
 }) {
+  const items = [
+    { icon: PackageSearch, title: "What you offer", detail: "Products and services", color: "text-tile-teal", surface: "bg-tile-teal-soft" },
+    { icon: MapPin, title: "Where you are", detail: "Location and contact details", color: "text-tile-coral", surface: "bg-tile-coral-soft" },
+    { icon: Globe, title: "Your online home", detail: "Key pages and website links", color: "text-tile-violet", surface: "bg-tile-violet-soft" },
+    { icon: Share2, title: "Where people find you", detail: "Public social links", color: "text-tile-sky", surface: "bg-tile-sky-soft" },
+  ];
+
   return (
-    <aside className="rounded-lg border bg-card p-5 sm:p-6" aria-label="What MOSAI will map from your business">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 font-mono text-caption text-terminal-green">
-          <Sparkles className="size-3.5" aria-hidden="true" /> Your business, connected
-        </span>
-        {scanning && <span role="status" className="font-mono text-caption text-muted-foreground">Mapping…</span>}
+    <aside className="relative overflow-hidden rounded-lg border bg-card p-5 shadow-card sm:p-6" aria-label="What your business map can include">
+      <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 size-40 rounded-full bg-tile-lime-soft opacity-70 blur-3xl" />
+      <div className="relative">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 font-mono text-caption text-terminal-green">
+            <Sparkles className="size-3.5" aria-hidden="true" /> YOUR BUSINESS MAP
+          </span>
+          {scanning && <span role="status" className="inline-flex items-center gap-1.5 font-mono text-caption text-terminal-green"><Loader2 className="size-3.5 animate-spin" />Finding public details…</span>}
+        </div>
+        <h2 className="mt-5 font-mono text-h2 font-semibold">A clearer picture. A better next step.</h2>
+        <p className="mt-2 max-w-md font-mono text-caption text-muted-foreground">Start with what’s already out there. MOSAI organizes the useful bits so your workspace can give you more relevant ideas.</p>
+
+        <div className="mt-5 rounded-lg border bg-background p-4 sm:p-5">
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-md bg-tile-teal-soft text-tile-teal"><Store className="size-5" aria-hidden="true" /></span>
+            <div className="min-w-0">
+              <p className="truncate font-mono text-small font-semibold">{businessName || "Your business"}</p>
+              <p className="truncate font-mono text-caption text-muted-foreground">{website ? displayDomain(website) : "Your starting point"}</p>
+            </div>
+            <span className="ml-auto rounded-full border px-2 py-1 font-mono text-caption text-muted-foreground">DRAFT</span>
+          </div>
+          <div className="my-4 border-t" />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {items.map(({ icon: Icon, title, detail, color, surface }) => (
+              <div key={title} className="flex min-w-0 items-center gap-3 rounded-md border bg-card p-3 transition-transform duration-200 ease-mosaic hover:-translate-y-0.5">
+                <span className={cn("grid size-9 shrink-0 place-items-center rounded-md", surface, color)}><Icon className="size-4" aria-hidden="true" /></span>
+                <span className="min-w-0"><span className="block truncate font-mono text-caption font-semibold text-foreground">{title}</span><span className="mt-0.5 block truncate font-mono text-caption text-muted-foreground">{detail}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-terminal-green/30 bg-terminal-green-soft p-3">
+          <Check className="mt-0.5 size-4 shrink-0 text-terminal-green" aria-hidden="true" />
+          <p className="font-mono text-caption text-foreground">You stay in control. Review the sources, correct details, and choose what belongs in your workspace.</p>
+        </div>
       </div>
-      <h2 className="mt-4 font-mono text-h2 font-semibold">A website becomes a clearer starting point.</h2>
-      <p className="mt-2 font-mono text-caption text-muted-foreground">MOSAI looks for the parts that help shape the next steps: what you offer, who you serve, where you are, and how people can find you.</p>
-      <div className="relative mt-5 overflow-hidden rounded-md border bg-background p-3 sm:p-4">
-        <svg viewBox="0 0 420 210" className="h-auto w-full text-terminal-green" aria-hidden="true">
-          <path d="M210 104 88 45M210 104 332 45M210 104 88 165M210 104 332 165" fill="none" stroke="currentColor" strokeDasharray="5 7" strokeOpacity=".45" strokeWidth="2" />
-          <circle cx="210" cy="104" r="49" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".7" strokeWidth="2" />
-          <circle cx="210" cy="104" r="36" fill="currentColor" fillOpacity=".08" className="motion-safe:animate-pulse" />
-          <circle cx="88" cy="45" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <circle cx="332" cy="45" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <circle cx="88" cy="165" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <circle cx="332" cy="165" r="25" fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeOpacity=".5" strokeWidth="2" />
-          <foreignObject x="161" y="76" width="98" height="56"><div className="flex h-full flex-col items-center justify-center text-center font-mono text-caption font-semibold text-foreground">{displayDomain(website) || businessName || "Your business"}</div></foreignObject>
-          <foreignObject x="49" y="28" width="78" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">Offers</div></foreignObject>
-          <foreignObject x="291" y="28" width="82" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">People</div></foreignObject>
-          <foreignObject x="43" y="148" width="90" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">Location</div></foreignObject>
-          <foreignObject x="285" y="148" width="94" height="34"><div className="flex h-full items-center justify-center font-mono text-caption text-foreground">Social links</div></foreignObject>
-        </svg>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 font-mono text-caption text-muted-foreground">
-        <span className="flex items-center gap-2"><PackageSearch className="size-4 text-terminal-green" aria-hidden="true" /> Products and services</span>
-        <span className="flex items-center gap-2"><MapPin className="size-4 text-terminal-green" aria-hidden="true" /> Address and country</span>
-        <span className="flex items-center gap-2"><Globe className="size-4 text-terminal-green" aria-hidden="true" /> Important pages</span>
-        <span className="flex items-center gap-2"><Share2 className="size-4 text-terminal-green" aria-hidden="true" /> Public social links</span>
-      </div>
-      <p className="mt-4 border-t pt-3 font-mono text-caption text-muted-foreground">You’ll review what was found before it becomes part of your project context.</p>
     </aside>
   );
 }
@@ -523,116 +538,105 @@ export function NewProjectWizard() {
         </ol>
       </div>
 
-      {/* ── Step 1: basics — flexible website, GMB, competitors ────────── */}
+      {/* ── Step 1: a quick, friendly business starting point ─────────── */}
       {step === 0 && (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(20rem,.95fr)]">
-          <div className="grid gap-5 rounded-lg border bg-card p-4 sm:p-6">
-          <div>
-            <span className="mb-2 inline-flex items-center gap-2 font-mono text-caption text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /> Your starting point</span>
-            <h1 className="font-mono text-h1">Let’s map your business.</h1>
-            <p className="mt-2 max-w-prose font-mono text-caption text-muted-foreground">
-              Share a website or business listing. MOSAI will find useful public details, show its sources and let you correct them before they guide your workspace.
-            </p>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="np-name">Project name</Label>
-            <Input
-              id="np-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Nord Coffee Roasters"
-              autoFocus
-            />
-          </div>
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,.9fr)]">
+          <section className="grid gap-5 rounded-lg border bg-card p-5 shadow-card sm:p-7" aria-labelledby="business-start-title">
+            <div>
+              <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-tile-coral-soft px-3 py-1 font-mono text-caption text-foreground"><Sparkles className="size-3.5 text-tile-coral" aria-hidden="true" /> YOUR FIRST WIN STARTS HERE</span>
+              <h1 id="business-start-title" className="mt-2 font-mono text-h1">Let’s get your business in focus.</h1>
+              <p className="mt-2 max-w-prose font-mono text-caption text-muted-foreground">Give MOSAI one place to start. We’ll gather a first draft from public information—you can check and fix it before it shapes your workspace.</p>
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="np-url">Website</Label>
-            <Input
-              id="np-url"
-              value={websiteInput}
-              onChange={(e) => setWebsiteInput(e.target.value)}
-              placeholder="example.com or https://yourbusiness.com"
-            />
-            {websiteInput.trim() !== "" && (
-              <p className="font-mono text-caption text-muted-foreground">
-                {normalizedUrl ? (
-                  <span className="text-terminal-green">
-                    will scan: {normalizedUrl}
-                  </span>
+            <div className="grid gap-2">
+              <Label htmlFor="np-name">What should we call your workspace?</Label>
+              <Input
+                id="np-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Northside Coffee"
+                autoFocus
+                aria-describedby="np-name-hint"
+                className="h-12 text-small"
+              />
+              <p id="np-name-hint" className="font-mono text-caption text-muted-foreground">This is your private workspace name. Change it whenever you like.</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="np-url">Your website <span className="font-normal text-muted-foreground">(recommended)</span></Label>
+              <div className="relative">
+                <Globe className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input
+                  id="np-url"
+                  value={websiteInput}
+                  onChange={(e) => setWebsiteInput(e.target.value)}
+                  placeholder="yourbusiness.com"
+                  className="h-12 pl-10"
+                  aria-describedby="np-url-hint"
+                  inputMode="url"
+                />
+              </div>
+              <p id="np-url-hint" className="font-mono text-caption text-muted-foreground">
+                {websiteInput.trim() === "" ? "We’ll look for your offers, key pages, and public links." : normalizedUrl ? (
+                  <span className="text-terminal-green">Ready to look at {displayDomain(normalizedUrl)}.</span>
                 ) : (
-                  <span className="text-terminal-amber">
-                    doesn't look like a website URL yet
-                  </span>
+                  <span className="text-terminal-amber">Enter a website like yourbusiness.com.</span>
                 )}
               </p>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="np-gmb">Google Business profile (optional)</Label>
-            <div className="flex items-center gap-2">
-              <MapPin className="size-4 shrink-0 text-terminal-green" />
-              <Input
-                id="np-gmb"
-                value={gmbName}
-                onChange={(e) => setGmbName(e.target.value)}
-                placeholder="Search by business name and city"
-              />
             </div>
-            <p className="font-mono text-caption text-muted-foreground">
-              We’ll show the matching listing for you to confirm before using its details.
-            </p>
-          </div>
 
-          <details className="rounded-md border px-3 py-2">
-            <summary className="cursor-pointer font-mono text-caption font-medium">Add competitors (optional)</summary>
-            <p className="mt-2 font-mono text-caption text-muted-foreground">Paste a website address, or type @business name and city to mark a Google Business profile for a later confirmed lookup.</p>
-            <ChipInput
-              values={competitors.map((c) => c.value)}
-              onChange={(next) => {
-                // rebuild preserving detected types for kept entries
-                const nextEntries: CompetitorEntry[] = next.map((v) => {
-                  const existing = competitors.find(
-                    (c) => c.value.toLowerCase() === v.toLowerCase(),
-                  );
-                  return existing ?? (looksLikeUrl(v) ? { type: "website", value: v } : { type: "gmb", value: v });
-                });
-                setCompetitors(nextEntries);
-              }}
-              placeholder="example.com or @Business Name, city — press Enter"
-              renderChip={(v) => {
-                const entry = competitors.find(
-                  (c) => c.value.toLowerCase() === v.toLowerCase(),
-                );
-                return (
-                  <span className="inline-flex items-center gap-1">
-                    {entry?.type === "gmb" ? (
-                      <Store className="size-3" />
-                    ) : (
-                      <Globe className="size-3" />
-                    )}
-                    {displayDomain(v) || v}
-                  </span>
-                );
-              }}
-            />
-          </details>
-
-          {normalizedUrl && (
-            <details className="rounded-md border px-3 py-2">
-              <summary className="cursor-pointer font-mono text-caption font-medium">Advanced website scan</summary>
-              <label className="mt-2 flex items-start gap-2 font-mono text-caption text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={ignoreRobots}
-                onChange={(e) => setIgnoreRobots(e.target.checked)}
-                className="size-3.5 accent-terminal-green"
-              />
-                <span><span className="font-medium text-foreground">Continue through robots.txt restrictions</span><br />Only switch this on for a website you control and have permission to scan.</span>
-              </label>
+            <details className="group rounded-md border bg-background px-4 py-3">
+              <summary className="flex cursor-pointer list-none items-center gap-3 font-mono text-small font-medium [&::-webkit-details-marker]:hidden">
+                <span className="grid size-9 shrink-0 place-items-center rounded-md bg-tile-sky-soft text-tile-sky"><MapPin className="size-4" aria-hidden="true" /></span>
+                <span className="min-w-0 flex-1"><span className="block">No website? Try your business listing</span><span className="mt-0.5 block font-mono text-caption font-normal text-muted-foreground">Optional · we’ll ask you to confirm the match</span></span>
+                <span aria-hidden="true" className="text-muted-foreground transition-transform group-open:rotate-180">⌄</span>
+              </summary>
+              <div className="mt-3 grid gap-2 border-t pt-3">
+                <Label htmlFor="np-gmb">Business name and city</Label>
+                <Input
+                  id="np-gmb"
+                  value={gmbName}
+                  onChange={(e) => setGmbName(e.target.value)}
+                  placeholder="e.g. Northside Coffee, Bristol"
+                  className="h-11"
+                />
+                <p className="font-mono text-caption text-muted-foreground">We’ll show you the result first. Nothing is used unless you confirm it.</p>
+              </div>
             </details>
-          )}
-          </div>
+
+            <details className="rounded-md border px-4 py-3">
+              <summary className="cursor-pointer font-mono text-caption font-medium">Add competitors or scan settings <span className="font-normal text-muted-foreground">(optional)</span></summary>
+              <div className="mt-3 grid gap-4 border-t pt-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="np-competitors">Businesses you’d like to keep an eye on</Label>
+                  <p className="font-mono text-caption text-muted-foreground">Add a website or a business name and city. You can do this later too.</p>
+                  <ChipInput
+                    id="np-competitors"
+                    values={competitors.map((c) => c.value)}
+                    onChange={(next) => {
+                      const nextEntries: CompetitorEntry[] = next.map((v) => {
+                        const existing = competitors.find((c) => c.value.toLowerCase() === v.toLowerCase());
+                        return existing ?? (looksLikeUrl(v) ? { type: "website", value: v } : { type: "gmb", value: v });
+                      });
+                      setCompetitors(nextEntries);
+                    }}
+                    placeholder="Add a website or business name, then press Enter"
+                    renderChip={(v) => {
+                      const entry = competitors.find((c) => c.value.toLowerCase() === v.toLowerCase());
+                      return <span className="inline-flex items-center gap-1">{entry?.type === "gmb" ? <Store className="size-3" /> : <Globe className="size-3" />}{displayDomain(v) || v}</span>;
+                    }}
+                  />
+                </div>
+                {normalizedUrl && (
+                  <label className="flex items-start gap-3 border-t pt-3 font-mono text-caption text-muted-foreground">
+                    <input type="checkbox" checked={ignoreRobots} onChange={(e) => setIgnoreRobots(e.target.checked)} className="mt-0.5 size-4 accent-terminal-green" />
+                    <span><span className="font-medium text-foreground">I own this website and have permission to scan pages blocked by robots.txt</span><br />Leave this off unless you control the site.</span>
+                  </label>
+                )}
+              </div>
+            </details>
+          </section>
+
           <BusinessMapIllustration website={websiteInput} businessName={name} scanning={isScanning} />
         </div>
       )}
@@ -831,7 +835,7 @@ export function NewProjectWizard() {
               </>
             ) : step === 0 ? (
               <>
-                Map my business <Sparkles className="size-4" />
+                {normalizedUrl || gmbName.trim() ? "Build my business map" : "Continue with my business name"} <ArrowRight className="size-4" />
               </>
             ) : (
               <>
@@ -844,9 +848,7 @@ export function NewProjectWizard() {
             <Plus className="size-4" /> Create project
           </Button>
         )}
-        <Badge variant="outline" className="ml-auto font-mono text-caption">
-          all fields optional except name
-        </Badge>
+        <p className="ml-auto font-mono text-caption text-muted-foreground">Your details stay a draft until you review them.</p>
       </div>
     </div>
   );
