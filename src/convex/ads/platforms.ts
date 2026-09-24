@@ -1,5 +1,5 @@
 
-/** The four ad platforms MOSAI Ads manages. */
+/** The ad platform identities MOSAI retains for existing data and UI. */
 export type Platform = "google" | "meta" | "tiktok" | "chatgpt";
 
 export const PLATFORMS: Platform[] = ["google", "meta", "tiktok", "chatgpt"];
@@ -19,10 +19,7 @@ export const PLATFORM_META: Record<
   chatgpt: { label: "ChatGPT Ads", detail: "Sponsored cards in ChatGPT" },
 };
 
-/**
- * Env-var-driven platform configuration. All four platforms are OAuth 2.0;
- * credentials come from the deployment environment (never the client).
- */
+/** Env-var-driven OAuth configuration for providers MOSAI can connect today. */
 export type PlatformEnv = {
   clientId: string;
   clientSecret: string;
@@ -51,22 +48,15 @@ export const COPILOT_MODEL_OPTIONS = [
   "meta-llama/llama-3.3-70b-instruct",
 ];
 
-/** ChatGPT Ads is new: management API access is gated by OpenAI. We surface a
- *  clear, honest status instead of pretending it works. */
+/** OpenAI Ads uses account-scoped API keys; key onboarding is not implemented.
+ * Keep the platform visible while truthfully disabling connection and calls. */
 export function chatgptAdsStatus(): {
   supported: boolean;
   note: string;
 } {
-  const clientId = process.env.CHATGPT_ADS_CLIENT_ID;
-  if (!clientId) {
-    return {
-      supported: false,
-      note: "Requires OpenAI advertiser API access (CHATGPT_ADS_CLIENT_ID not configured in this deployment). Connect is available once OpenAI grants access.",
-    };
-  }
   return {
-    supported: true,
-    note: "Connect your OpenAI advertiser account.",
+    supported: false,
+    note: "OpenAI Ads is unavailable until MOSAI supports secure account-scoped API key setup.",
   };
 }
 
@@ -105,15 +95,7 @@ export function platformEnv(platform: Platform): PlatformEnv | null {
         scopes: [],
       };
     case "chatgpt":
-      if (!process.env.CHATGPT_ADS_CLIENT_ID || !process.env.CHATGPT_ADS_CLIENT_SECRET)
-        return null;
-      return {
-        clientId: process.env.CHATGPT_ADS_CLIENT_ID,
-        clientSecret: process.env.CHATGPT_ADS_CLIENT_SECRET,
-        authorizeUrl: "https://auth.openai.com/authorize",
-        tokenUrl: "https://auth.openai.com/oauth/token",
-        scopes: ["ads:read", "ads:write"],
-      };
+      return null;
   }
 }
 
@@ -145,6 +127,9 @@ export async function exchangeCodeForTokens(
   code: string,
   redirectUri: string,
 ): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number; scope?: string }> {
+  if (platform === "chatgpt") {
+    throw new Error("OpenAI Ads does not use OAuth; connection is unavailable");
+  }
   const res = await fetch(
     platform === "meta"
       ? `https://graph.facebook.com/v21.0/oauth/access_token?client_id=${encodeURIComponent(

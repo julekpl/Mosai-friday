@@ -117,6 +117,17 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
     });
   }
 
+  if (variants.length === 0) {
+    issues.push({
+      scope: "product",
+      objectId: product._id,
+      field: "variant",
+      severity: "error",
+      fixType: "user_input",
+      message: "This product has no variant. Add a purchasable option before it can be considered ready.",
+    });
+  }
+
   // ── Variant-level checks (normative: worst variant decides) ────────────
   for (const v of variants) {
     const vLabel =
@@ -124,7 +135,11 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
       (v.isDefault ? "Default" : undefined) ??
       v.optionValues?.map((o) => o.value).join(" / ");
 
-    if (v.priceCents == null || v.priceCents <= 0) {
+    if (
+      v.priceCents == null ||
+      !Number.isSafeInteger(v.priceCents) ||
+      v.priceCents < 0
+    ) {
       issues.push({
         scope: "variant",
         objectId: v._id,
@@ -132,11 +147,32 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
         field: "price",
         severity: "error",
         fixType: "user_input",
-        message: `${vLabel ? `${vLabel}: ` : ""}No price set. Channels cannot list a product without a price.`,
+        message: `${vLabel ? `${vLabel}: ` : ""}A valid nonnegative whole-number price in minor currency units is required. Channels cannot list a product without a price.`,
       });
     }
 
-    if (!v.availability) {
+    if (
+      v.inventoryCount != null &&
+      (!Number.isSafeInteger(v.inventoryCount) || v.inventoryCount < 0)
+    ) {
+      issues.push({
+        scope: "variant",
+        objectId: v._id,
+        variantLabel: vLabel,
+        field: "inventory",
+        severity: "error",
+        fixType: "user_input",
+        message: `${vLabel ? `${vLabel}: ` : ""}Inventory must be a nonnegative whole number, or left untracked.`,
+      });
+    }
+
+    const validAvailability = [
+      "in_stock",
+      "out_of_stock",
+      "backorder",
+      "preorder",
+    ].includes(v.availability ?? "");
+    if (!validAvailability) {
       issues.push({
         scope: "variant",
         objectId: v._id,
@@ -144,7 +180,22 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
         field: "availability",
         severity: "error",
         fixType: "user_input",
-        message: `${vLabel ? `${vLabel}: ` : ""}No availability set. Set whether it is in stock, out of stock, preorder or backorder.`,
+        message: `${vLabel ? `${vLabel}: ` : ""}Availability is missing or invalid. Set whether it is in stock, out of stock, preorder or backorder.`,
+      });
+    } else if (
+      (v.availability === "in_stock" && v.inventoryCount === 0) ||
+      (v.availability === "out_of_stock" &&
+        v.inventoryCount != null &&
+        v.inventoryCount > 0)
+    ) {
+      issues.push({
+        scope: "variant",
+        objectId: v._id,
+        variantLabel: vLabel,
+        field: "availability",
+        severity: "error",
+        fixType: "user_input",
+        message: `${vLabel ? `${vLabel}: ` : ""}Availability conflicts with the tracked inventory count. Correct one of the values.`,
       });
     } else if (
       (v.availability === "backorder" || v.availability === "preorder") &&

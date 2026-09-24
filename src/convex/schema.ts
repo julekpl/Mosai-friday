@@ -582,6 +582,34 @@ const schema = defineSchema(
           generatedAt: v.number(),
         }),
       ),
+      // BP-15: an app has its own reviewed requirements, separate from CMS
+      // pages and website release state. Source labels are server-derived
+      // snapshots of authorized project records, not client claims of proof.
+      appRequirements: v.optional(
+        v.object({
+          version: v.literal(1),
+          state: v.union(v.literal("draft"), v.literal("reviewed")),
+          audience: v.union(
+            v.literal("customer_facing"),
+            v.literal("internal_team"),
+            v.literal("both"),
+          ),
+          goal: v.string(),
+          targetUsers: v.string(),
+          coreWorkflows: v.array(v.string()),
+          constraints: v.array(v.string()),
+          sourceRefs: v.array(
+            v.union(
+              v.object({ kind: v.literal("persona"), id: v.id("personas"), label: v.string(), sourceVersion: v.string() }),
+              v.object({ kind: v.literal("journeyMap"), id: v.id("journeyMaps"), label: v.string(), sourceVersion: v.string() }),
+              v.object({ kind: v.literal("contentPiece"), id: v.id("contentPieces"), label: v.string(), sourceVersion: v.string() }),
+            ),
+          ),
+          editedAt: v.number(),
+          reviewedAt: v.optional(v.number()),
+          reviewedBy: v.optional(v.id("users")),
+        }),
+      ),
       seoReady: v.optional(v.boolean()),
       wcagReady: v.optional(v.boolean()),
       // BP-03 local release lifecycle — never an external claim. `prepared`
