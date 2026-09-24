@@ -1,5 +1,10 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/deno";
+import {
+  isPublicSitePath,
+  proxyPublicSite,
+  resolveConvexSiteUrl,
+} from "./server/publicSiteProxy.ts";
 
 /**
  * Content-Security-Policy for the built app (pack T0.7).
@@ -13,6 +18,10 @@ import { serveStatic } from "hono/deno";
  * a meta `script-src` would blank the development preview.
  *
  * Keep in sync with the meta tag in `index.html`.
+ *
+ * Public customer websites under `/s/*` do NOT get this policy: they get the
+ * stricter, script-free `PUBLIC_SITE_CSP` from `server/publicSiteProxy.ts`
+ * (owner exception to AGENTS.md rule 9, 24 Sep 2026).
  */
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -30,9 +39,24 @@ const CONTENT_SECURITY_POLICY = [
   "worker-src 'self' blob:",
 ].join("; ");
 
+/** Convex HTTP-actions origin that renders public sites (null → 503). */
+const PUBLIC_SITE_BASE_URL = resolveConvexSiteUrl({
+  CONVEX_SITE_URL: Deno.env.get("CONVEX_SITE_URL"),
+  VITE_CONVEX_URL: Deno.env.get("VITE_CONVEX_URL"),
+});
+
 const app = new Hono();
 
-// CSP (+ nosniff) on every response this server sends (pack T0.7).
+// 0) Public customer websites. Handled first, and entirely by the proxy: it
+//    sets its own strict CSP and never falls through to the SPA/index.html.
+app.use("*", async (c, next) => {
+  if (!isPublicSitePath(c.req.path)) return next();
+  return proxyPublicSite(c.req.raw, { siteBaseUrl: PUBLIC_SITE_BASE_URL });
+});
+
+// CSP (+ nosniff) on every app response this server sends (pack T0.7). The
+// public-site middleware above returns before reaching here, so /s/* keeps
+// its own policy.
 app.use("*", async (c, next) => {
   await next();
   c.header("Content-Security-Policy", CONTENT_SECURITY_POLICY);

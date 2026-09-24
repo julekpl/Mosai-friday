@@ -2,7 +2,6 @@
 
 import { v } from "convex/values";
 import { AUDIENCE_AND_SUBJECT_RULES } from "./lib/businessProfile";
-import { action } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { modelComplete } from "./lib/modelGateway";
@@ -10,7 +9,7 @@ import { serializeContextEvidence, type ContextPack } from "./lib/contextPack";
 import {
   actionContextPack,
   consumeAiQuotaForAction,
-  requireActionUser,
+  moduleAction,
 } from "./guards";
 
 /* ── shared helpers ──────────────────────────────────────────────────── */
@@ -87,10 +86,16 @@ const STEPS = [
  * goals, differentiators and a concrete step list the user can execute
  * (and tick off) in the Build module.
  */
-export const generateBuildPlan = action({
+export const generateBuildPlan = moduleAction("build", {
+  // Build review S3: the Build capability is resolved from the project (and
+  // the caller's access to it) BEFORE the handler runs, so a tenant without
+  // the Build module cannot spend AI budget here. `actionContextPack` then
+  // proves the build row belongs to that same project; the AI quota is
+  // consumed only after both checks and before the provider call.
+  recordArg: "projectId",
   args: { projectId: v.id("projects"), buildId: v.id("builds") },
-  handler: async (ctx, { projectId, buildId }) => {
-    const userId = await requireActionUser(ctx);
+  handler: async (ctx, { projectId, buildId }, access) => {
+    const { userId } = await access.requireProject(projectId);
     const project = await actionContextPack(ctx, { projectId, userId, buildId });
     const build = project.build;
     if (!build) throw new Error("Not found");
@@ -230,14 +235,17 @@ const STEP_DETAILS = [
  * Generate the HTML draft for one build page, grounded in the persona
  * (pains/objections) and journey stage the page targets.
  */
-export const generatePageDraft = action({
+export const generatePageDraft = moduleAction("build", {
+  // Build review S3: same gate as generateBuildPlan — Build capability and
+  // project access are enforced before any quota or provider spend.
+  recordArg: "projectId",
   args: {
     projectId: v.id("projects"),
     pageId: v.id("buildPages"),
     userInstructions: v.optional(v.string()),
   },
-  handler: async (ctx, { projectId, pageId, userInstructions }) => {
-    const userId = await requireActionUser(ctx);
+  handler: async (ctx, { projectId, pageId, userInstructions }, access) => {
+    const { userId } = await access.requireProject(projectId);
     const project = await actionContextPack(ctx, { projectId, userId, pageId });
     const build = project.build;
     const page = project.page;

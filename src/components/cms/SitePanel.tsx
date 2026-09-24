@@ -19,6 +19,13 @@ import {
 } from "lucide-react";
 
 import { PageEditor } from "./PageEditor";
+import { PublishToWeb } from "@/components/build/PublishToWeb";
+import {
+  isReleasePrepared,
+  pageStatusForDisplay,
+  siteStatusForDisplay,
+  statusText,
+} from "./releaseLabels";
 import { ModuleEmpty } from "@/components/app/module-kit";
 import { StatusBadge } from "@/components/app/module-kit";
 import { Button } from "@/components/ui/button";
@@ -46,7 +53,10 @@ export function SitePanel({
   site: SiteDoc;
 }) {
   return (
-    <Tabs defaultValue="pages" className="gap-4">
+    <div className="grid gap-4">
+      {/* Puts the pages' prepared releases on the web at /s/<slug>-website. */}
+      <PublishToWeb projectId={projectId} compact />
+      <Tabs defaultValue="pages" className="gap-4">
       <TabsList>
         <TabsTrigger value="pages" className="font-mono text-caption">
           <FileText className="mr-1.5 size-3.5" /> Pages
@@ -79,7 +89,8 @@ export function SitePanel({
       <TabsContent value="settings">
         <SettingsTab site={site} />
       </TabsContent>
-    </Tabs>
+      </Tabs>
+    </div>
   );
 }
 
@@ -153,8 +164,8 @@ function PagesTab({ site }: { site: SiteDoc }) {
             </p>
             <p className="truncate font-mono text-caption text-muted-foreground">
               {p.fullPath}
-              {p.status === "published" && p.latestDraftRevisionId
-                ? " · unpublished draft changes"
+              {isReleasePrepared(p.status) && p.latestDraftRevisionId
+                ? " · draft changes since the prepared release"
                 : ""}
             </p>
           </button>
@@ -166,8 +177,8 @@ function PagesTab({ site }: { site: SiteDoc }) {
               homepage
             </Badge>
           )}
-          <StatusBadge status={p.status} />
-          {p.status !== "published" && (
+          <StatusBadge status={pageStatusForDisplay(p.status)} />
+          {!isReleasePrepared(p.status) && (
             <Button
               size="sm"
               variant="ghost"
@@ -709,8 +720,10 @@ function SettingsTab({ site }: { site: SiteDoc }) {
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <p className="flex items-center gap-2 font-mono text-caption text-muted-foreground">
-          <Globe className="size-3.5" /> status: {site.status} · custom domains
-          arrive with the publishing runtime (W3)
+          <Globe className="size-3.5" /> status:{" "}
+          {statusText(siteStatusForDisplay(site.status ?? "draft"))} · whether
+          the site is on the web is shown by “Publish to web” above. Custom
+          domains arrive later
         </p>
         <a
           href={`/shop/${site.projectId}`}
@@ -722,8 +735,8 @@ function SettingsTab({ site }: { site: SiteDoc }) {
           <ExternalLink className="size-3" />
         </a>
         <p className="font-mono text-caption text-muted-foreground">
-          /shop serves published pages, the shop listing, collection pages and
-          product pages — with checkout handed off to connected providers.
+          /shop is a signed-in preview of the storefront (pages, shop listing,
+          collections and products). It is not a public link yet.
         </p>
       </div>
       <div className="grid gap-2 rounded-md border bg-card p-4 shadow-card">

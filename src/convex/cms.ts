@@ -1,18 +1,22 @@
-import { query, type MutationCtx } from "./_generated/server";
+import { query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { hasRowAccess, moduleMutation, moduleQuery, requireUser } from "./guards";
 import type { Id, Doc } from "./_generated/dataModel";
-import { sanitizeDocument, validateDocument } from "../lib/cms/blocks";
-import { selectConfirmedRelease } from "./lib/deliveryGate";
+import {
+  sanitizeDocument,
+  validateDocument,
+  type PageDocument,
+} from "../lib/cms/blocks";
+import { resolveReleaseRoute, selectConfirmedRelease } from "./lib/deliveryGate";
 
 /* ── Website / CMS module (W1) — see WEBSITE-ARCHITECTURE.md ─────────────
  *
  * Canonical rules enforced here:
- *  - editing never mutates a published revision; it creates a draft
+ *  - editing never mutates a promoted revision; it creates a draft
  *  - publish promotes the draft atomically and supersedes the prior one
  *  - public resolution (getPublishedByPath) can never return a draft
  *  - URLs are normalized, hierarchical and unique within a site
- *  - path changes on published pages create 301 redirects; loops rejected
+ *  - path changes on release-prepared pages create 301 redirects; loops rejected
  */
 
 const documentValidator = v.object({
@@ -33,6 +37,33 @@ const seoValidator = v.object({
   noindex: v.optional(v.boolean()),
   ogImageUrl: v.optional(v.string()),
 });
+
+/**
+ * Release-prepared state names (owner decision, 24 Sep 2026).
+ *
+ * A page promotion is a LOCAL preparation — it proves nothing about external
+ * delivery (only a verified deployment receipt does; `lib/deliveryGate.ts`).
+ * Writers use `release_prepared`. Rows written before the rename still say
+ * `published` until `cmsReleaseMigration.migratePublishedToReleasePrepared`
+ * has run, so every reader accepts both through these helpers. Remove the
+ * legacy branch (and the schema literal) only after the migration has run on
+ * every deployment.
+ */
+export const RELEASE_PREPARED = "release_prepared" as const;
+
+/** True for a promoted page revision (current or legacy name). */
+export function isPreparedRevisionState(
+  state: Doc<"pageRevisions">["state"],
+): boolean {
+  return state === RELEASE_PREPARED || state === "published";
+}
+
+/** True for a page whose latest promotion is prepared (current or legacy). */
+export function isPreparedPageStatus(
+  status: Doc<"cmsPages">["status"],
+): boolean {
+  return status === RELEASE_PREPARED || status === "published";
+}
 
 const RESERVED_SLUGS = new Set(["api", "app", "auth", "dashboard", "_generated"]);
 const MAX_DEPTH = 5;
@@ -198,11 +229,11 @@ export const getPublishedByPath = query({
     // otherwise serve A's pinned revision under B's new path (the page row
     // moved, but a pin maps by page id). Audits written before snapshots
     // existed fail closed because their former route/metadata is unknowable.
-    const route = gate.routesByPath.get(path);
-    const pinnedId: Id<"pageRevisions"> | undefined = route?.revisionId;
-    if (!pinnedId || !route?.title) return null;
-    const revision = await ctx.db.get(pinnedId);
-    if (!revision || revision.state !== "published") return null;
+    // Shared with the MOSAI self-host route (siteHosting) so both public
+    // readers resolve a path identically.
+    const resolved = await resolveReleaseRoute(ctx, gate.routesByPath, path);
+    if (!resolved) return null;
+    const { route, revision } = resolved;
     // Metadata comes from the snapshot frozen at preparation — a title/SEO
     // edit belonging to a later, unverified release must not appear before
     // that release verifies (follow-up 4). No mutable page.status check:
@@ -387,8 +418,8 @@ export const updatePage = moduleMutation("build", {
         queue.push(...childrenOf(child._id));
       }
 
-      // published path changed → auto 301 so nothing 404s (§33, §133.8)
-      if (page.status === "published" && oldPath !== fullPath && oldPath !== "/") {
+      // promoted page's path changed → auto 301 so nothing 404s (§33, §133.8)
+      if (isPreparedPageStatus(page.status) && oldPath !== fullPath && oldPath !== "/") {
         const existing = await ctx.db
           .query("cmsRedirects")
           .withIndex("by_site_path", (q) =>
@@ -514,7 +545,7 @@ export const saveDraft = moduleMutation("build", {
 
     if (page.latestDraftRevisionId) {
       const draft = await ctx.db.get(page.latestDraftRevisionId);
-      // a *published* row is immutable — only live drafts are patched (§45)
+      // a *promoted* (release-prepared) row is immutable — only live drafts are patched (§45)
       if (draft && draft.state === "draft") {
         await ctx.db.patch(draft._id, { document, createdAt: Date.now() });
         await ctx.db.patch(page._id, { updatedAt: Date.now() });
@@ -622,37 +653,88 @@ export const publishPage = moduleMutation("build", {
       }
     }
 
-    const now = Date.now();
-    const revs = await ctx.db
-      .query("pageRevisions")
-      .withIndex("by_page", (q) => q.eq("pageId", pageId))
-      .collect();
-    const nextVersion = revs.reduce((m, r) => Math.max(m, r.version), 0) + 1;
-
-    if (page.publishedRevisionId) {
-      await ctx.db.patch(page.publishedRevisionId, { state: "superseded" });
-    }
-    const publishedId = await ctx.db.insert("pageRevisions", {
-      pageId,
-      projectId: page.projectId,
-      version: nextVersion,
-      state: "published",
+    const { revisionId } = await promotePageRevision(ctx, {
+      page,
       document: doc,
-      createdBy: userId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    await ctx.db.patch(pageId, {
-      publishedRevisionId: publishedId,
-      status: "published",
-      updatedAt: now,
+      userId,
+      now: Date.now(),
     });
     // BP-03: a database edit is not a deployment. The page's approved
     // revision is stored, but the site keeps no externally published status
     // until the BP-13 deployment adapter holds a verified receipt.
-    return publishedId;
+    return revisionId;
   },
 });
+
+/**
+ * The one canonical promotion path for a page revision (WEBSITE-ARCHITECTURE
+ * rule 7), shared by `cms.publishPage` and `buildWorkspace.publishSite`:
+ *
+ *  - the document is sanitized server-side (T0.7) before it is stored;
+ *    content checks stay with each caller (they differ and are unchanged),
+ *  - the new row takes `max(version) + 1` for the page, so revision numbers
+ *    are unique and monotonic,
+ *  - the prior promoted revision is marked `superseded` (never mutated
+ *    otherwise), and the page pointer moves to the new row.
+ *
+ * The state written here is `release_prepared` on both `pageRevisions.state`
+ * and `cmsPages.status` (owner decision, 24 Sep 2026 — was `published`, which
+ * claimed external delivery no database edit can prove). Legacy `published`
+ * rows are still recognised and superseded. Not a registered function —
+ * callers are authorized mutations.
+ */
+export async function promotePageRevision(
+  ctx: MutationCtx,
+  args: {
+    page: Doc<"cmsPages">;
+    document: PageDocument;
+    userId: Id<"users">;
+    now: number;
+  },
+): Promise<{ revisionId: Id<"pageRevisions">; version: number }> {
+  const { page, userId, now } = args;
+  const document = sanitizeDocument(args.document);
+
+  const revs = await ctx.db
+    .query("pageRevisions")
+    .withIndex("by_page", (q) => q.eq("pageId", page._id))
+    .collect();
+  const version = revs.reduce((m, r) => Math.max(m, r.version), 0) + 1;
+
+  // Supersede every still-promoted row of this page, not only the pointer
+  // (older code paths could leave more than one `published` row behind) —
+  // EXCEPT a revision pinned by the last confirmed public release. BP-03:
+  // "continue serving the last confirmed public release" until the next one
+  // verifies, and the public readers only serve a pinned row whose state is
+  // still promoted (`release_prepared`, or legacy `published`). Such a row
+  // is superseded by the next promotion after
+  // a newer release has been confirmed.
+  const gate = await selectConfirmedRelease(ctx, page.projectId);
+  const pinned = new Set<Id<"pageRevisions">>(
+    gate.allowed ? gate.audit.revisionIds : [],
+  );
+  for (const r of revs) {
+    if (isPreparedRevisionState(r.state) && !pinned.has(r._id)) {
+      await ctx.db.patch(r._id, { state: "superseded" });
+    }
+  }
+  const revisionId = await ctx.db.insert("pageRevisions", {
+    pageId: page._id,
+    projectId: page.projectId,
+    version,
+    state: RELEASE_PREPARED,
+    document,
+    createdBy: userId,
+    createdAt: now,
+    publishedAt: now,
+  });
+  await ctx.db.patch(page._id, {
+    publishedRevisionId: revisionId,
+    status: RELEASE_PREPARED,
+    updatedAt: now,
+  });
+  return { revisionId, version };
+}
 
 /** Restore = new draft from an old revision; history is never overwritten. */
 export const restoreRevision = moduleMutation("build", {
@@ -671,12 +753,18 @@ export const restoreRevision = moduleMutation("build", {
       .withIndex("by_page", (q) => q.eq("pageId", rev.pageId))
       .collect();
     const nextVersion = revs.reduce((m, r) => Math.max(m, r.version), 0) + 1;
+    // T0.7 / build review S1: an old revision may predate sanitize-on-save
+    // (or have been written by an unsanitized path), so the restored draft
+    // is sanitized and validated like any other write.
+    const document = sanitizeDocument(rev.document);
+    const errors = validateDocument(document);
+    if (errors.length) throw new Error(errors[0]);
     const newId = await ctx.db.insert("pageRevisions", {
       pageId: rev.pageId,
       projectId: rev.projectId,
       version: nextVersion,
       state: "draft",
-      document: rev.document,
+      document,
       createdBy: userId,
       createdAt: Date.now(),
     });
@@ -817,42 +905,56 @@ export const resolveProducts = moduleQuery("build", {
   handler: async (ctx, { collectionId, limit }, access) => {
     const col = await access.ownedRow(await ctx.db.get(collectionId));
     if (!col) return [];
-
-    const products = await ctx.db
-      .query("products")
-      .withIndex("by_project", (q) => q.eq("projectId", col.projectId))
-      .collect();
-    const members = products
-      .filter((p) => p.collectionIds?.includes(collectionId))
-      .filter((p) => p.status !== "archived")
-      .slice(0, Math.min(limit ?? 12, 48));
-
-    const resolved: ResolvedProduct[] = [];
-    for (const p of members) {
-      const variants = await ctx.db
-        .query("productVariants")
-        .withIndex("by_product", (q) => q.eq("productId", p._id))
-        .collect();
-      const def = variants.find((v) => v.isDefault) ?? variants[0];
-      const media = await ctx.db
-        .query("productMedia")
-        .withIndex("by_product", (q) => q.eq("productId", p._id))
-        .collect();
-      const primary = media.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
-      resolved.push({
-        productId: p._id,
-        title: p.title,
-        priceCents: def?.priceCents ?? null,
-        currency: def?.currency ?? "USD",
-        availability: def?.availability ?? null,
-        imageUrl: primary?.url ?? null,
-        externalUrl: p.externalUrl ?? null,
-        provider: p.provider ?? null,
-      });
-    }
-    return resolved;
+    return await collectionProducts(ctx, col, { limit });
   },
 });
+
+/**
+ * Live product facts for one collection, shared by the owner preview above
+ * and the MOSAI-hosted public site renderer (siteHosting). `publicOnly` also
+ * drops `draft` products, for pages anyone can read. Not a registered
+ * function — callers authorize the collection first.
+ */
+export async function collectionProducts(
+  ctx: Pick<QueryCtx, "db">,
+  col: Doc<"collections">,
+  opts: { limit?: number; publicOnly?: boolean } = {},
+): Promise<ResolvedProduct[]> {
+  const products = await ctx.db
+    .query("products")
+    .withIndex("by_project", (q) => q.eq("projectId", col.projectId))
+    .collect();
+  const members = products
+    .filter((p) => p.collectionIds?.includes(col._id))
+    .filter((p) => p.status !== "archived")
+    .filter((p) => !opts.publicOnly || p.status !== "draft")
+    .slice(0, Math.min(opts.limit ?? 12, 48));
+
+  const resolved: ResolvedProduct[] = [];
+  for (const p of members) {
+    const variants = await ctx.db
+      .query("productVariants")
+      .withIndex("by_product", (q) => q.eq("productId", p._id))
+      .collect();
+    const def = variants.find((v) => v.isDefault) ?? variants[0];
+    const media = await ctx.db
+      .query("productMedia")
+      .withIndex("by_product", (q) => q.eq("productId", p._id))
+      .collect();
+    const primary = media.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+    resolved.push({
+      productId: p._id,
+      title: p.title,
+      priceCents: def?.priceCents ?? null,
+      currency: def?.currency ?? "USD",
+      availability: def?.availability ?? null,
+      imageUrl: primary?.url ?? null,
+      externalUrl: p.externalUrl ?? null,
+      provider: p.provider ?? null,
+    });
+  }
+  return resolved;
+}
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 

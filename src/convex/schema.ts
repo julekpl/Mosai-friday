@@ -731,7 +731,11 @@ const schema = defineSchema(
       lastReleaseAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
-    }).index("by_project", ["projectId"]),
+    })
+      .index("by_project", ["projectId"])
+      // One website and one app per project (owner decision, 24 Sep 2026):
+      // `builds.create` reads this index before inserting.
+      .index("by_project_kind", ["projectId", "kind"]),
 
     // Server-written release-preparation audit trail (BP-03). One row per
     // accepted `publishSite` preparation: which draft revisions were
@@ -846,12 +850,31 @@ const schema = defineSchema(
       // Public projection resolves through this receipt field, never a
       // caller-supplied site/project id.
       publicHostname: v.optional(v.string()),
+      // Safe, user-facing failure reason (no provider secrets or env values).
+      error: v.optional(v.string()),
+      finishedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
       .index("by_build", ["buildId"])
       .index("by_project", ["projectId"])
-      .index("by_public_hostname", ["publicHostname"]),
+      .index("by_public_hostname", ["publicHostname"])
+      // Idempotency: one logical deployment per release audit (siteHosting).
+      .index("by_release_audit", ["releaseAuditId"]),
+
+    // MOSAI-hosted public site addresses (owner decision, 24 Sep 2026):
+    // `/s/<slug>-website`. Allocated once on the first deploy from the
+    // project name and stable afterwards (a rename never moves the URL).
+    // Written only by siteHosting's internal mutations.
+    publicSites: defineTable({
+      projectId: v.id("projects"),
+      kind: v.union(v.literal("website"), v.literal("app")),
+      slug: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_slug", ["slug"])
+      .index("by_project_kind", ["projectId", "kind"])
+      .index("by_project", ["projectId"]),
 
     // One page/screen of a build. Strategy-first: every page declares which
     // persona it speaks to and which journey stage it answers, so the
@@ -1730,10 +1753,16 @@ const schema = defineSchema(
       parentId: v.optional(v.id("cmsPages")),
       // standard | homepage | landing | article | product | collection | utility
       pageType: v.optional(v.string()),
-      // draft | published | archived
+      // draft | release_prepared | archived. `release_prepared` (owner
+      // decision, 24 Sep 2026) replaces `published`: a page promotion is a
+      // local preparation, never proof of external delivery. `published` is
+      // a LEGACY literal kept only so pre-rename rows validate until
+      // `cmsReleaseMigration.migratePublishedToReleasePrepared` has run;
+      // no code path writes it any more.
       status: v.union(
         v.literal("draft"),
-        v.literal("published"),
+        v.literal("release_prepared"),
+        v.literal("published"), // legacy, read-only
         v.literal("archived"),
       ),
       publishedRevisionId: v.optional(v.id("pageRevisions")),
@@ -1761,10 +1790,13 @@ const schema = defineSchema(
       pageId: v.id("cmsPages"),
       projectId: v.id("projects"),
       version: v.number(), // monotonically increasing per page
-      // draft | published | superseded
+      // draft | release_prepared | superseded. `published` is the legacy
+      // name for `release_prepared` (see cmsPages.status above); kept in the
+      // union only so pre-rename rows validate until the migration has run.
       state: v.union(
         v.literal("draft"),
-        v.literal("published"),
+        v.literal("release_prepared"),
+        v.literal("published"), // legacy, read-only
         v.literal("superseded"),
       ),
       // structured PageDocument — never canonical HTML
@@ -1894,9 +1926,36 @@ const schema = defineSchema(
       startedAt: v.number(),
       finishedAt: v.optional(v.number()),
       latencyMs: v.optional(v.number()),
+      // AI budget (lib/aiBudget.ts), integer micro-USD. `reservedMicrousd` is
+      // the worst-case cost held against the budget while the run is
+      // `running`; `chargedMicrousd` is what the finished run counts. Optional
+      // so rows written before the budget existed stay valid.
+      reservedMicrousd: v.optional(v.number()),
+      chargedMicrousd: v.optional(v.number()),
     })
       .index("by_user_created", ["userId", "startedAt"])
-      .index("by_project", ["projectId"]),
+      .index("by_project", ["projectId"])
+      .index("by_org_started", ["organizationId", "startedAt"]),
+
+    // AI budget rollups: one row per organization (or unattributed user) per
+    // UTC month, plus one platform row per UTC day. Counters only — no prompt,
+    // output or model data. Written solely by the internal gateway mutations
+    // (guards.startAiRun / finishAiRun) so the budget check reads two rows
+    // instead of scanning runs.
+    aiSpendRollups: defineTable({
+      scope: v.union(v.literal("organization"), v.literal("user"), v.literal("platform")),
+      organizationId: v.optional(v.id("organizations")),
+      userId: v.optional(v.id("users")),
+      period: v.string(), // "2026-09" (organization/user) or "2026-09-24" (platform)
+      spentMicrousd: v.number(),
+      reservedMicrousd: v.number(),
+      runCount: v.number(),
+      currency: v.literal("USD"),
+      updatedAt: v.number(),
+    })
+      .index("by_organization", ["organizationId", "period"])
+      .index("by_user", ["userId", "period"])
+      .index("by_scope_period", ["scope", "period"]),
   },
   {
     schemaValidation: false,

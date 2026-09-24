@@ -28,6 +28,14 @@ import {
   type PageDocument,
 } from "@/lib/cms/blocks";
 import { PageRenderer } from "./PageRenderer";
+import {
+  RELEASE_DIALOG_MESSAGE,
+  RELEASE_PREPARED_MESSAGE,
+  isReleasePrepared,
+  pageStatusForDisplay,
+  revisionStateForDisplay,
+  statusText,
+} from "./releaseLabels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -236,8 +244,8 @@ export function PageEditor({
       await saveDraft({ pageId: page._id, document: doc });
       setDirty(false);
       await publish({ pageId: page._id });
-      toast.success("Published", {
-        description: "This version is now live. Earlier versions stay in History.",
+      toast.success("Release prepared", {
+        description: RELEASE_PREPARED_MESSAGE,
       });
       setShowPublishChecks(false);
     } catch (e) {
@@ -298,14 +306,14 @@ export function PageEditor({
           variant="outline"
           className={cn(
             "ml-2 font-mono text-caption",
-            page.status === "published" && dirty
+            isReleasePrepared(page.status) && dirty
               ? "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber"
               : "",
           )}
         >
-          {page.status === "published" && dirty
+          {isReleasePrepared(page.status) && dirty
             ? "draft changes"
-            : page.status}
+            : statusText(pageStatusForDisplay(page.status))}
         </Badge>
         <span className="font-mono text-caption text-muted-foreground">
           {saveStateLabel}
@@ -333,7 +341,7 @@ export function PageEditor({
             <Eye className="size-3.5" /> {showPreview ? "Edit" : "Preview"}
           </Button>
           <Button size="sm" onClick={openPublishDialog}>
-            <Globe className="size-3.5" /> Publish
+            <Globe className="size-3.5" /> Prepare release
           </Button>
         </div>
       </div>
@@ -563,13 +571,13 @@ export function PageEditor({
                   variant="outline"
                   className={cn(
                     "font-mono text-caption",
-                    r.state === "published" &&
+                    isReleasePrepared(r.state) &&
                       "border-terminal-green/40 bg-terminal-green-soft text-terminal-green",
                     r.state === "draft" &&
                       "border-terminal-amber/40 bg-terminal-amber-soft text-terminal-amber",
                   )}
                 >
-                  {r.state}
+                  {statusText(revisionStateForDisplay(r.state))}
                 </Badge>
                 <span className="font-mono text-caption text-muted-foreground">
                   {new Date(r.createdAt).toLocaleString()}
@@ -621,9 +629,9 @@ function PublishDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-mono text-h3">Ready to publish?</DialogTitle>
+          <DialogTitle className="font-mono text-h3">Prepare this page for release?</DialogTitle>
           <DialogDescription className="font-mono text-caption">
-            Publishing promotes this draft. The previous version stays recoverable.
+            {RELEASE_DIALOG_MESSAGE}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
@@ -656,7 +664,7 @@ function PublishDialog({
           </Button>
           <Button onClick={onPublish} disabled={publishing || blocking.length > 0}>
             {publishing ? <Save className="size-4 animate-spin" /> : <Globe className="size-4" />}
-            Publish now
+            Prepare release
           </Button>
         </div>
       </DialogContent>

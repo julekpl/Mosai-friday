@@ -8,7 +8,7 @@ import {
 } from "./_generated/server";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { ObjectType, PropertyValidators } from "convex/values";
 import type {
   RegisteredAction,
@@ -39,6 +39,22 @@ import {
   type ModuleId,
   type Plan,
 } from "./lib/capabilities";
+import {
+  AI_BUDGET_CURRENCY,
+  aiBudgetRefusalMessage,
+  chargedCostMicrousd,
+  dayPeriod,
+  estimatePromptTokens,
+  fitsBudget,
+  monthPeriod,
+  monthlyBudgetMicrousd,
+  platformDailyCapMicrousd,
+  resolveModelPrice,
+  worstCaseCostMicrousd,
+  type AiBudgetScope,
+  type AiBudgetUsage,
+  type ModelPrice,
+} from "./lib/aiBudget";
 import {
   contextEvidence,
   providerMetricsText,
@@ -1708,7 +1724,171 @@ const aiRunUsageArgs = {
   costCurrency: v.union(v.literal("USD"), v.null()),
 };
 
-/** Internal run creation used only by the centralized ModelGateway. */
+// ── AI cost budget (lib/aiBudget.ts) ──────────────────────────────────────
+//
+// Two rollup rows answer "may this request run?": the tenant's month and the
+// platform's day. `startAiRun` checks both and reserves the request's
+// worst-case cost in the same transaction that creates the run, so two
+// concurrent requests cannot both squeeze under the cap (Convex serializes the
+// conflicting writes). `finishAiRun` releases the reservation and books the
+// real (or conservatively estimated) cost. A refused request throws before
+// the run row exists: nothing billable is written and no provider is called.
+
+/** Who a run's cost belongs to. `organization` is the normal case; `user` is
+ *  the fallback for a caller with no organization at all (free budget). */
+export type AiBudgetTenant =
+  | { scope: "organization"; organizationId: Id<"organizations">; plan: Plan }
+  | { scope: "user"; userId: Id<"users">; plan: null };
+
+async function personalOrganizationFor(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<Doc<"organizations"> | null> {
+  return await ctx.db
+    .query("organizations")
+    .withIndex("by_personal_for", (q) => q.eq("personalFor", userId))
+    .first();
+}
+
+/** The tenant a run is billed to: the given organization, else the project's
+ *  organization, else the project owner's (or caller's) personal
+ *  organization, else the caller alone. */
+export async function aiBudgetTenant(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    userId: Id<"users">;
+    project: Doc<"projects"> | null;
+    organizationId?: Id<"organizations"> | null;
+  },
+): Promise<AiBudgetTenant> {
+  const explicit = input.organizationId ?? input.project?.organizationId ?? null;
+  const organization = explicit
+    ? await ctx.db.get(explicit)
+    : await personalOrganizationFor(ctx, input.project?.ownerId ?? input.userId);
+  if (!organization) return { scope: "user", userId: input.userId, plan: null };
+  // Schema validation is off; a malformed organization row without an owner
+  // gets the default (free) budget rather than failing the lookup.
+  const ownerId = organization.ownerId as Id<"users"> | undefined;
+  const plan = ownerId
+    ? (await entitlementFor(ctx, ownerId, organization._id)).plan
+    : DEFAULT_PLAN;
+  return { scope: "organization", organizationId: organization._id, plan };
+}
+
+async function tenantRollup(
+  ctx: QueryCtx | MutationCtx,
+  tenant: AiBudgetTenant,
+  period: string,
+): Promise<Doc<"aiSpendRollups"> | null> {
+  if (tenant.scope === "organization") {
+    return await ctx.db
+      .query("aiSpendRollups")
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", tenant.organizationId).eq("period", period),
+      )
+      .first();
+  }
+  return await ctx.db
+    .query("aiSpendRollups")
+    .withIndex("by_user", (q) => q.eq("userId", tenant.userId).eq("period", period))
+    .first();
+}
+
+async function platformRollup(
+  ctx: QueryCtx | MutationCtx,
+  period: string,
+): Promise<Doc<"aiSpendRollups"> | null> {
+  return await ctx.db
+    .query("aiSpendRollups")
+    .withIndex("by_scope_period", (q) => q.eq("scope", "platform").eq("period", period))
+    .first();
+}
+
+/** Apply a reservation / charge delta to a rollup row, creating it on first
+ *  use. Counters never go below zero. */
+async function bumpRollup(
+  ctx: MutationCtx,
+  existing: Doc<"aiSpendRollups"> | null,
+  key: {
+    scope: AiBudgetScope;
+    organizationId?: Id<"organizations">;
+    userId?: Id<"users">;
+    period: string;
+  },
+  delta: { spent: number; reserved: number; runs: number },
+) {
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      spentMicrousd: Math.max(0, existing.spentMicrousd + delta.spent),
+      reservedMicrousd: Math.max(0, existing.reservedMicrousd + delta.reserved),
+      runCount: existing.runCount + delta.runs,
+      updatedAt: now,
+    });
+    return;
+  }
+  await ctx.db.insert("aiSpendRollups", {
+    ...key,
+    spentMicrousd: Math.max(0, delta.spent),
+    reservedMicrousd: Math.max(0, delta.reserved),
+    runCount: Math.max(0, delta.runs),
+    currency: AI_BUDGET_CURRENCY,
+    updatedAt: now,
+  });
+}
+
+function tenantKey(tenant: AiBudgetTenant) {
+  return tenant.scope === "organization"
+    ? { scope: "organization" as const, organizationId: tenant.organizationId }
+    : { scope: "user" as const, userId: tenant.userId };
+}
+
+async function modelPriceFor(
+  ctx: QueryCtx | MutationCtx,
+  modelId: string,
+): Promise<ModelPrice> {
+  const row = await ctx.db
+    .query("aiModels")
+    .withIndex("by_model", (q) => q.eq("modelId", modelId))
+    .first();
+  return resolveModelPrice(modelId, row);
+}
+
+function platformCap(): number {
+  // Read server-side only; the value is never logged or returned.
+  return platformDailyCapMicrousd(process.env.MOSAI_AI_DAILY_CAP_MICROUSD);
+}
+
+/** Read-only usage for an already-authorized tenant. */
+export async function readAiBudgetUsage(
+  ctx: QueryCtx | MutationCtx,
+  tenant: AiBudgetTenant,
+  now = Date.now(),
+): Promise<AiBudgetUsage> {
+  const month = monthPeriod(now);
+  const rollup = await tenantRollup(ctx, tenant, month.key);
+  const platform = await platformRollup(ctx, dayPeriod(now).key);
+  const budget = monthlyBudgetMicrousd(tenant.plan);
+  const spent = rollup?.spentMicrousd ?? 0;
+  const reserved = rollup?.reservedMicrousd ?? 0;
+  return {
+    scope: tenant.scope,
+    plan: tenant.plan,
+    spentMicrousd: spent,
+    reservedMicrousd: reserved,
+    budgetMicrousd: budget,
+    currency: AI_BUDGET_CURRENCY,
+    periodStart: month.start,
+    resetsAt: month.resetsAt,
+    state: spent + reserved >= budget ? "locked" : "available",
+    platformPaused:
+      (platform?.spentMicrousd ?? 0) + (platform?.reservedMicrousd ?? 0) >= platformCap(),
+  };
+}
+
+/** Internal run creation used only by the centralized ModelGateway. Enforces
+ *  the platform daily cap and the tenant's monthly budget before the run (and
+ *  therefore the provider call) exists. */
 export const startAiRun = internalMutation({
   args: {
     userId: v.id("users"),
@@ -1720,13 +1900,52 @@ export const startAiRun = internalMutation({
     autonomy: v.union(v.literal("assistive"), v.literal("draft")),
     maxOutputTokens: v.number(),
     contextSources: v.array(v.string()),
+    /** Total characters across the request's messages (budget estimate). */
+    promptChars: v.optional(v.number()),
+    messageCount: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { promptChars, messageCount, ...args }) => {
     const project = args.projectId ? await ctx.db.get(args.projectId) : null;
     if (args.projectId && !project) throw new Error("Not found");
+
+    const now = Date.now();
+    const month = monthPeriod(now);
+    const day = dayPeriod(now);
+    const tenant = await aiBudgetTenant(ctx, { userId: args.userId, project });
+    const reservedMicrousd = worstCaseCostMicrousd({
+      promptTokens: estimatePromptTokens(promptChars ?? 0, messageCount ?? 1),
+      maxOutputTokens: Math.max(0, args.maxOutputTokens),
+      price: await modelPriceFor(ctx, args.model),
+    });
+
+    const platform = await platformRollup(ctx, day.key);
+    const platformFits = fitsBudget({
+      spentMicrousd: platform?.spentMicrousd ?? 0,
+      reservedMicrousd: platform?.reservedMicrousd ?? 0,
+      requestMicrousd: reservedMicrousd,
+      limitMicrousd: platformCap(),
+    });
+    if (!platformFits) {
+      throw new ConvexError(aiBudgetRefusalMessage("platform", day.resetsAt));
+    }
+    const rollup = await tenantRollup(ctx, tenant, month.key);
+    const tenantFits = fitsBudget({
+      spentMicrousd: rollup?.spentMicrousd ?? 0,
+      reservedMicrousd: rollup?.reservedMicrousd ?? 0,
+      requestMicrousd: reservedMicrousd,
+      limitMicrousd: monthlyBudgetMicrousd(tenant.plan),
+    });
+    if (!tenantFits) {
+      throw new ConvexError(aiBudgetRefusalMessage(tenant.scope, month.resetsAt));
+    }
+
+    const hold = { spent: 0, reserved: reservedMicrousd, runs: 1 };
+    await bumpRollup(ctx, rollup, { ...tenantKey(tenant), period: month.key }, hold);
+    await bumpRollup(ctx, platform, { scope: "platform", period: day.key }, hold);
     return await ctx.db.insert("aiRuns", {
       ...args,
-      organizationId: project?.organizationId,
+      organizationId:
+        tenant.scope === "organization" ? tenant.organizationId : project?.organizationId,
       promptTokens: null,
       completionTokens: null,
       totalTokens: null,
@@ -1735,12 +1954,15 @@ export const startAiRun = internalMutation({
       costCurrency: null,
       status: "running",
       errorCategory: null,
-      startedAt: Date.now(),
+      startedAt: now,
+      reservedMicrousd,
     });
   },
 });
 
-/** Internal completion update; callers cannot supply raw prompt or output data. */
+/** Internal completion update; callers cannot supply raw prompt or output data.
+ *  Releases the run's reservation and books its cost against the same month
+ *  and day the reservation was taken in. */
 export const finishAiRun = internalMutation({
   args: {
     runId: v.id("aiRuns"),
@@ -1755,11 +1977,43 @@ export const finishAiRun = internalMutation({
     ),
     finishedAt: v.number(),
     latencyMs: v.number(),
+    /** False when the gateway never reached the provider (nothing to pay). */
+    billable: v.optional(v.boolean()),
   },
-  handler: async (ctx, { runId, ...patch }) => {
+  handler: async (ctx, { runId, billable, ...patch }) => {
     const run = await ctx.db.get(runId);
     if (!run || run.status !== "running") return;
-    await ctx.db.patch(runId, patch);
+    const reserved = run.reservedMicrousd ?? 0;
+    const charged = chargedCostMicrousd({
+      billable: billable ?? true,
+      costMicrousd: patch.costMicrousd,
+      promptTokens: patch.promptTokens,
+      completionTokens: patch.completionTokens,
+      price: await modelPriceFor(ctx, run.model),
+      reservedMicrousd: reserved,
+    });
+    await ctx.db.patch(runId, { ...patch, chargedMicrousd: charged });
+
+    // Settle against the month/day the run started in, so a run that
+    // straddles midnight releases the reservation it actually took.
+    const month = monthPeriod(run.startedAt);
+    const day = dayPeriod(run.startedAt);
+    const tenant: AiBudgetTenant = run.organizationId
+      ? { scope: "organization", organizationId: run.organizationId, plan: DEFAULT_PLAN }
+      : { scope: "user", userId: run.userId, plan: null };
+    const settle = { spent: charged, reserved: -reserved, runs: 0 };
+    await bumpRollup(
+      ctx,
+      await tenantRollup(ctx, tenant, month.key),
+      { ...tenantKey(tenant), period: month.key },
+      settle,
+    );
+    await bumpRollup(
+      ctx,
+      await platformRollup(ctx, day.key),
+      { scope: "platform", period: day.key },
+      settle,
+    );
   },
 });
 
