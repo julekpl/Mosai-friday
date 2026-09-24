@@ -358,16 +358,23 @@ handle credential values. |
 
 ## 5. Open items this audit found that the pack does not list
 
-1. **3 public functions authenticate but never authorize** (was 8 before T2.2,
-   4 before T2.4; `files.getFileUrl`, `projects.list`,
+1. **2 public functions authenticate but never authorize** (was 8 before T2.2,
+   4 before T2.4, 3 before 24 Sep 2026; `files.getFileUrl`, `projects.list`,
    `social/copilot.draftVariants`, `social/copilot.suggestSchedule` and
    `ads/copilot.setCopilotModel` now authorize through the org access object or
    `requirePlatformAdmin`) — `bun run audit:functions` names them:
-   `billing.currentPlan`, `files.generateUploadUrl`, `users.currentUser`. All
-   three are self-scoped and take no record argument (own plan, an upload URL,
-   the current user), which is why T2.2 left them as REVIEW warnings while making
-   "names a record but never authorizes it" a hard failure. Confirm by hand if
-   their shape changes.
+   `billing.currentPlan`, `users.currentUser`. Both are self-scoped and take no
+   record argument (own plan, the current user), which is why T2.2 left them as
+   REVIEW warnings while making "names a record but never authorizes it" a hard
+   failure. Confirm by hand if their shape changes.
+   `files.generateUploadUrl` was on this list but was **not** self-scoped: it
+   discarded the `getAuthUserId` result, so a signed-out caller could mint
+   storage upload URLs. Fixed 24 Sep 2026: it is an `orgMutation` taking
+   `projectId` and authorizing it with `access.requireProject`
+   (`tests/unit/upload-url-authorization.test.ts`, and the generated
+   cross-tenant suite now covers it). The audit also fails any public function
+   that calls `getAuthUserId`/`maybeUser` as a bare statement and discards the
+   result.
 2. ~~81 public functions authorize inline~~ — **fixed in T2.2 (22 Sep 2026):**
    the audit reports **0** inline `ownerId` checks, and the audit now fails on
    the pattern, so a forgotten line is caught in CI rather than shipped.
