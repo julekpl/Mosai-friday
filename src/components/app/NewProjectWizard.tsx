@@ -13,6 +13,7 @@ import { MOSAI_EASE, MOTION } from "@/components/motion";
 import { defaultGoalFor, type BusinessType, type PrimaryGoal } from "@/shared/starterKit";
 import { classifySource } from "@/components/app/wizard/classifySource";
 import type { BusinessListing, BusinessSuggestion } from "@/components/app/wizard/types";
+import type { ClientBusinessType } from "@/components/app/wizard/questionOptions";
 import { BusinessTypeQuestion } from "@/components/app/wizard/BusinessTypeQuestion";
 import { NameQuestion } from "@/components/app/wizard/NameQuestion";
 import { GoalQuestion } from "@/components/app/wizard/GoalQuestion";
@@ -61,6 +62,11 @@ export function NewProjectWizard() {
   };
 
   const [businessType, setBusinessType] = useState<BusinessType | undefined>();
+  // U9: "I do marketing for clients" sets up one client; the rest of the
+  // answers describe that client.
+  const [clientType, setClientType] = useState<ClientBusinessType | undefined>();
+  const forClient = businessType === "agency";
+  const answeredType: BusinessType | undefined = forClient ? clientType : businessType;
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -76,6 +82,7 @@ export function NewProjectWizard() {
   const findings = useRef<{ key: string; promise: Promise<SourceFindings> } | null>(null);
 
   const create = useMutation(api.projects.create);
+  const createClientProject = useMutation(api.projects.createClientProject);
   const saveScan = useMutation(api.projects.saveScan);
   const startKit = useMutation(api.starterKit.start);
   const draftBusinessProfile = useAction(api.ai.generateBusinessProfile);
@@ -159,17 +166,29 @@ export function NewProjectWizard() {
       const found = await readSources();
       const scan = found.website;
       const listing = found.listing;
-      const id = await create({
-        name: name.trim(),
-        businessType,
-        primaryGoal: primaryGoal ?? defaultGoalFor(businessType),
+      const fields = {
         businessName: scan?.businessDetails.name?.trim() || listing?.title?.trim() || undefined,
         websiteUrl: classified.kind === "website" ? classified.url : listing?.website || undefined,
         industry: listing?.category?.trim() || undefined,
         description: (scan?.metaDescription || scan?.titles?.[0] || "").trim() || undefined,
         googleBusinessName: listing && selectedBusiness ? selectedBusiness.title : undefined,
         productsServices: scan?.productsServices?.length ? scan.productsServices.slice(0, 20) : undefined,
-      });
+      };
+      // An agency sets up a client: the server creates the client and links
+      // it to the agency in the same step (U9).
+      const id = forClient
+        ? await createClientProject({
+            clientName: name.trim(),
+            businessType: clientType,
+            primaryGoal: primaryGoal ?? defaultGoalFor(clientType),
+            ...fields,
+          })
+        : await create({
+            name: name.trim(),
+            businessType,
+            primaryGoal: primaryGoal ?? defaultGoalFor(businessType),
+            ...fields,
+          });
 
       // Keep the findings so every module can reuse the enriched context.
       if (scan || listing) {
@@ -269,7 +288,14 @@ export function NewProjectWizard() {
               }
             }}
           >
-            {step === 0 && <BusinessTypeQuestion value={businessType} onChange={setBusinessType} />}
+            {step === 0 && (
+              <BusinessTypeQuestion
+                value={businessType}
+                onChange={setBusinessType}
+                clientType={clientType}
+                onClientTypeChange={setClientType}
+              />
+            )}
             {step === 1 && (
               <NameQuestion
                 name={name}
@@ -284,9 +310,10 @@ export function NewProjectWizard() {
                 selectedBusiness={selectedBusiness}
                 onSelectBusiness={setSelectedBusiness}
                 onEnter={goNext}
+                forClient={forClient}
               />
             )}
-            {step === 2 && <GoalQuestion businessType={businessType} value={primaryGoal} onChange={setPrimaryGoal} />}
+            {step === 2 && <GoalQuestion businessType={answeredType} value={primaryGoal} onChange={setPrimaryGoal} />}
           </motion.div>
         </AnimatePresence>
       </div>

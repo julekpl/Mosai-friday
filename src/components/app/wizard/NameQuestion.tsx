@@ -25,6 +25,7 @@ export function NameQuestion({
   selectedBusiness,
   onSelectBusiness,
   onEnter,
+  forClient = false,
 }: {
   name: string;
   onNameChange: (value: string) => void;
@@ -35,6 +36,8 @@ export function NameQuestion({
   selectedBusiness: BusinessSuggestion | null;
   onSelectBusiness: (value: BusinessSuggestion | null) => void;
   onEnter: () => void;
+  /** U9: the answers describe an agency's client, so the words say so. */
+  forClient?: boolean;
 }) {
   const suggestGmb = useAction(api.scraping.suggestGoogleBusiness);
   const [suggestions, setSuggestions] = useState<BusinessSuggestion[]>([]);
@@ -95,10 +98,10 @@ export function NameQuestion({
 
   return (
     <section className="grid gap-5 rounded-lg border bg-card p-4 shadow-card sm:p-7" aria-labelledby="q-name-title">
-      <h1 id="q-name-title" className="font-mono text-h1">What is it called?</h1>
+      <h1 id="q-name-title" className="font-mono text-h1">{forClient ? "What is your client’s business called?" : "What is it called?"}</h1>
 
       <div className="grid gap-2">
-        <Label htmlFor="np-name">Business name</Label>
+        <Label htmlFor="np-name">{forClient ? "Client’s business name" : "Business name"}</Label>
         <Input
           id="np-name"
           ref={nameRef}
@@ -115,7 +118,7 @@ export function NameQuestion({
         />
         {nameError && (
           <p id="np-name-error" role="alert" className="font-mono text-caption text-destructive">
-            Give your business a name to continue.
+            {forClient ? "Give your client’s business a name to continue." : "Give your business a name to continue."}
           </p>
         )}
       </div>
@@ -159,12 +162,14 @@ export function NameQuestion({
           aria-describedby="np-source-help np-source-status"
         />
         <p id="np-source-help" className="font-mono text-caption text-muted-foreground">
-          We read public pages to learn your services, photos and style. Nothing is posted anywhere.
+          {forClient
+            ? "We read your client’s public pages to learn their services, photos and style. Nothing is posted anywhere."
+            : "We read public pages to learn your services, photos and style. Nothing is posted anywhere."}
         </p>
         <div id="np-source-status" role="status" aria-live="polite" className="font-mono text-caption text-muted-foreground">
           {classified.kind === "website" && `We’ll read ${displayDomain(classified.url)}.`}
           {classified.kind === "listing" && !selectedBusiness && searchState === "loading" && "Looking for matching Google listings…"}
-          {classified.kind === "listing" && !selectedBusiness && searchState === "results" && "Pick your business from the list so we use the right one."}
+          {classified.kind === "listing" && !selectedBusiness && searchState === "results" && (forClient ? "Pick your client’s business from the list so we use the right one." : "Pick your business from the list so we use the right one.")}
           {classified.kind === "listing" && !selectedBusiness && searchState === "empty" && "No matching listing found. Try adding your town, or leave this empty."}
           {classified.kind === "listing" && !selectedBusiness && searchState === "error" && "We couldn’t search Google listings just now. You can continue without it."}
         </div>
