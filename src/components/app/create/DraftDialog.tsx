@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -146,14 +147,20 @@ export function DraftDialog({
             {!isEmpty && (
               <fieldset className="grid gap-1.5">
                 <legend className="mb-1 text-small font-medium">The document already has text</legend>
-                <label className="flex items-center gap-2 text-small">
-                  <input type="radio" name={`${id}-mode`} checked={mode === "replace"} onChange={() => setMode("replace")} />
-                  Replace it with the new draft (undo restores it)
-                </label>
-                <label className="flex items-center gap-2 text-small">
-                  <input type="radio" name={`${id}-mode`} checked={mode === "append"} onChange={() => setMode("append")} />
-                  Add the draft below the current text
-                </label>
+                <RadioGroup
+                  value={mode}
+                  onValueChange={(value) => setMode(value === "append" ? "append" : "replace")}
+                  className="gap-1.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem id={`${id}-mode-replace`} value="replace" />
+                    <Label htmlFor={`${id}-mode-replace`} className="font-normal">Replace it with the new draft (undo restores it)</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem id={`${id}-mode-append`} value="append" />
+                    <Label htmlFor={`${id}-mode-append`} className="font-normal">Add the draft below the current text</Label>
+                  </div>
+                </RadioGroup>
               </fieldset>
             )}
             <div className="flex justify-end gap-2">

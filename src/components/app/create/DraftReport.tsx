@@ -40,7 +40,7 @@ export function DraftReport({
             <li key={source.id} className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-caption">
               <Badge variant="outline" className="font-mono text-caption">{source.label}</Badge>
               <span className="min-w-0 flex-1 truncate">{source.title}</span>
-              <span className={source.mode === "full" ? "text-terminal-green" : "text-terminal-amber"}>
+              <span className={source.mode === "full" ? "text-terminal-green-ink" : "text-terminal-amber-ink"}>
                 {source.mode === "full"
                   ? "full text"
                   : source.mode === "excerpts"
