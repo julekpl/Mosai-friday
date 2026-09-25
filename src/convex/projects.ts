@@ -15,7 +15,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { getOrCreatePersonalOrganization, seedRoles } from "./organizations";
 import { roleCan } from "./lib/roles";
-import { businessTypeValidator, primaryGoalValidator } from "../shared/starterKit";
+import {
+  businessTypeValidator,
+  customerGroupValidator,
+  firstRunNotesValidator,
+  normalizeFirstRunAnswers,
+  postingChannelValidator,
+  primaryGoalValidator,
+  type FirstRunAnswersInput,
+} from "../shared/starterKit";
 
 const privacyInternal = anyApi.modules.privacy;
 
@@ -81,10 +89,47 @@ const projectFieldArgs = {
   customerPains: v.optional(v.array(v.string())),
   marketingChallenges: v.optional(v.array(v.string())),
   serviceArea: v.optional(v.string()),
-  // First-run answers (U2, first-run blueprint §2): Q1 and Q3.
+  // First-run answers (U2, U2c): the main type and goal, the other picks,
+  // where the owner posts, who their customers are and their own words.
+  // Always stored through `withFirstRunAnswers` (server-side clean-up).
   businessType: v.optional(businessTypeValidator),
   primaryGoal: v.optional(primaryGoalValidator),
+  otherBusinessTypes: v.optional(v.array(businessTypeValidator)),
+  otherGoals: v.optional(v.array(primaryGoalValidator)),
+  postingChannels: v.optional(v.array(postingChannelValidator)),
+  customerGroups: v.optional(v.array(customerGroupValidator)),
+  firstRunNotes: v.optional(firstRunNotesValidator),
 };
+
+/**
+ * Split the first-run answers off the raw args and return the rest together
+ * with the normalized answers, so the client can never store a duplicate,
+ * an unbounded note, or an agency mixed with other types.
+ */
+function withFirstRunAnswers<T extends FirstRunAnswersInput>(raw: T) {
+  const {
+    businessType,
+    otherBusinessTypes,
+    primaryGoal,
+    otherGoals,
+    postingChannels,
+    customerGroups,
+    firstRunNotes,
+    ...rest
+  } = raw;
+  return {
+    rest,
+    answers: normalizeFirstRunAnswers({
+      businessType,
+      otherBusinessTypes,
+      primaryGoal,
+      otherGoals,
+      postingChannels,
+      customerGroups,
+      firstRunNotes,
+    }),
+  };
+}
 
 export const create = mutation({
   args: {
@@ -93,7 +138,8 @@ export const create = mutation({
   },
   handler: async (ctx, rawArgs) => {
     const userId = await requireUser(ctx);
-    const args = boundProjectFields(rawArgs);
+    const { rest, answers } = withFirstRunAnswers(rawArgs);
+    const args = { ...boundProjectFields(rest), ...answers };
     if (!args.name) throw new Error("Give the project a name.");
     // Every new project lands in the owner's personal organization (T2.1).
     // Idempotent, so a user who already has a personal workspace reuses it.
@@ -110,8 +156,12 @@ export const create = mutation({
 /** Q1 for a client (U9): any business type except another agency. */
 const clientBusinessTypeValidator = v.union(
   v.literal("appointments"),
+  v.literal("trades"),
   v.literal("shop"),
+  v.literal("online_shop"),
   v.literal("walk_in"),
+  v.literal("professional"),
+  v.literal("events"),
 );
 
 /**
@@ -181,10 +231,14 @@ export const createClientProject = mutation({
   },
   handler: async (ctx, rawArgs) => {
     const userId = await requireUser(ctx);
-    const { clientName: rawClientName, ...fields } = rawArgs;
+    const { clientName: rawClientName, ...allFields } = rawArgs;
+    const { rest: fields, answers } = withFirstRunAnswers(allFields);
     const clientName = rawClientName.replace(/\s+/g, " ").trim().slice(0, 120);
     if (!clientName) throw new Error("Give your client a name.");
-    const args = boundProjectFields({ ...fields, name: fields.name?.trim() || clientName });
+    const args = {
+      ...boundProjectFields({ ...fields, name: fields.name?.trim() || clientName }),
+      ...answers,
+    };
     const name = args.name || clientName;
 
     await seedRoles(ctx);
@@ -462,6 +516,48 @@ export const update = orgMutation({
       clean[key] = value === "" ? undefined : value;
     }
     if (Object.keys(clean).length) await ctx.db.patch(id, clean);
+  },
+});
+
+/**
+ * Replace the first-run answers as one set (Edit project, U2c): main and other
+ * business types and goals, where the owner posts, who the customers are and
+ * the owner's own words. Cleaned up on the server like `create`; a field left
+ * out of the set is cleared. The agency flag is not editable here.
+ */
+export const saveFirstRunAnswers = orgMutation({
+  args: {
+    id: v.id("projects"),
+    businessType: v.optional(businessTypeValidator),
+    primaryGoal: v.optional(primaryGoalValidator),
+    otherBusinessTypes: v.optional(v.array(businessTypeValidator)),
+    otherGoals: v.optional(v.array(primaryGoalValidator)),
+    postingChannels: v.optional(v.array(postingChannelValidator)),
+    customerGroups: v.optional(v.array(customerGroupValidator)),
+    firstRunNotes: v.optional(firstRunNotesValidator),
+  },
+  handler: async (ctx, { id, ...input }, access) => {
+    let raw = input;
+    const { project } = await access.requireProject(id);
+    // The agency journey is its own organization model (U9): it is never set
+    // here, and a project already marked as an agency keeps that mark.
+    if (raw.businessType === "agency" || (raw.otherBusinessTypes ?? []).includes("agency")) {
+      throw new Error("The agency setting can't be changed here.");
+    }
+    if (project.businessType === "agency") {
+      raw = { ...raw, businessType: "agency", otherBusinessTypes: undefined };
+    }
+    const answers = normalizeFirstRunAnswers(raw);
+    await ctx.db.patch(id, {
+      businessType: answers.businessType,
+      primaryGoal: answers.primaryGoal,
+      otherBusinessTypes: answers.otherBusinessTypes,
+      otherGoals: answers.otherGoals,
+      postingChannels: answers.postingChannels,
+      customerGroups: answers.customerGroups,
+      firstRunNotes: answers.firstRunNotes,
+    });
+    return answers;
   },
 });
 
