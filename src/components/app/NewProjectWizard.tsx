@@ -196,8 +196,9 @@ export function NewProjectWizard() {
       // on the project Home. It runs in the background and never blocks.
       void draftBusinessProfile({ projectId: id }).catch(() => undefined);
       // Start the starter kit (plan, website, posts). If it cannot start
-      // (for example a role without edit), the project still exists, so Home
-      // opens anyway and the kit can be started again from there.
+      // (for example a role without edit, or a network error), the project
+      // still exists, so Home opens anyway. Home has no "start the kit" entry
+      // yet for a project without one (follow-up recorded in the U4 PR).
       let kitStarted = true;
       try {
         await startKit({ projectId: id });
