@@ -6,6 +6,7 @@ import { brandProfileFields, businessProfileFields } from "./schema";
 import { boundBrandProfile, brandProfileProblems, describeVoice } from "./lib/brandProfile";
 import type { Doc } from "./_generated/dataModel";
 import { getOrCreatePersonalOrganization } from "./organizations";
+import { businessTypeValidator, primaryGoalValidator } from "../shared/starterKit";
 
 const privacyInternal = anyApi.modules.privacy;
 
@@ -72,6 +73,9 @@ export const create = mutation({
     customerPains: v.optional(v.array(v.string())),
     marketingChallenges: v.optional(v.array(v.string())),
     serviceArea: v.optional(v.string()),
+    // First-run answers (U2, first-run blueprint §2): Q1 and Q3.
+    businessType: v.optional(businessTypeValidator),
+    primaryGoal: v.optional(primaryGoalValidator),
   },
   handler: async (ctx, rawArgs) => {
     const userId = await requireUser(ctx);

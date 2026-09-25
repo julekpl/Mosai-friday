@@ -1,6 +1,5 @@
 /** Shared shapes for the new-project wizard. */
 
-export type CompetitorEntry = { type: "website" | "gmb"; value: string };
 export type BusinessListing = {
   title?: string;
   address?: string;
