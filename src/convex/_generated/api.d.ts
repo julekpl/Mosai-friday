@@ -44,6 +44,8 @@ import type * as connections from "../connections.js";
 import type * as contacts from "../contacts.js";
 import type * as content from "../content.js";
 import type * as contentPlanning from "../contentPlanning.js";
+import type * as contentSourceImport from "../contentSourceImport.js";
+import type * as contentSources from "../contentSources.js";
 import type * as crons from "../crons.js";
 import type * as dal from "../dal.js";
 import type * as entitlements from "../entitlements.js";
@@ -73,12 +75,14 @@ import type * as lib_deliveryGate from "../lib/deliveryGate.js";
 import type * as lib_googleMaps from "../lib/googleMaps.js";
 import type * as lib_modelGateway from "../lib/modelGateway.js";
 import type * as lib_oauthBaseUrl from "../lib/oauthBaseUrl.js";
+import type * as lib_pexels from "../lib/pexels.js";
 import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_publicSites from "../lib/publicSites.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_safeFetch from "../lib/safeFetch.js";
 import type * as lib_siteHtml from "../lib/siteHtml.js";
 import type * as lib_sitePaths from "../lib/sitePaths.js";
+import type * as lib_sourceText from "../lib/sourceText.js";
 import type * as lib_stripe from "../lib/stripe.js";
 import type * as lib_websiteScan from "../lib/websiteScan.js";
 import type * as media from "../media.js";
@@ -111,9 +115,13 @@ import type * as social_credentials from "../social/credentials.js";
 import type * as social_executor from "../social/executor.js";
 import type * as social_oauth from "../social/oauth.js";
 import type * as social_platforms from "../social/platforms.js";
+import type * as starterKit from "../starterKit.js";
+import type * as stock from "../stock.js";
+import type * as stockStore from "../stockStore.js";
 import type * as storefront from "../storefront.js";
 import type * as users from "../users.js";
 import type * as variants from "../variants.js";
+import type * as visits from "../visits.js";
 
 import type {
   ApiFromModules,
@@ -158,6 +166,8 @@ declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
   content: typeof content;
   contentPlanning: typeof contentPlanning;
+  contentSourceImport: typeof contentSourceImport;
+  contentSources: typeof contentSources;
   crons: typeof crons;
   dal: typeof dal;
   entitlements: typeof entitlements;
@@ -187,12 +197,14 @@ declare const fullApi: ApiFromModules<{
   "lib/googleMaps": typeof lib_googleMaps;
   "lib/modelGateway": typeof lib_modelGateway;
   "lib/oauthBaseUrl": typeof lib_oauthBaseUrl;
+  "lib/pexels": typeof lib_pexels;
   "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/publicSites": typeof lib_publicSites;
   "lib/roles": typeof lib_roles;
   "lib/safeFetch": typeof lib_safeFetch;
   "lib/siteHtml": typeof lib_siteHtml;
   "lib/sitePaths": typeof lib_sitePaths;
+  "lib/sourceText": typeof lib_sourceText;
   "lib/stripe": typeof lib_stripe;
   "lib/websiteScan": typeof lib_websiteScan;
   media: typeof media;
@@ -225,9 +237,13 @@ declare const fullApi: ApiFromModules<{
   "social/executor": typeof social_executor;
   "social/oauth": typeof social_oauth;
   "social/platforms": typeof social_platforms;
+  starterKit: typeof starterKit;
+  stock: typeof stock;
+  stockStore: typeof stockStore;
   storefront: typeof storefront;
   users: typeof users;
   variants: typeof variants;
+  visits: typeof visits;
 }>;
 
 /**

@@ -73,6 +73,22 @@ const fixtures: Fixture[] = [
   },
   { table: "contentDocs", doc: (s) => ({ pieceId: s.ids.contentPieces, updatedAt: at }) },
   {
+    table: "contentSources",
+    doc: (s) => ({
+      projectId: s.projectId,
+      pieceId: s.ids.contentPieces,
+      kind: "note",
+      title: "Source",
+      text: "Source text",
+      charCount: 11,
+      truncated: false,
+      extraction: "Pasted by you",
+      included: true,
+      createdBy: s.userId,
+      createdAt: at,
+    }),
+  },
+  {
     table: "videos",
     doc: (s) => ({
       projectId: s.projectId,
@@ -433,6 +449,35 @@ const fixtures: Fixture[] = [
       idempotencyKey: "k",
       createdAt: at,
       sources: [],
+    }),
+  },
+  {
+    table: "starterKits",
+    doc: (s) => ({
+      projectId: s.projectId,
+      requestedBy: s.userId,
+      idempotencyKey: String(s.projectId),
+      status: "partially_succeeded",
+      parts: {
+        plan: { status: "succeeded", outputs: [], attempts: 1, updatedAt: at },
+        site: { status: "failed", errorCode: "ai_budget", outputs: [], attempts: 1, updatedAt: at },
+        posts: { status: "succeeded", outputs: [], attempts: 1, updatedAt: at },
+      },
+      attempts: 1,
+      budgetMicrousd: 500_000,
+      spentMicrousd: 120_000,
+      budgetCurrency: "USD",
+      createdAt: at,
+      updatedAt: at,
+    }),
+  },
+  {
+    table: "projectVisits",
+    doc: (s) => ({
+      projectId: s.projectId,
+      userId: s.userId,
+      lastSeenAt: at,
+      updatedAt: at,
     }),
   },
   {

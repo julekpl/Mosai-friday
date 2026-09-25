@@ -61,7 +61,7 @@ describe("BP-09/S2 ContextPack trust boundary", () => {
     });
 
     const draft = await owner.as.action(api.ai.generateContent, { pieceId });
-    expect(draft).toContain("Grounded draft");
+    expect(draft.html).toContain("Grounded draft");
     const prompt = completionCalls[0]?.messages.map((message) => message.content).join("\n") ?? "";
     for (const marker of [
       "Northstar business",

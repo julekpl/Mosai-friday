@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ResearchSource } from "@/convex/research";
+import type { GenerateContentResult } from "@/convex/ai";
 import { toast } from "sonner";
 import * as Y from "yjs";
 import {
@@ -23,7 +24,10 @@ import {
 import { ModuleHeader } from "@/components/app/AppShell";
 import { BrandUseChip } from "@/components/app/brand/BrandUse";
 import { ConfirmDelete, ModuleEmpty, StatusBadge } from "@/components/app/module-kit";
-import { ContentEditor } from "@/components/app/ContentEditor";
+import { ContentEditor, type AiEditRequest } from "@/components/app/ContentEditor";
+import { SourcesPanel } from "@/components/app/create/SourcesPanel";
+import { DraftDialog } from "@/components/app/create/DraftDialog";
+import { DraftReport } from "@/components/app/create/DraftReport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1022,7 +1026,6 @@ function PieceEditor({
   const topics = useQuery(api.contentPlanning.listTopics, { projectId }) ?? [];
   const saveDoc = useMutation(api.contentPlanning.saveDoc);
   const update = useMutation(api.content.update);
-  const updateTopic = useMutation(api.contentPlanning.updateTopic);
   const editSelectionAi = useAction(api.ai.editSelection);
   const generateContentAi = useAction(api.ai.generateContent);
 
@@ -1052,38 +1055,20 @@ function PieceEditor({
 
   const topic = piece.topicId ? topics.find((t) => t._id === piece.topicId) : undefined;
   const persona = personas.find((p) => p._id === piece.personaId);
-  const [sourceTitle, setSourceTitle] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const addSource = async () => {
-    if (!topic || !sourceTitle.trim()) return;
-    await updateTopic({ id: topic._id, research: [...(topic.research ?? []), { source: "user", title: sourceTitle.trim(), url: sourceUrl.trim() || undefined }] });
-    setSourceTitle(""); setSourceUrl("");
-    toast.success("Source added");
-  };
+  const sources = useQuery(api.contentSources.list, { pieceId: piece._id });
+  const includedSources = (sources ?? []).filter((source) => source.included).length;
+  const [lastDraft, setLastDraft] = useState<GenerateContentResult | null>(null);
 
-  const runAiEdit = async ({
-    op,
-    selectionText,
-    surroundingText,
-  }: {
-    op: "expand" | "rewrite";
-    selectionText: string;
-    surroundingText: string;
-  }) => {
-    // empty selection + expand = full AI draft
-    if (!selectionText.trim() && op === "expand") {
-      return await generateContentAi({
-        pieceId: piece._id,
-      });
-    }
-    return await editSelectionAi({
-      op,
-      selectionHtml: selectionText,
-      surroundingContext: surroundingText,
-      projectId,
-      personaName: persona?.name,
+  const runAiEdit = (request: AiEditRequest) =>
+    editSelectionAi({
+      pieceId: piece._id,
+      op: request.op,
+      selectionText: request.selectionText,
+      scope: request.scope,
+      before: request.before,
+      after: request.after,
+      instruction: request.instruction,
     });
-  };
 
   const pushToPromote = useMutation(api.posts.create);
 
@@ -1147,13 +1132,8 @@ function PieceEditor({
         </div>
       </div>
 
-      {doc ? (
-        <div className="grid gap-2 rounded-md border bg-card p-3">
-          <div className="flex items-center justify-between"><p className="font-mono text-caption font-medium">Sources for this piece</p><span className="font-mono text-caption text-muted-foreground">{topic?.research?.length ?? 0} saved</span></div>
-          {topic?.research?.length ? <div className="grid gap-1">{topic.research.map((h, i) => <a key={`${h.title}-${i}`} href={h.url ?? "#"} target="_blank" rel="noreferrer" className="truncate font-mono text-caption text-terminal-blue hover:underline">[{h.source}] {h.title}</a>)}</div> : <p className="font-mono text-caption text-muted-foreground">Research this topic first, or add your own source below.</p>}
-          <div className="flex flex-wrap gap-2"><Input value={sourceTitle} onChange={(e) => setSourceTitle(e.target.value)} placeholder="Source title" className="min-w-48 flex-1" /><Input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://… (optional)" className="min-w-48 flex-1" /><Button size="sm" variant="outline" onClick={() => void addSource()} disabled={!sourceTitle.trim()}><Plus className="size-3.5" /> Add source</Button></div>
-        </div>
-      ) : null}
+      <SourcesPanel pieceId={piece._id} findings={topic?.research ?? []} />
+      {lastDraft && <DraftReport result={lastDraft} onDismiss={() => setLastDraft(null)} />}
       {doc ? (
         <ContentEditor
           doc={doc}
@@ -1171,6 +1151,24 @@ function PieceEditor({
             });
           }}
           onAiEdit={runAiEdit}
+          renderToolbarEnd={({ replaceAll, append, isEmpty }) => (
+            <DraftDialog
+              contentType={piece.contentType ?? topic?.contentType ?? "blog"}
+              includedSources={includedSources}
+              isEmpty={isEmpty}
+              onGenerate={(options) => generateContentAi({ pieceId: piece._id, options })}
+              onApply={(html, mode, result) => {
+                if (mode === "replace") replaceAll(html);
+                else append(html);
+                setLastDraft(result);
+                toast.success("Draft generated", {
+                  description: result.sources.length
+                    ? `Written from ${result.sources.length} source${result.sources.length === 1 ? "" : "s"}. See what the AI read above the editor.`
+                    : "No sources were included, so the draft relies on the brief and research snippets.",
+                });
+              }}
+            />
+          )}
         />
       ) : (
         <p className="font-mono text-caption text-muted-foreground">Preparing editor…</p>

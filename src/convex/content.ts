@@ -81,6 +81,19 @@ export const remove = moduleMutation("create", {
   handler: async (ctx, { id }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
+    // The piece's source library and editor snapshot belong to it alone.
+    for (const source of await ctx.db
+      .query("contentSources")
+      .withIndex("by_piece", (q) => q.eq("pieceId", id))
+      .collect()) {
+      await ctx.db.delete(source._id);
+    }
+    for (const doc of await ctx.db
+      .query("contentDocs")
+      .withIndex("by_piece", (q) => q.eq("pieceId", id))
+      .collect()) {
+      await ctx.db.delete(doc._id);
+    }
     await ctx.db.delete(id);
   },
 });

@@ -101,6 +101,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   projectFiles: project("guards.requireProject"),
   journeyMaps: project("guards.requireProject"), contentGaps: project("guards.requireProject"),
   contentTopics: project("guards.requireProject"),
+  contentSources: project("moduleQuery/moduleMutation/moduleAction create → access.ownedRow (parent contentPieces)"),
   contentDocs: { scope: "project", tenantField: "pieceId", authorization: "parent contentPieces project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "contentPieces", parentIndex: "by_project", childIndex: "by_piece", childField: "pieceId" } },
   personaMessages: { scope: "project", tenantField: "projectId", authorization: "guards.requireProject", export: "included", retention: "cascade-with-project", deletion: { kind: "account-index", index: "by_project_persona", field: "projectId" } },
   // Create → Video (E3.11). Asset blobs are deleted with their rows (dal.ts).
@@ -113,6 +114,9 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   // Grow — Google (GA4 / Search Console / Ads). Tokens are never exported.
   googleConnections: project("moduleQuery/moduleMutation grow → access.requireProject", "excluded"),
   googleSyncRuns: project("moduleQuery grow → access.ownedProject", "excluded"),
+  projectVisits: { ...project("orgQuery/orgMutation visits → access.requireProject (U7), own row only", "excluded"), accountCleanup: [{ kind: "index", index: "by_user", field: "userId", source: "user" }] },
+  stockSearchCache: global("internal stock.searchPhotos only (U5)", "Search results expire after 24 h and are swept", true),
+  starterKits: project("orgQuery/orgMutation starterKit → access.requireProject (U3)"),
   googleMetricsDaily: project("moduleQuery grow → access.ownedProject"),
   googleTopItems: project("moduleQuery grow → access.ownedProject"),
   adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),

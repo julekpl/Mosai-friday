@@ -150,6 +150,23 @@ must set `CONVEX_SITE_URL` (or `VITE_CONVEX_URL`) on the Deno server. Moving to
 option A (separate domain) is still required before apps or any user script go
 public.
 
+
+**Updated 25 Sep 2026: Create source library and AI editing.** Each content
+piece now has a source library (`contentSources`, registered in the data
+registry, removed with its piece and its project): uploaded files with text
+extracted on the server (PDF text layer via `unpdf`, DOCX via `mammoth`, plus
+TXT/MD/CSV/JSON/HTML/SRT/VTT; the blob is deleted after reading), web pages
+through `safeFetch`, Wikipedia/Wikibooks full articles, Reddit threads, YouTube
+transcripts through SerpApi's `youtube_video_transcript` engine (`needs setup`
+without `SERPAPI_KEY`), research findings imported as full text, and pasted
+notes. `lib/sourceText.ts` retrieves from that text (BM25 over chunks) and packs
+it into the prompt: all included sources in full when they fit the gateway's
+input cap, otherwise a fair share of the most relevant passages per source, and
+`generateContent` returns a per-source report of what the model read. The
+editor gained per-source include switches, draft options (length, tone,
+instructions, citations) and a selection menu (rewrite, shorten, expand, guide
+note) that previews before replacing. `contentPieces` deletion now also removes
+its `contentDocs` snapshot, which was previously orphaned.
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
 level 5 — a ticket still wins on scope — but it is the ground truth about *state*.
@@ -311,6 +328,39 @@ once T0.4's server-side context loading landed (BP-01 re-verified 23 Sep).
 | **T2.1** organizations, memberships, roles, invitations | ✅ **done** (22 Sep 2026) | New tables `organizations` / `memberships` / `invitations` / `roles` / `agencyClientLinks` plus `projects.organizationId`; role capabilities in `lib/roles.ts`; `guards.requireOrganization` / `requireOrgRole`; module `organizations.ts` with invitations, role administration, last-owner protection and agency links; idempotent `internalMutation` migration; data-registry entries in `lib/dataRegistry.ts`. Proof: `tests/unit/organizations.test.ts` (9 tests) shows a pre-T2.1 project moving under its owner's personal organization on the first run and a no-op on the second, and the owner/admin/member capability matrix. No allow-list entry added; `requireProject` left owner-based (T2.2). See `docs/tickets/T2.1-organizations-memberships-roles-invitations.md`. |
 
 ---
+
+## 2c. Usability (U-series): first-run starter kit, 25 Sep 2026
+
+Source: `docs/ux/usability-strategy.md`, `first-run-blueprint.md`,
+`usability-backlog.md` (the backlog holds the per-ticket status; this row is the
+summary). The stack below merged as `a5b4255` on 25 Sep 2026 except #19 (U7, merged separately the same day)
+and #22 (this docs PR); merged `main` passes `bun run check` (1057 unit tests,
+0 lint errors / 33 warnings, 84 tables). Original order:
+#11 (docs + U0) → #12 (U2a schema) → #14 (U2) → #15 (U3) → #16 (U5) → #17 (U6)
+→ #18 (U5b) → #19 (U7) → #20 (U4) → #21 (U9). #15 and #16 both add lines to
+`_generated/api.d.ts`; the second to merge resolves by keeping both.
+
+| Ticket | Status | Evidence |
+|---|---|---|
+| U0, U2, U3, U4, U5, U5b, U6, U7 | **merged** (`a5b4255`, and #19 for U7; 25 Sep 2026), not yet proven with owners | Unit, cross-tenant and (where UI) e2e tests per PR; baseline was 959 tests, merged `main` 1057+ (1069 with U7). Lint stays at 0 errors / 33 warnings. |
+| U9 agency path | first slice **merged** (`a5b4255`); hand-off not started | client projects use the agency user's plan (owner-based entitlement) |
+| U6b contact details, U4b kit follow-ups | not started | found in review (see backlog) |
+| U1, U8, U10, U11 | blocked | owner decisions / hosting option A |
+| U12 five-owner test | script ready, not run | `docs/ux/u12-usability-test-script.md` |
+
+New tables: `starterKits` (project job), `stockSearchCache` (global, ephemeral),
+`projectVisits` (per member); all registered (registry audit: 85 tables).
+**Found and not fixed here:**
+- The schema runs with `schemaValidation: false`: validators are type-only at
+  runtime. Decision needed.
+- `CONVEX_DEPLOY_KEY` is absent in CI and in agent environments, so new-module
+  lines in `_generated/api.d.ts` were written in codegen's exact format but not
+  regenerated. Add the key so the codegen drift job verifies them.
+- The full-history secret scan fails on every PR and on `main` (owner rotation,
+  §2/BP-01).
+- The T2.5 row in §2b above looks stale: `lib/dataLifecycle.ts`,
+  `scripts/audit-data-registry.mjs` and `audit:data-registry` now exist on `main`.
+  Re-verify before relying on either the row or the code.
 
 ## 3. Phase 1 baseline — verified now
 

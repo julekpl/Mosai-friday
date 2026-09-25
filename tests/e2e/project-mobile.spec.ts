@@ -199,7 +199,7 @@ for (const width of [320, 375, 414]) {
 
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1 })).toContainText("Northwind");
-    await expect(main.getByRole("heading", { name: "Your modules" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Your tools" })).toBeVisible();
     await expect(main.getByText("Why we roast to order")).toBeVisible();
     await expect(main.getByText(/wholesale-price-list/)).toBeVisible();
     await settle(page);
