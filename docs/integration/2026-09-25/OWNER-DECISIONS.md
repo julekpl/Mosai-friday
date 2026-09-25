@@ -24,9 +24,9 @@ Repo facts were checked on `main` at `a5b4255`.
 | D5 | Privacy notice for enrichment | Not needed while D3 is "no provider"; add a one-line source label on the Google listing card now | $0 now; lawyer review only if a provider is ever enabled | OD-3 (kept switched off) | Later (only if D3 changes) |
 | D6 | Big Five personality priors and World Values Survey | Cut | $0 | Nothing | Closed |
 | D7 | Convex Workflow component | Do not adopt; keep the existing job tables | $0 | CT-2 | Before Wave 1 ends |
-| D8 | Home page: one ranked list, at most 3 items | Approve | $0 | HM-2 | Now |
+| D8 | Home page: one ranked list, at most 3 items | DECIDED 25 Sep: approved | $0 | HM-2 | Now |
 | D9 | Who pays after an agency hands a client over | Defer; agency keeps paying until a real agency asks | $0 | U9 slice 2 (stays parked) | Later |
-| D10 | Does a merge to `main` go live automatically? | Owner answers yes/no; if no, keep manual deploys with a short checklist | $0 | Safe first production write of `primaryGoal` | Now (you are the only one who knows) |
+| D10 | Does a merge to `main` go live automatically? | DECIDED 25 Sep: the owner merges every PR personally; agents never merge | $0 | Safe first production write of `primaryGoal` | Now (you are the only one who knows) |
 | D11 | Enrichment spending cap | $0 (feature switched off) | $0 | OD-3 stays off | Now |
 | D12 | Look up the website at a signup email's domain | Only after sign-in, shown openly with Skip; never for gmail/outlook-type addresses | $0 | OD-1 | Now |
 | D13 | Prefill shop currency from the detected market | Prefill empty fields only, labelled "Suggested" | $0 | MK-2 | Before the market lane (MK) |

@@ -327,3 +327,12 @@ conflicts with sections 1-8, this section wins.
 
 Blueprint basis: the four blueprints in `blueprints/` are the owner-supplied
 authoritative versions (re-supplied 25 Sep and confirmed byte-identical).
+
+## 10. Owner decisions recorded (25 Sep 2026)
+
+- **DEC-F1 closed:** the 14-day Starter trial requires a card. Stripe checkout stays
+  as it is (`billing.ts:641-655`); no billing change. KIT-F1 reduces to trial copy and
+  the A6/A7 guards (once-per-verified-email trial, "live" ends when hosting ends).
+- **D10 closed:** the owner merges every PR personally. Agents open PRs and drive them
+  to green; they never merge to `main`.
+- **D8 approved:** Home shows one "For you now" list, at most 3 items (HM-2).
