@@ -101,6 +101,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   projectFiles: project("guards.requireProject"),
   journeyMaps: project("guards.requireProject"), contentGaps: project("guards.requireProject"),
   contentTopics: project("guards.requireProject"),
+  contentSources: project("moduleQuery/moduleMutation/moduleAction create → access.ownedRow (parent contentPieces)"),
   contentDocs: { scope: "project", tenantField: "pieceId", authorization: "parent contentPieces project ownership", export: "included", retention: "cascade-with-project", deletion: { kind: "account-parent", parentTable: "contentPieces", parentIndex: "by_project", childIndex: "by_piece", childField: "pieceId" } },
   personaMessages: { scope: "project", tenantField: "projectId", authorization: "guards.requireProject", export: "included", retention: "cascade-with-project", deletion: { kind: "account-index", index: "by_project_persona", field: "projectId" } },
   // Create → Video (E3.11). Asset blobs are deleted with their rows (dal.ts).

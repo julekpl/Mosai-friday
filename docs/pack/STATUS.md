@@ -150,6 +150,23 @@ must set `CONVEX_SITE_URL` (or `VITE_CONVEX_URL`) on the Deno server. Moving to
 option A (separate domain) is still required before apps or any user script go
 public.
 
+
+**Updated 25 Sep 2026: Create source library and AI editing.** Each content
+piece now has a source library (`contentSources`, registered in the data
+registry, removed with its piece and its project): uploaded files with text
+extracted on the server (PDF text layer via `unpdf`, DOCX via `mammoth`, plus
+TXT/MD/CSV/JSON/HTML/SRT/VTT; the blob is deleted after reading), web pages
+through `safeFetch`, Wikipedia/Wikibooks full articles, Reddit threads, YouTube
+transcripts through SerpApi's `youtube_video_transcript` engine (`needs setup`
+without `SERPAPI_KEY`), research findings imported as full text, and pasted
+notes. `lib/sourceText.ts` retrieves from that text (BM25 over chunks) and packs
+it into the prompt: all included sources in full when they fit the gateway's
+input cap, otherwise a fair share of the most relevant passages per source, and
+`generateContent` returns a per-source report of what the model read. The
+editor gained per-source include switches, draft options (length, tone,
+instructions, citations) and a selection menu (rewrite, shorten, expand, guide
+note) that previews before replacing. `contentPieces` deletion now also removes
+its `contentDocs` snapshot, which was previously orphaned.
 This file exists so that a fresh agent session does not re-do finished work and
 does not trust the pack where the code has moved on. It is the pack's precedence
 level 5 — a ticket still wins on scope — but it is the ground truth about *state*.

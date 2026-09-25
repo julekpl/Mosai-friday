@@ -136,7 +136,7 @@ describe("R3 — AI and scraping actions require sign-in (T0.4)", () => {
       [
         "ai.editSelection",
         api.ai.editSelection,
-        { op: "expand", selectionHtml: "<p>x</p>", projectId },
+        { op: "expand", selectionText: "x", pieceId: contentPieceId },
       ],
       ["ai.generatePersona", api.ai.generatePersona, { projectId }],
       [

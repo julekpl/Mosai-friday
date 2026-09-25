@@ -1146,6 +1146,41 @@ const schema = defineSchema(
       .index("by_project", ["projectId"])
       .index("by_video", ["videoId"]),
 
+    // Source library for one content piece: the full text the writer (and
+    // the AI) works from. Rows come from uploaded files (text extracted on the
+    // server, the blob is then deleted), imported web pages, YouTube
+    // transcripts, saved research findings and pasted notes. `text` is the
+    // capped full text; generation retrieves from it (lib/sourceText.ts).
+    // Source text is data, never instructions.
+    contentSources: defineTable({
+      projectId: v.id("projects"),
+      pieceId: v.id("contentPieces"),
+      kind: v.union(
+        v.literal("file"),
+        v.literal("web"),
+        v.literal("youtube"),
+        v.literal("research"),
+        v.literal("note"),
+      ),
+      title: v.string(),
+      url: v.optional(v.string()),
+      // research provider (reddit, wikipedia, …) or file mime type
+      provider: v.optional(v.string()),
+      fileName: v.optional(v.string()),
+      text: v.string(),
+      charCount: v.number(),
+      // true when the original was longer than the stored cap
+      truncated: v.boolean(),
+      // how the text was obtained, shown to the user as-is
+      extraction: v.string(),
+      // include this source when AI drafts or edits
+      included: v.boolean(),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_piece", ["pieceId"]),
+
     contentDocs: defineTable({
       pieceId: v.id("contentPieces"),
       snapshot: v.optional(v.bytes()), // latest Yjs update (binary)
