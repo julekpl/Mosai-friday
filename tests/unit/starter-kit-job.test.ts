@@ -168,7 +168,7 @@ describe("starter kit status reduction", () => {
     expect(parseStarterKitPosts(POSTS)).toHaveLength(7);
     expect(() => parseStarterKitPosts(JSON.stringify({ posts: [{ channel: "tiktok", body: "x" }] }))).toThrow();
     for (const ok of ["tel:+44123", "mailto:a@b.co", "https://x.example", "/about", ""]) expect(isAllowedStarterLink(ok)).toBe(true);
-    for (const bad of ["javascript:alert(1)", "http://x.example", "//evil.example", "data:text/html,x"]) expect(isAllowedStarterLink(bad)).toBe(false);
+    for (const bad of ["javascript:alert(1)", "http://x.example", "//evil.example", "/\\evil.example", "data:text/html,x"]) expect(isAllowedStarterLink(bad)).toBe(false);
     expect(starterLinkErrors({ type: "richText", props: { html: '<a href="http://x">x</a>' } })).toHaveLength(1);
     expect(mainButtonsFor("walk_in", { address: "1 High St", phone: "+44 1234 567" })).toEqual([
       { label: "Find us", href: "https://www.google.com/maps/search/?api=1&query=1%20High%20St" },
@@ -269,6 +269,42 @@ describe("starterKit job", () => {
     expect(rowsAfter.posts).toEqual(rowsBefore.posts);
     expect(rowsAfter.builds).toEqual(rowsBefore.builds);
     expect(rowsAfter.pieces).toHaveLength(1);
+    expect(after.status).toBe("partially_succeeded");
+  });
+
+  it("resumes a kit whose run died (stale queued/running) but leaves a live run alone", async () => {
+    const { t, tenant, projectId } = await setup();
+    scriptKitModel(OK);
+    vi.useFakeTimers();
+    const kitId = await tenant.as.mutation(api.starterKit.start, { projectId });
+    // Simulate a run that died mid-part: the kit is left "running" with the
+    // plan part claimed, and nothing scheduled.
+    await t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        await ctx.scheduler.cancel(job._id);
+      }
+      const kit = await ctx.db.get(kitId);
+      if (!kit) throw new Error("kit missing");
+      await ctx.db.patch(kitId, {
+        status: "running",
+        parts: { ...kit.parts, plan: { ...kit.parts.plan, status: "running", attempts: 1 } },
+        updatedAt: Date.now(),
+      });
+    });
+
+    // Still fresh: a second start must not start a competing run.
+    expect(await tenant.as.mutation(api.starterKit.start, { projectId })).toBe(kitId);
+    expect((await kitOf(t, kitId)).attempts).toBe(1);
+
+    // Older than any action can live: start resumes it.
+    await t.run((ctx) => ctx.db.patch(kitId, { updatedAt: Date.now() - 16 * 60_000 }));
+    const calls = scriptKitModel(OK);
+    expect(await tenant.as.mutation(api.starterKit.start, { projectId })).toBe(kitId);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const after = await kitOf(t, kitId);
+    expect(after.attempts).toBe(2);
+    expect(calls).toEqual(["plan", "site", "posts"]);
+    expect(after.parts.plan.status).toBe("succeeded");
     expect(after.status).toBe("partially_succeeded");
   });
 

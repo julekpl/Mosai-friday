@@ -73,13 +73,25 @@ export function isRetryableKitStatus(status: StarterKitStatus): boolean {
 }
 
 /**
+ * A kit left `queued` or `running` with no progress for this long is dead: a
+ * Convex action is stopped after 10 minutes, so no run can still be working
+ * on it. `start` then resumes it instead of waiting forever.
+ */
+export const STARTER_KIT_STALE_MS = 15 * 60_000;
+
+export function isStaleKit(kit: { status: StarterKitStatus; updatedAt: number }, now: number): boolean {
+  return (kit.status === "queued" || kit.status === "running") && now - kit.updatedAt > STARTER_KIT_STALE_MS;
+}
+
+/**
  * The parts after "Try again": failed parts and parts waiting for a plan go
  * back to `queued` with their error cleared; every other part (and its
  * outputs) is returned untouched.
  */
 export function resetPartsForRetry(parts: StarterKitParts, now: number): StarterKitParts {
   const reset = (part: StarterKitPart): StarterKitPart => {
-    if (part.status !== "failed" && !isNeedsPlan(part)) return part;
+    // A part still "running" here belongs to a dead run (see isStaleKit).
+    if (part.status !== "failed" && part.status !== "running" && !isNeedsPlan(part)) return part;
     return {
       status: "queued",
       outputs: part.outputs,
@@ -306,6 +318,8 @@ export function starterSiteBrief(
 export function isAllowedStarterLink(href: string): boolean {
   const value = href.trim();
   if (!value) return true;
+  // Browsers read "\\" as "/", so "/\\host" is another site: never allow it.
+  if (value.includes("\\")) return false;
   if (value.startsWith("/")) return !value.startsWith("//");
   return /^(tel:|mailto:|https:\/\/)/i.test(value);
 }

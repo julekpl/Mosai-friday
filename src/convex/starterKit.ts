@@ -38,6 +38,7 @@ import {
   budgetFailure,
   describeTypeAndGoal,
   isRetryableKitStatus,
+  isStaleKit,
   mainButtonsFor,
   parseStarterKitPlan,
   parseStarterKitPosts,
@@ -123,7 +124,9 @@ export const start = orgMutation({
       return kitId;
     }
 
-    if (!isRetryableKitStatus(existing.status)) return existing._id;
+    if (!isRetryableKitStatus(existing.status) && !isStaleKit(existing, now)) {
+      return existing._id;
+    }
 
     await ctx.db.patch(existing._id, {
       status: "queued",
