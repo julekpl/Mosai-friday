@@ -39,6 +39,7 @@ import {
   type ProjectSettingsTab,
 } from "@/components/app/ProjectSettings";
 import { ModuleGrid, type ModuleCardId } from "@/components/app/ModuleGrid";
+import { SinceYouWereAway } from "@/components/app/SinceYouWereAway";
 import { ThisWeekNextStep } from "@/components/app/ThisWeekNextStep";
 import { StarterKitCards } from "@/components/app/kit/StarterKitCards";
 import { Button } from "@/components/ui/button";
@@ -913,6 +914,10 @@ export default function Overview({
           modulesLoading={modulesLoading}
           onFixFacts={() => openEdit("understanding")}
         />
+      </ModuleErrorBoundary>
+
+      <ModuleErrorBoundary>
+        <SinceYouWereAway projectId={projectId} />
       </ModuleErrorBoundary>
 
       <Reveal>

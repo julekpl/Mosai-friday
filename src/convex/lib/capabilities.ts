@@ -529,6 +529,8 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   // First-run starter kit (U3): spans Create, Build and Promote, so each part
   // checks its own capability inside the job; start/get are org-scoped.
   starterKit: "base",
+  // U7: per-member "since you were away" timestamps and summary.
+  visits: "base",
   http: "base",
   crons: "base",
   auth: "base",
