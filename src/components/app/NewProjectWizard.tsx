@@ -280,7 +280,9 @@ export function NewProjectWizard() {
 
       <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3 shadow-soft surface-glass">
         <p className="sr-only" role="status" aria-live="polite">
-          {creating ? "Making your starter kit. Reading what you shared can take a little while." : ""}
+          {/* Honest until U4 starts the kit job from here: this only creates the
+              project. U4 restores "Make my starter kit" when it wires starterKit.start. */}
+          {creating ? "Creating your project. Reading what you shared can take a little while." : ""}
         </p>
         {step > 0 && (
           <Button variant="ghost" className="min-h-11" onClick={() => setStep(step - 1)} disabled={creating}>
@@ -290,7 +292,7 @@ export function NewProjectWizard() {
         {isLast ? (
           <Button className="ml-auto min-h-11" onClick={() => void handleFinish()} disabled={creating}>
             {creating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
-            {creating ? "Making your starter kit…" : "Make my starter kit"}
+            {creating ? "Creating your project…" : "Create my project"}
           </Button>
         ) : (
           <Button className="ml-auto min-h-11" onClick={goNext}>

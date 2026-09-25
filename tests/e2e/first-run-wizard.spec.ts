@@ -108,7 +108,7 @@ test("three questions, one screen each, axe clean at 320 px", async ({ page }) =
   await expect(page.getByRole("heading", { level: 1, name: "What do you want most right now?" })).toBeFocused();
   await expect(page.getByRole("radiogroup", { name: "What do you want most right now?" }).getByRole("radio")).toHaveCount(4);
   // One primary action; Back is the only other button in the step bar.
-  await expect(page.getByRole("button", { name: "Make my starter kit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create my project" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
   await expectNoSidewaysScroll(page);
   await expectAxeClean(page);
@@ -127,7 +127,7 @@ test("only the name is required", async ({ page }) => {
 
   await page.getByLabel("Business name").fill("Studio");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Make my starter kit" }).click(); // skip Q3
+  await page.getByRole("button", { name: "Create my project" }).click(); // skip Q3
 
   await expect.poll(() => createArgs(sent)).toEqual({ name: "Studio" });
 });
@@ -172,8 +172,8 @@ test("keyboard only: pick a type, name it, pick a goal, make the kit", async ({ 
   await page.keyboard.press("Space");
   await expect(local).toBeChecked();
   await page.keyboard.press("Tab"); // Back
-  await page.keyboard.press("Tab"); // Make my starter kit
-  await expect(page.getByRole("button", { name: "Make my starter kit" })).toBeFocused();
+  await page.keyboard.press("Tab"); // Create my project
+  await expect(page.getByRole("button", { name: "Create my project" })).toBeFocused();
   await page.keyboard.press("Enter");
 
   await expect
@@ -188,7 +188,7 @@ test("skipping the goal uses the default for the type", async ({ page }) => {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("Business name").fill("Physio Plus");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Make my starter kit" }).click();
+  await page.getByRole("button", { name: "Create my project" }).click();
   await expect
     .poll(() => createArgs(sent))
     .toEqual({ name: "Physio Plus", businessType: "appointments", primaryGoal: "bookings" });
