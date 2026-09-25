@@ -13,6 +13,7 @@ import { MOSAI_EASE, MOTION } from "@/components/motion";
 import { defaultGoalFor, type BusinessType, type PrimaryGoal } from "@/shared/starterKit";
 import { classifySource } from "@/components/app/wizard/classifySource";
 import type { BusinessListing, BusinessSuggestion } from "@/components/app/wizard/types";
+import type { ClientBusinessType } from "@/components/app/wizard/questionOptions";
 import { BusinessTypeQuestion } from "@/components/app/wizard/BusinessTypeQuestion";
 import { NameQuestion } from "@/components/app/wizard/NameQuestion";
 import { GoalQuestion } from "@/components/app/wizard/GoalQuestion";
@@ -61,6 +62,11 @@ export function NewProjectWizard() {
   };
 
   const [businessType, setBusinessType] = useState<BusinessType | undefined>();
+  // U9: "I do marketing for clients" sets up one client; the rest of the
+  // answers describe that client.
+  const [clientType, setClientType] = useState<ClientBusinessType | undefined>();
+  const forClient = businessType === "agency";
+  const answeredType: BusinessType | undefined = forClient ? clientType : businessType;
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -76,7 +82,9 @@ export function NewProjectWizard() {
   const findings = useRef<{ key: string; promise: Promise<SourceFindings> } | null>(null);
 
   const create = useMutation(api.projects.create);
+  const createClientProject = useMutation(api.projects.createClientProject);
   const saveScan = useMutation(api.projects.saveScan);
+  const startKit = useMutation(api.starterKit.start);
   const draftBusinessProfile = useAction(api.ai.generateBusinessProfile);
   const scanWebsite = useAction(api.scraping.scanWebsite);
   const lookupGmb = useAction(api.scraping.lookupGoogleBusiness);
@@ -158,17 +166,29 @@ export function NewProjectWizard() {
       const found = await readSources();
       const scan = found.website;
       const listing = found.listing;
-      const id = await create({
-        name: name.trim(),
-        businessType,
-        primaryGoal: primaryGoal ?? defaultGoalFor(businessType),
+      const fields = {
         businessName: scan?.businessDetails.name?.trim() || listing?.title?.trim() || undefined,
         websiteUrl: classified.kind === "website" ? classified.url : listing?.website || undefined,
         industry: listing?.category?.trim() || undefined,
         description: (scan?.metaDescription || scan?.titles?.[0] || "").trim() || undefined,
         googleBusinessName: listing && selectedBusiness ? selectedBusiness.title : undefined,
         productsServices: scan?.productsServices?.length ? scan.productsServices.slice(0, 20) : undefined,
-      });
+      };
+      // An agency sets up a client: the server creates the client and links
+      // it to the agency in the same step (U9).
+      const id = forClient
+        ? await createClientProject({
+            clientName: name.trim(),
+            businessType: clientType,
+            primaryGoal: primaryGoal ?? defaultGoalFor(clientType),
+            ...fields,
+          })
+        : await create({
+            name: name.trim(),
+            businessType,
+            primaryGoal: primaryGoal ?? defaultGoalFor(businessType),
+            ...fields,
+          });
 
       // Keep the findings so every module can reuse the enriched context.
       if (scan || listing) {
@@ -194,8 +214,20 @@ export function NewProjectWizard() {
       // Draft the business understanding on the server; the owner reviews it
       // on the project Home. It runs in the background and never blocks.
       void draftBusinessProfile({ projectId: id }).catch(() => undefined);
+      // Start the starter kit (plan, website, posts). If it cannot start
+      // (for example a role without edit, or a network error), the project
+      // still exists, so Home opens anyway. Home has no "start the kit" entry
+      // yet for a project without one (follow-up recorded in the U4 PR).
+      let kitStarted = true;
+      try {
+        await startKit({ projectId: id });
+      } catch {
+        kitStarted = false;
+      }
       toast.success("Project created", {
-        description: "MOSAI is drafting a summary of your business. Check it on the next screen.",
+        description: kitStarted
+          ? "Your starter kit is being drafted. Watch it fill in on the next screen."
+          : "We could not start your starter kit yet. Your answers are saved.",
       });
       navigate(`/app/${id}`);
     } catch (error) {
@@ -256,7 +288,14 @@ export function NewProjectWizard() {
               }
             }}
           >
-            {step === 0 && <BusinessTypeQuestion value={businessType} onChange={setBusinessType} />}
+            {step === 0 && (
+              <BusinessTypeQuestion
+                value={businessType}
+                onChange={setBusinessType}
+                clientType={clientType}
+                onClientTypeChange={setClientType}
+              />
+            )}
             {step === 1 && (
               <NameQuestion
                 name={name}
@@ -271,18 +310,17 @@ export function NewProjectWizard() {
                 selectedBusiness={selectedBusiness}
                 onSelectBusiness={setSelectedBusiness}
                 onEnter={goNext}
+                forClient={forClient}
               />
             )}
-            {step === 2 && <GoalQuestion businessType={businessType} value={primaryGoal} onChange={setPrimaryGoal} />}
+            {step === 2 && <GoalQuestion businessType={answeredType} value={primaryGoal} onChange={setPrimaryGoal} />}
           </motion.div>
         </AnimatePresence>
       </div>
 
       <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3 shadow-soft surface-glass">
         <p className="sr-only" role="status" aria-live="polite">
-          {/* Honest until U4 starts the kit job from here: this only creates the
-              project. U4 restores "Make my starter kit" when it wires starterKit.start. */}
-          {creating ? "Creating your project. Reading what you shared can take a little while." : ""}
+          {creating ? "Making your starter kit. Reading what you shared can take a little while." : ""}
         </p>
         {step > 0 && (
           <Button variant="ghost" className="min-h-11" onClick={() => setStep(step - 1)} disabled={creating}>
@@ -292,7 +330,7 @@ export function NewProjectWizard() {
         {isLast ? (
           <Button className="ml-auto min-h-11" onClick={() => void handleFinish()} disabled={creating}>
             {creating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
-            {creating ? "Creating your project…" : "Create my project"}
+            {creating ? "Making your starter kit…" : "Make my starter kit"}
           </Button>
         ) : (
           <Button className="ml-auto min-h-11" onClick={goNext}>

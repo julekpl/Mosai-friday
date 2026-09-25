@@ -195,7 +195,7 @@ describe("starterKit job", () => {
     expect(kit.parts.site).toMatchObject({ status: "succeeded", message: "Your website draft is ready" });
     expect(kit.parts.posts).toMatchObject({
       status: "partially_succeeded",
-      message: "7 posts written. 0 of 7 have pictures; add your own.",
+      message: "0 of 7 posts have pictures; add your own for the rest.",
     });
     expect(kit.status).toBe("partially_succeeded");
     expect(kit.finishedAt).toBeDefined();
@@ -408,6 +408,7 @@ describe("starterKit job", () => {
   it("the generated cross-tenant suite covers starterKit start, get and dismiss", () => {
     const entries = buildFunctionRegistry().filter((entry) => entry.module === "starterKit");
     expect(entries.map((entry) => `${entry.exported}:${entry.tenantScoped}`).sort()).toEqual([
+      "content:true",
       "dismiss:true",
       "get:true",
       "start:true",

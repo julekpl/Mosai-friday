@@ -9,6 +9,12 @@ export const BUSINESS_TYPE_OPTIONS: readonly ChoiceTile<BusinessType>[] = [
   { value: "agency", label: "I do marketing for clients" },
 ];
 
+/** A client's business type (U9): the Q1 tiles without "agency". */
+export type ClientBusinessType = Exclude<BusinessType, "agency">;
+export const CLIENT_TYPE_OPTIONS = BUSINESS_TYPE_OPTIONS.filter(
+  (option): option is ChoiceTile<ClientBusinessType> => option.value !== "agency",
+);
+
 /** Q3 tiles. */
 export const PRIMARY_GOAL_OPTIONS: readonly ChoiceTile<PrimaryGoal>[] = [
   { value: "bookings", label: "More bookings / calls" },

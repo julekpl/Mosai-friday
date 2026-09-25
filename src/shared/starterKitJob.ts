@@ -34,6 +34,7 @@ export const STARTER_KIT_STEPS = {
   plan: "Writing your plan",
   site: "Writing your homepage",
   posts: "Writing your posts",
+  pictures: "Finding pictures for your posts",
 } as const;
 
 export const STARTER_KIT_POST_COUNT = 7;
@@ -181,7 +182,44 @@ export function parseStarterKitPlan(output: string): StarterKitPlan {
   };
 }
 
-export type StarterKitPostDraft = { channel: StarterKitPostChannel; body: string };
+export type StarterKitPostDraft = {
+  channel: StarterKitPostChannel;
+  body: string;
+  /** 2-5 plain words for a stock photo search (U5b); absent when unusable. */
+  imageQuery?: string;
+};
+
+/**
+ * Validate the model's photo search words: letters, digits and spaces only,
+ * 2-5 words, each at most 24 characters. Anything else gives no query (the
+ * post then simply has no stock picture), never a failed part.
+ */
+export function parseImageQuery(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const words = value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length < 2 || words.length > 5) return undefined;
+  if (words.some((word) => word.length > 24)) return undefined;
+  return words.join(" ");
+}
+
+/** The posts part's outcome: succeeded only when every post has a picture;
+ *  otherwise the message names the real gap. */
+export function postsPictureSummary(
+  total: number,
+  withPictures: number,
+): { status: "succeeded" | "partially_succeeded"; message: string } {
+  if (total > 0 && withPictures >= total) {
+    return { status: "succeeded", message: `${total} posts written, all with pictures.` };
+  }
+  return {
+    status: "partially_succeeded",
+    message: `${withPictures} of ${total} posts have pictures; add your own for the rest.`,
+  };
+}
 
 /** Parse and validate the posts reply: exactly 7 posts on known channels. */
 export function parseStarterKitPosts(output: string): StarterKitPostDraft[] {
@@ -199,7 +237,12 @@ export function parseStarterKitPosts(output: string): StarterKitPostDraft[] {
     ) {
       throw new Error("invalid channel");
     }
-    return { channel: channel as StarterKitPostChannel, body: text(item.body, 2_000) };
+    const imageQuery = parseImageQuery(item.imageQuery);
+    return {
+      channel: channel as StarterKitPostChannel,
+      body: text(item.body, 2_000),
+      ...(imageQuery ? { imageQuery } : {}),
+    };
   });
 }
 

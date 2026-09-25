@@ -1,11 +1,20 @@
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { anyApi } from "convex/server";
 import { v } from "convex/values";
-import { orgMutation, orgQuery, projectAccessFor, requireUser } from "./guards";
+import {
+  hasProjectAccess,
+  membershipFor,
+  orgMutation,
+  orgQuery,
+  projectAccessFor,
+  requireUser,
+} from "./guards";
 import { brandProfileFields, businessProfileFields } from "./schema";
 import { boundBrandProfile, brandProfileProblems, describeVoice } from "./lib/brandProfile";
-import type { Doc } from "./_generated/dataModel";
-import { getOrCreatePersonalOrganization } from "./organizations";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { getOrCreatePersonalOrganization, seedRoles } from "./organizations";
+import { roleCan } from "./lib/roles";
 import { businessTypeValidator, primaryGoalValidator } from "../shared/starterKit";
 
 const privacyInternal = anyApi.modules.privacy;
@@ -48,34 +57,39 @@ export const get = orgQuery({
   },
 });
 
+/** The optional project fields `create` and `createClientProject` share. */
+const projectFieldArgs = {
+  businessName: v.optional(v.string()),
+  description: v.optional(v.string()),
+  websiteUrl: v.optional(v.string()),
+  industry: v.optional(v.string()),
+  competitors: v.optional(v.array(v.string())),
+  competitorEntries: v.optional(
+    v.array(
+      v.object({
+        type: v.union(v.literal("website"), v.literal("gmb")),
+        value: v.string(),
+      }),
+    ),
+  ),
+  googleBusinessName: v.optional(v.string()),
+  productsServices: v.optional(v.array(v.string())),
+  goals: v.optional(v.array(v.string())),
+  kpis: v.optional(v.array(v.string())),
+  channels: v.optional(v.array(v.string())),
+  targetAudience: v.optional(v.array(v.string())),
+  customerPains: v.optional(v.array(v.string())),
+  marketingChallenges: v.optional(v.array(v.string())),
+  serviceArea: v.optional(v.string()),
+  // First-run answers (U2, first-run blueprint §2): Q1 and Q3.
+  businessType: v.optional(businessTypeValidator),
+  primaryGoal: v.optional(primaryGoalValidator),
+};
+
 export const create = mutation({
   args: {
     name: v.string(),
-    businessName: v.optional(v.string()),
-    description: v.optional(v.string()),
-    websiteUrl: v.optional(v.string()),
-    industry: v.optional(v.string()),
-    competitors: v.optional(v.array(v.string())),
-    competitorEntries: v.optional(
-      v.array(
-        v.object({
-          type: v.union(v.literal("website"), v.literal("gmb")),
-          value: v.string(),
-        }),
-      ),
-    ),
-    googleBusinessName: v.optional(v.string()),
-    productsServices: v.optional(v.array(v.string())),
-    goals: v.optional(v.array(v.string())),
-    kpis: v.optional(v.array(v.string())),
-    channels: v.optional(v.array(v.string())),
-    targetAudience: v.optional(v.array(v.string())),
-    customerPains: v.optional(v.array(v.string())),
-    marketingChallenges: v.optional(v.array(v.string())),
-    serviceArea: v.optional(v.string()),
-    // First-run answers (U2, first-run blueprint §2): Q1 and Q3.
-    businessType: v.optional(businessTypeValidator),
-    primaryGoal: v.optional(primaryGoalValidator),
+    ...projectFieldArgs,
   },
   handler: async (ctx, rawArgs) => {
     const userId = await requireUser(ctx);
@@ -90,6 +104,197 @@ export const create = mutation({
       organizationId,
       createdAt: Date.now(),
     });
+  },
+});
+
+/** Q1 for a client (U9): any business type except another agency. */
+const clientBusinessTypeValidator = v.union(
+  v.literal("appointments"),
+  v.literal("shop"),
+  v.literal("walk_in"),
+);
+
+/**
+ * The caller's own agency organization: the oldest `agency` organization they
+ * own and still administer. Created on first use, the way
+ * `organizations.create` does it (roles seeded, owner membership).
+ */
+async function getOrCreateOwnAgency(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+): Promise<Id<"organizations">> {
+  const owned = await ctx.db
+    .query("organizations")
+    .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+    .collect();
+  const agencies = owned
+    .filter((organization) => organization.kind === "agency")
+    .sort((a, b) => a.createdAt - b.createdAt);
+  for (const agency of agencies) {
+    const membership = await membershipFor(ctx, agency._id, userId);
+    if (membership?.status === "active" && roleCan(membership.role, "agency.link")) {
+      return agency._id;
+    }
+  }
+  const user = await ctx.db.get(userId);
+  const who = user?.name?.trim() || user?.email?.trim();
+  const now = Date.now();
+  const agencyId = await ctx.db.insert("organizations", {
+    name: who ? `${who}'s agency` : "My agency",
+    kind: "agency",
+    ownerId: userId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await ctx.db.insert("memberships", {
+    organizationId: agencyId,
+    userId,
+    role: "owner",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return agencyId;
+}
+
+/**
+ * U9 — "I do marketing for clients": one call sets up a client. In a single
+ * (atomic) mutation it finds or creates the caller's agency, creates the
+ * client's own organization (kind `business`, owned by the caller), links the
+ * two with an active `agencyClientLinks` row, and creates the project inside
+ * the client organization.
+ *
+ * The link follows `organizations.linkAgencyClient`'s rule: the caller must
+ * administer both organizations. Here the caller owns both, so it holds.
+ *
+ * Entitlements: the client organization is owned by the agency user, so
+ * `guards.entitlementFor` gives every client project the agency user's plan.
+ * No billing change; hand-off to the client is a later slice.
+ */
+export const createClientProject = mutation({
+  args: {
+    ...projectFieldArgs,
+    name: v.optional(v.string()),
+    clientName: v.string(),
+    businessType: v.optional(clientBusinessTypeValidator),
+    primaryGoal: v.optional(primaryGoalValidator),
+  },
+  handler: async (ctx, rawArgs) => {
+    const userId = await requireUser(ctx);
+    const { clientName: rawClientName, ...fields } = rawArgs;
+    const clientName = rawClientName.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!clientName) throw new Error("Give your client a name.");
+    const args = boundProjectFields({ ...fields, name: fields.name?.trim() || clientName });
+    const name = args.name || clientName;
+
+    await seedRoles(ctx);
+    const agencyId = await getOrCreateOwnAgency(ctx, userId);
+
+    const now = Date.now();
+    const clientId = await ctx.db.insert("organizations", {
+      name: clientName,
+      kind: "business",
+      ownerId: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("memberships", {
+      organizationId: clientId,
+      userId,
+      role: "owner",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Same shape and duplicate handling as `organizations.linkAgencyClient`.
+    const existingLink = await ctx.db
+      .query("agencyClientLinks")
+      .withIndex("by_agency_client", (q) =>
+        q.eq("agencyId", agencyId).eq("clientId", clientId),
+      )
+      .unique();
+    if (existingLink) {
+      if (existingLink.status !== "active") {
+        await ctx.db.patch(existingLink._id, { status: "active", revokedAt: undefined });
+      }
+    } else {
+      await ctx.db.insert("agencyClientLinks", {
+        agencyId,
+        clientId,
+        status: "active",
+        createdBy: userId,
+        createdAt: now,
+      });
+    }
+
+    return await ctx.db.insert("projects", {
+      ...args,
+      name,
+      ownerId: userId,
+      organizationId: clientId,
+      createdAt: now,
+    });
+  },
+});
+
+/**
+ * U9 — the client list on `/app`: for each agency the caller owns and is an
+ * active member of, the projects of its actively linked clients. A client is
+ * listed only while the caller is an active member of the client organization
+ * and can open the project, so the list never reaches another tenant.
+ * Returns [] for a caller with no agency (or signed out).
+ *
+ * `updatedAt` is the project's `createdAt`: projects carry no update time yet.
+ */
+export const agencyClientProjects = orgQuery({
+  args: {},
+  handler: async (ctx, _args, access) => {
+    const userId = access.userId;
+    if (!userId) return [];
+    const memberOf = new Set<string>(access.organizationIds);
+    const owned = await ctx.db
+      .query("organizations")
+      .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+      .collect();
+    const agencies = owned.filter(
+      (organization) => organization.kind === "agency" && memberOf.has(organization._id),
+    );
+
+    const seen = new Set<string>();
+    const entries: Array<{
+      projectId: Id<"projects">;
+      projectName: string;
+      clientName: string;
+      updatedAt: number;
+    }> = [];
+    for (const agency of agencies) {
+      const links = await ctx.db
+        .query("agencyClientLinks")
+        .withIndex("by_agency", (q) => q.eq("agencyId", agency._id))
+        .collect();
+      for (const link of links) {
+        if (link.status !== "active" || !memberOf.has(link.clientId)) continue;
+        const client = await ctx.db.get(link.clientId);
+        if (!client) continue;
+        const projects = await ctx.db
+          .query("projects")
+          .withIndex("by_organization", (q) => q.eq("organizationId", client._id))
+          .collect();
+        for (const project of projects) {
+          if (seen.has(project._id)) continue;
+          if (!(await hasProjectAccess(ctx, project, userId))) continue;
+          seen.add(project._id);
+          entries.push({
+            projectId: project._id,
+            projectName: project.name,
+            clientName: client.name,
+            updatedAt: project.createdAt,
+          });
+        }
+      }
+    }
+    return entries.sort((a, b) => b.updatedAt - a.updatedAt);
   },
 });
 

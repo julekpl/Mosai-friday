@@ -1,9 +1,9 @@
 "use node";
 
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
@@ -193,44 +193,63 @@ export const scanWebsite = action({
  */
 export const rescanProjectWebsite = action({
   args: { projectId: v.id("projects"), ignoreRobots: v.optional(v.boolean()) },
-  handler: async (
-    ctx,
-    { projectId, ignoreRobots = false },
-  ): Promise<{ status: "scraped" | "partial"; scannedPageCount: number }> => {
+  handler: async (ctx, { projectId, ignoreRobots = false }): Promise<RescanResult> => {
     const userId = await requireActionUser(ctx);
-    const project: Doc<"projects"> | null = await ctx.runQuery(internal.guards.projectAccessForAction, {
-      projectId,
-      userId,
-    });
-    if (!project) throw new Error("Not found");
-    if (!project.websiteUrl) throw new Error("Add the website address first, then scan it.");
-    await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "website_scan" });
-
-    const scan = await runWebsiteScan(project.websiteUrl, ignoreRobots);
-    const status =
-      scan.coverage.truncated || scan.coverage.failedPageCount > 0 || scan.coverage.sitemapFailureCount > 0
-        ? "partial"
-        : "scraped";
-    await ctx.runMutation(internal.projects.storeServerScan, {
-      projectId,
-      userId,
-      scan: {
-        status,
-        sitemapUrls: scan.sitemapUrls,
-        titles: scan.titles,
-        metaDescription: scan.metaDescription,
-        headings: scan.headings,
-        productsServices: scan.productsServices,
-        pages: scan.pages,
-        socialChannels: scan.socialChannels,
-        images: scan.images,
-        businessDetails: scan.businessDetails,
-        coverage: scan.coverage,
-      },
-    });
-    return { status, scannedPageCount: scan.coverage.scannedPageCount };
+    return await rescanForUser(ctx, projectId, userId, ignoreRobots);
   },
 });
+
+/**
+ * The same server re-scan for a job that already acts as a known user (U5b:
+ * the starter kit fills `websiteScan.images` after a first-run scan). Same
+ * access check, quota, robots.txt handling and safeFetch path as above.
+ */
+export const rescanProjectWebsiteForUser = internalAction({
+  args: { projectId: v.id("projects"), userId: v.id("users") },
+  handler: async (ctx, { projectId, userId }): Promise<RescanResult> =>
+    await rescanForUser(ctx, projectId, userId, false),
+});
+
+type RescanResult = { status: "scraped" | "partial"; scannedPageCount: number };
+
+async function rescanForUser(
+  ctx: ActionCtx,
+  projectId: Id<"projects">,
+  userId: Id<"users">,
+  ignoreRobots: boolean,
+): Promise<RescanResult> {
+  const project: Doc<"projects"> | null = await ctx.runQuery(internal.guards.projectAccessForAction, {
+    projectId,
+    userId,
+  });
+  if (!project) throw new Error("Not found");
+  if (!project.websiteUrl) throw new Error("Add the website address first, then scan it.");
+  await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "website_scan" });
+
+  const scan = await runWebsiteScan(project.websiteUrl, ignoreRobots);
+  const status =
+    scan.coverage.truncated || scan.coverage.failedPageCount > 0 || scan.coverage.sitemapFailureCount > 0
+      ? "partial"
+      : "scraped";
+  await ctx.runMutation(internal.projects.storeServerScan, {
+    projectId,
+    userId,
+    scan: {
+      status,
+      sitemapUrls: scan.sitemapUrls,
+      titles: scan.titles,
+      metaDescription: scan.metaDescription,
+      headings: scan.headings,
+      productsServices: scan.productsServices,
+      pages: scan.pages,
+      socialChannels: scan.socialChannels,
+      images: scan.images,
+      businessDetails: scan.businessDetails,
+      coverage: scan.coverage,
+    },
+  });
+  return { status, scannedPageCount: scan.coverage.scannedPageCount };
+}
 
 async function runWebsiteScan(url: string, ignoreRobots: boolean): Promise<ScanResult> {
   const normalized = normalizeWebsiteUrl(url);

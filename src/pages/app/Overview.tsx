@@ -41,6 +41,7 @@ import {
 import { ModuleGrid, type ModuleCardId } from "@/components/app/ModuleGrid";
 import { SinceYouWereAway } from "@/components/app/SinceYouWereAway";
 import { ThisWeekNextStep } from "@/components/app/ThisWeekNextStep";
+import { StarterKitCards } from "@/components/app/kit/StarterKitCards";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -906,6 +907,14 @@ export default function Overview({
       />
 
       {/* U4 slot: the starter kit cards go here, above "This week". */}
+      <ModuleErrorBoundary>
+        <StarterKitCards
+          projectId={projectId}
+          modules={modules}
+          modulesLoading={modulesLoading}
+          onFixFacts={() => openEdit("understanding")}
+        />
+      </ModuleErrorBoundary>
 
       <ModuleErrorBoundary>
         <SinceYouWereAway projectId={projectId} />
