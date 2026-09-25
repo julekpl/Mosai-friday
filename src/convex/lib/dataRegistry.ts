@@ -113,6 +113,8 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   // Grow — Google (GA4 / Search Console / Ads). Tokens are never exported.
   googleConnections: project("moduleQuery/moduleMutation grow → access.requireProject", "excluded"),
   googleSyncRuns: project("moduleQuery grow → access.ownedProject", "excluded"),
+  stockSearchCache: global("internal stock.searchPhotos only (U5)", "Search results expire after 24 h and are swept", true),
+  starterKits: project("orgQuery/orgMutation starterKit → access.requireProject (U3)"),
   googleMetricsDaily: project("moduleQuery grow → access.ownedProject"),
   googleTopItems: project("moduleQuery grow → access.ownedProject"),
   adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),

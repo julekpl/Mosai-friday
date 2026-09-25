@@ -2,56 +2,59 @@ import {
   ArrowRight,
   Check,
   CircleDashed,
+  Globe,
   LockKeyhole,
-  PenTool,
-  Route,
-  Search,
+  Megaphone,
+  Phone,
   Sparkles,
+  TrendingUp,
 } from "lucide-react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import type { NextActionModel } from "@/components/app/next-action-model";
+import { StatusBadge } from "@/components/app/module-kit";
+import type {
+  ActionTarget,
+  ChecklistItem,
+  NextActionModel,
+  OutcomeKey,
+} from "@/components/app/next-action-model";
 import { cn } from "@/lib/utils";
 
-/** Presentation for the three setup modules the next action can point at.
- *  Ink tones are the AA-safe `*-ink` tokens (≥ 5.3:1 on their soft tile). */
-const STEP_MODULE = {
-  understand: {
-    label: "Understand",
-    icon: Search,
-    soft: "bg-tile-teal-soft",
-    ink: "text-tile-teal-ink",
-  },
-  journeys: {
-    label: "Journeys",
-    icon: Route,
-    soft: "bg-tile-sky-soft",
-    ink: "text-tile-sky-ink",
-  },
-  create: {
-    label: "Create",
-    icon: PenTool,
-    soft: "bg-tile-violet-soft",
-    ink: "text-tile-violet-ink",
-  },
-} as const;
+/** Presentation per outcome. Ink tones are the AA-safe `*-ink` tokens. */
+const OUTCOME = {
+  website: { icon: Globe, soft: "bg-tile-sky-soft", ink: "text-tile-sky-ink" },
+  posts: { icon: Megaphone, soft: "bg-tile-coral-soft", ink: "text-tile-coral-ink" },
+  contact: { icon: Phone, soft: "bg-tile-teal-soft", ink: "text-tile-teal-ink" },
+  results: { icon: TrendingUp, soft: "bg-tile-lime-soft", ink: "text-tile-lime-ink" },
+  done: { icon: Check, soft: "bg-terminal-green-soft", ink: "text-terminal-green-ink" },
+} as const satisfies Record<OutcomeKey, unknown>;
 
 /** Plan options live at the workspace-level billing route. */
 const PLAN_ROUTE = "/app/billing";
 
+function routeFor(target: ActionTarget | "understand" | "journeys", projectId: string): string {
+  return target === "billing" ? PLAN_ROUTE : `/app/${projectId}/${target}`;
+}
+
+const CHECKLIST_SR: Record<ChecklistItem["state"], string> = {
+  next: " — your next step",
+  to_do: " — to do",
+  has_record: " — saved",
+  locked: " — not on your plan",
+};
+
 /**
- * The single "next best action" card on the project home.
+ * The single "This week" next step on the project home.
  *
- * Truth rules: the checklist only says a step has *saved work* (a row
- * exists). It never calls a step complete or verified — that needs the
- * owner's review, which MOSAI does not track yet.
+ * One action per state. The checklist marks an outcome only from what the
+ * server stored (hosting status, post receipts, saved contact details, the
+ * Google connection); it never says "complete" or "verified".
  */
 export function NextAction({ model, projectId }: { model: NextActionModel; projectId: string }) {
-  const destination = model.locked ? PLAN_ROUTE : `/app/${projectId}/${model.module}`;
-  const target = STEP_MODULE[model.module];
-  const TargetIcon = model.locked ? LockKeyhole : target.icon;
-  const savedCount = model.steps.filter((step) => step.state === "saved").length;
+  const outcome = OUTCOME[model.key];
+  const Icon = model.locked ? LockKeyhole : outcome.icon;
+  const quiet = model.action.emphasis === "quiet";
 
   return (
     <section
@@ -61,57 +64,76 @@ export function NextAction({ model, projectId }: { model: NextActionModel; proje
       <div className="flex min-w-0 flex-col">
         <p className="inline-flex w-fit items-center gap-1.5 rounded-full border border-terminal-green/30 bg-terminal-green-soft px-2.5 py-1 font-mono text-caption font-medium text-terminal-green-ink">
           <Sparkles aria-hidden="true" className="size-3.5" />
-          Your next best step
+          This week
         </p>
         <div className="mt-4 flex items-start gap-4">
           <span
             aria-hidden="true"
             className={cn(
               "grid size-12 shrink-0 place-items-center rounded-lg",
-              model.locked ? "bg-terminal-amber-soft text-terminal-amber-ink" : [target.soft, target.ink],
+              model.locked ? "bg-terminal-amber-soft text-terminal-amber-ink" : [outcome.soft, outcome.ink],
             )}
           >
-            <TargetIcon className="size-6" />
+            <Icon className="size-6" />
           </span>
           <div className="min-w-0">
-            <h2 id="next-action-title" className="font-mono text-h2">
+            <h2 id="next-action-title" className="break-words font-mono text-h2">
               {model.title}
             </h2>
-            <p className="mt-2 max-w-prose font-mono text-small text-muted-foreground">
-              {model.description}
-            </p>
+            {model.status ? (
+              <StatusBadge className="mt-2" status={model.status.status} detail={model.status.detail} />
+            ) : null}
+            <p className="mt-2 max-w-prose font-mono text-small text-muted-foreground">{model.description}</p>
+            {model.why.length > 0 ? (
+              <ul aria-label="Why this step" className="mt-3 grid gap-1 font-mono text-caption text-muted-foreground">
+                {model.why.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </div>
         <div className="mt-6 flex flex-wrap items-center gap-3 md:mt-auto md:pt-6">
-          <Button asChild size="lg" variant={model.locked ? "outline" : "default"} className="group w-full sm:w-auto">
-            <Link to={destination}>
+          <Button
+            asChild
+            size="lg"
+            variant={quiet ? "ghost" : model.locked ? "outline" : "default"}
+            className="group min-h-11 w-full sm:w-auto"
+          >
+            <Link to={routeFor(model.action.target, projectId)}>
               {model.locked ? <LockKeyhole aria-hidden="true" className="size-4" /> : null}
-              {model.locked ? "View plan options" : `Open ${target.label}`}
+              {model.action.label}
               <ArrowRight
                 aria-hidden="true"
                 className="size-4 transition-transform duration-200 ease-terminal group-hover:translate-x-0.5"
               />
             </Link>
           </Button>
-          <p className="font-mono text-caption text-muted-foreground">
-            Everything stays a draft until you choose to use it.
-          </p>
         </div>
+        {model.deeper.length > 0 ? (
+          <nav aria-label="Go deeper" className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-mono text-caption text-muted-foreground">Go deeper:</span>
+            {model.deeper.map((link) => (
+              <Link
+                key={link.target}
+                to={routeFor(link.target, projectId)}
+                className="focus-ring inline-flex min-h-11 items-center rounded-sm font-mono text-caption text-foreground underline underline-offset-4"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
       </div>
 
       <div className="rounded-lg border bg-card p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-          <h3 className="font-mono text-small font-semibold">Setup checklist</h3>
-          <p className="font-mono text-caption text-muted-foreground">
-            {savedCount} of {model.steps.length} with saved work
-          </p>
-        </div>
+        <h3 className="font-mono text-small font-semibold">Your week at a glance</h3>
         <ol className="mt-3 grid gap-2">
-          {model.steps.map((step, index) => {
-            const isNext = step.key === model.module;
+          {model.checklist.map((item, index) => {
+            const isNext = item.state === "next";
             return (
               <li
-                key={step.key}
+                key={item.key}
                 aria-current={isNext ? "step" : undefined}
                 className={cn(
                   "flex min-w-0 items-start gap-3 rounded-md border px-3 py-2.5",
@@ -120,16 +142,16 @@ export function NextAction({ model, projectId }: { model: NextActionModel; proje
               >
                 <span
                   aria-hidden="true"
-                  className={`font-mono text-caption ${cn(
-                    "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border font-semibold",
-                    step.state === "saved" && "border-terminal-green/50 bg-card text-terminal-green-ink",
-                    step.state === "locked" && "border-terminal-amber/50 bg-card text-terminal-amber-ink",
-                    step.state === "not_started" && "border-dashed bg-card text-muted-foreground",
-                  )}`}
+                  className={cn(
+                    "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border font-mono text-caption font-semibold",
+                    item.state === "has_record" && "border-terminal-green/50 bg-card text-terminal-green-ink",
+                    item.state === "locked" && "border-terminal-amber/50 bg-card text-terminal-amber-ink",
+                    (item.state === "to_do" || isNext) && "border-dashed bg-card text-muted-foreground",
+                  )}
                 >
-                  {step.state === "saved" ? (
+                  {item.state === "has_record" ? (
                     <Check className="size-3.5" />
-                  ) : step.state === "locked" ? (
+                  ) : item.state === "locked" ? (
                     <LockKeyhole className="size-3" />
                   ) : isNext ? (
                     index + 1
@@ -139,24 +161,15 @@ export function NextAction({ model, projectId }: { model: NextActionModel; proje
                 </span>
                 <span className="min-w-0">
                   <span className="block font-mono text-small font-medium">
-                    {step.label}
-                    <span className="sr-only">
-                      {step.state === "saved"
-                        ? " — saved, needs your review"
-                        : step.state === "locked"
-                          ? " — locked on your plan"
-                          : " — not started"}
-                    </span>
+                    {item.label}
+                    <span className="sr-only">{CHECKLIST_SR[item.state]}</span>
                   </span>
-                  <span className="block font-mono text-caption text-muted-foreground">{step.detail}</span>
+                  <span className="block break-words font-mono text-caption text-muted-foreground">{item.detail}</span>
                 </span>
               </li>
             );
           })}
         </ol>
-        <p className="mt-3 font-mono text-caption text-muted-foreground">
-          Saved work is not marked complete until you review it.
-        </p>
       </div>
     </section>
   );
