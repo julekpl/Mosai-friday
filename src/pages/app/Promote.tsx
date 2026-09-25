@@ -75,7 +75,7 @@ function ConnectionsPanel({
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2 rounded-md border bg-card p-3 shadow-card">
       <span className="mr-1 flex items-center gap-1.5 font-mono text-caption text-muted-foreground">
-        <Link2 className="size-3.5" /> publish via
+        <Link2 className="size-3.5" /> post to
       </span>
       {status.map((s) => (
         <div
@@ -86,7 +86,7 @@ function ConnectionsPanel({
               ? `Connected${s.accountLabel ? ` as ${s.accountLabel}` : ""}`
               : s.configured
                 ? "Available — connect to enable publishing"
-                : s.setupDetail ?? "Not configured in this deployment"
+                : `MOSAI cannot post to ${PLATFORM_LABEL[s.platform] ?? s.platform} yet`
           }
         >
           <span
@@ -125,14 +125,19 @@ function ConnectionsPanel({
             </button>
           ) : (
             <span className="font-mono text-caption text-muted-foreground" role="status">
-              setup needed
+              not available yet
             </span>
           )}
         </div>
       ))}
       {status.some((s) => !s.configured) && (
         <span className="basis-full text-caption text-muted-foreground">
-          An administrator must configure the provider and trusted app return origin before connecting accounts.
+          Posting to{" "}
+          {status
+            .filter((s) => !s.configured)
+            .map((s) => PLATFORM_LABEL[s.platform] ?? s.platform)
+            .join(", ")}{" "}
+          is not switched on in MOSAI yet. There is nothing for you to set up. You can still write and save drafts here.
         </span>
       )}
     </div>
@@ -581,7 +586,7 @@ export default function Promote({ projectId }: { projectId: Id<"projects"> }) {
         title="Promote"
         subtitle="Campaigns and social publishing — AI drafts, you approve, receipts are real"
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setOpenAi(true)}>
             <Sparkles className="size-4" /> AI variants
           </Button>

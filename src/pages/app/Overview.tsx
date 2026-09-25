@@ -72,14 +72,14 @@ import { cn } from "@/lib/utils";
 /** Presentation only (icon, copy). Whether a module is unlocked is decided by
  *  the server's capability matrix, never by a tier column here. */
 const MODULE_CARDS = [
-  { to: "understand", icon: Search, name: "Understand", desc: "Personas, buyer profiles, journeys and evidence" },
-  { to: "journeys", icon: Route, name: "Journeys", desc: "Journey maps — stages, lanes and the experience curve" },
-  { to: "create", icon: PenTool, name: "Create", desc: "Gaps, topics, briefs and content generation" },
-  { to: "build", icon: Blocks, name: "Build", desc: "Websites & apps from personas, with SEO/WCAG checks" },
-  { to: "customers", icon: Users, name: "Customers", desc: "CRM, consent, segments — owned here, not by a vendor" },
-  { to: "promote", icon: Megaphone, name: "Promote", desc: "Campaigns, social scheduling, ads" },
-  { to: "sell", icon: ShoppingBag, name: "Sell", desc: "Products and product feeds for ads + website" },
-  { to: "grow", icon: TrendingUp, name: "Grow", desc: "Insights with source & freshness, no blended scores" },
+  { to: "understand", icon: Search, name: "Understand", desc: "Who your customers are and what they need" },
+  { to: "journeys", icon: Route, name: "Journeys", desc: "How people go from hearing about you to buying" },
+  { to: "create", icon: PenTool, name: "Create", desc: "Posts, articles and emails, written with AI" },
+  { to: "build", icon: Blocks, name: "Build", desc: "Your website or app, made from your business details" },
+  { to: "customers", icon: Users, name: "Customers", desc: "Your contacts, who agreed to hear from you, and follow-ups" },
+  { to: "promote", icon: Megaphone, name: "Promote", desc: "Social posts, campaigns and ads" },
+  { to: "sell", icon: ShoppingBag, name: "Sell", desc: "Your products, ready for your site and ads" },
+  { to: "grow", icon: TrendingUp, name: "Grow", desc: "What is working, with where each number came from" },
 ] as const;
 
 type ModuleCardId = (typeof MODULE_CARDS)[number]["to"];

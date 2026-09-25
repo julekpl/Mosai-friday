@@ -55,7 +55,7 @@ type BusinessSearchState = "idle" | "loading" | "results" | "empty" | "error";
 
 const steps = [
   { key: "start", label: "Your business", hint: "Name and a starting source" },
-  { key: "review", label: "Your business map", hint: "Check what we found" },
+  { key: "review", label: "What we found", hint: "Check it is right" },
   { key: "audience", label: "Who you serve", hint: "Audience and goals" },
 ] as const;
 
@@ -204,7 +204,7 @@ function WebsiteMapReview({
     <section className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="website-map-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /><span className="font-mono text-caption font-semibold">Your first business map</span></div>
+          <div className="flex items-center gap-2 text-terminal-green"><Sparkles className="size-4" aria-hidden="true" /><span className="font-mono text-caption font-semibold">What we found about your business</span></div>
           <h2 id="website-map-title" className="mt-1 font-mono text-h2 font-semibold">Check what MOSAI found</h2>
           <p className="mt-1 font-mono text-caption text-muted-foreground">These are candidates from public pages, not verified business facts. Correct anything that looks wrong below.</p>
         </div>
@@ -836,7 +836,7 @@ export function NewProjectWizard() {
               ) : null}
               {scanResult?.gmb?.rating != null && (
                 <Badge variant="outline" className="font-mono text-caption">
-                  GMB {scanResult.gmb.rating}★ ({scanResult.gmb.reviews ?? 0})
+                  Google {scanResult.gmb.rating}★ ({scanResult.gmb.reviews ?? 0})
                 </Badge>
               )}
             </div>
@@ -1024,7 +1024,7 @@ export function NewProjectWizard() {
               </>
             ) : step === 0 ? (
               <>
-                {normalizedUrl || gmbName.trim() ? "Build my business map" : "Continue with my business name"} <ArrowRight className="size-4" />
+                {normalizedUrl || gmbName.trim() ? "Find my business details" : "Continue with my business name"} <ArrowRight className="size-4" />
               </>
             ) : (
               <>

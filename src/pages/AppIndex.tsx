@@ -9,6 +9,7 @@ import { FloatingTiles, MosaicMark } from "@/components/mosaic";
 import { MOSAI_EASE, MOTION } from "@/components/motion";
 import { ModuleErrorBoundary } from "@/components/app/module-kit";
 import { Button } from "@/components/ui/button";
+import { pickProjectToOpen, readLastProjectId } from "@/lib/last-project";
 
 const FIRST_RUN_STEPS = [
   {
@@ -111,12 +112,15 @@ function FirstRunWelcome() {
 function AppIndexContent() {
   const navigate = useNavigate();
   const projects = useQuery(api.projects.list);
-  const firstProjectId = projects?.[0]?._id;
+  const projectToOpen = projects
+    ? pickProjectToOpen(projects.map((p) => p._id), readLastProjectId())
+    : undefined;
 
-  // Returning users go straight to their first project — no extra click.
+  // Returning users go straight back to the project they last used — no
+  // extra click, and never an arbitrary one when they have several.
   useEffect(() => {
-    if (firstProjectId) navigate(`/app/${firstProjectId}`, { replace: true });
-  }, [firstProjectId, navigate]);
+    if (projectToOpen) navigate(`/app/${projectToOpen}`, { replace: true });
+  }, [projectToOpen, navigate]);
 
   if (projects === undefined || projects.length > 0) return <OpeningWorkspace />;
   return <FirstRunWelcome />;
