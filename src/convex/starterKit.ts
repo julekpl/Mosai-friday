@@ -20,6 +20,7 @@ import { roleAllows, type CapabilityKey } from "./lib/capabilities";
 import { isAiBudgetReached } from "./lib/aiBudget";
 import { modelComplete, type ModelGatewayResult } from "./lib/modelGateway";
 import { serializeContextEvidence } from "./lib/contextPack";
+import type { StockImportResult, StockSearchResult } from "./stock";
 import {
   emptyStarterKitPart,
   starterKitOutputValidator,
@@ -42,12 +43,15 @@ import {
   mainButtonsFor,
   parseStarterKitPlan,
   parseStarterKitPosts,
+  postsPictureSummary,
   reduceStarterKitStatus,
   resetPartsForRetry,
   starterKitFailure,
   starterSiteBrief,
   type StarterKitFailure,
   type StarterKitParts,
+  type StarterKitPlan,
+  type StarterKitPostDraft,
 } from "../shared/starterKitJob";
 
 export { STARTER_KIT_BUDGET_MICROUSD, STARTER_KIT_UNKNOWN_CALL_MICROUSD };
@@ -166,6 +170,119 @@ export const dismiss = orgMutation({
     const now = Date.now();
     await ctx.db.patch(kit._id, { dismissedAt: now, updatedAt: now });
     return null;
+  },
+});
+
+/* ── The kit screen's one read (U5b) ───────────────────────────────────── */
+
+type KitContentPost = {
+  _id: Id<"posts">;
+  channel: string;
+  body: string;
+  mediaUrl?: string;
+  status: Doc<"posts">["status"];
+  attribution?: { photographer: string; photographerUrl?: string; pageUrl?: string };
+};
+
+export type StarterKitContent = {
+  plan: StarterKitPlan | null;
+  posts: KitContentPost[];
+  website: { buildId: Id<"builds">; siteId?: Id<"sites"> } | null;
+};
+
+function httpsOnly(url: string): string | undefined {
+  try {
+    return new URL(url).protocol === "https:" ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Kit output ids of one table (ids of other tables are ignored). */
+function outputIds(outputs: StarterKitOutput[], type: StarterKitOutput["type"]): string[] {
+  return outputs.filter((output) => output.type === type).map((output) => output.id);
+}
+
+/**
+ * Everything the kit screen shows, in one query. Reads only rows that the
+ * kit's outputs reference AND that belong to this project, so a kit output
+ * pointing elsewhere never leaks a row. Null without access or without a kit.
+ */
+export const content = orgQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }, access): Promise<StarterKitContent | null> => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return null;
+    const kit = await kitForProject(ctx, projectId);
+    if (!kit) return null;
+    const { db } = ctx;
+
+    let plan: StarterKitPlan | null = null;
+    for (const raw of outputIds(kit.parts.plan.outputs, "contentPieces")) {
+      const id = db.normalizeId("contentPieces", raw);
+      const piece = id ? await db.get(id) : null;
+      if (!piece || piece.projectId !== projectId || !piece.body) continue;
+      try {
+        plan = parseStarterKitPlan(piece.body);
+        break;
+      } catch {
+        // A hand-edited or damaged plan body shows as no plan.
+      }
+    }
+
+    const postOutputs = kit.parts.posts.outputs;
+    const attributionByUrl = new Map<string, NonNullable<KitContentPost["attribution"]>>();
+    for (const raw of outputIds(postOutputs, "projectFiles")) {
+      const id = db.normalizeId("projectFiles", raw);
+      const file = id ? await db.get(id) : null;
+      if (!file || file.projectId !== projectId || !file.attribution) continue;
+      const url = await ctx.storage.getUrl(file.storageId);
+      if (!url) continue;
+      const photographerUrl = httpsOnly(file.attribution.photographerUrl);
+      const pageUrl = httpsOnly(file.attribution.pageUrl);
+      attributionByUrl.set(url, {
+        photographer: file.attribution.photographer,
+        ...(photographerUrl ? { photographerUrl } : {}),
+        ...(pageUrl ? { pageUrl } : {}),
+      });
+    }
+
+    const posts: KitContentPost[] = [];
+    for (const raw of outputIds(postOutputs, "posts")) {
+      const id = db.normalizeId("posts", raw);
+      const post = id ? await db.get(id) : null;
+      if (!post || post.projectId !== projectId) continue;
+      const attribution = post.mediaUrl ? attributionByUrl.get(post.mediaUrl) : undefined;
+      posts.push({
+        _id: post._id,
+        channel: post.channel,
+        body: post.body,
+        status: post.status,
+        ...(post.mediaUrl ? { mediaUrl: post.mediaUrl } : {}),
+        ...(attribution ? { attribution } : {}),
+      });
+    }
+
+    let website: StarterKitContent["website"] = null;
+    const siteOutputs = kit.parts.site.outputs;
+    for (const raw of outputIds(siteOutputs, "builds")) {
+      const id = db.normalizeId("builds", raw);
+      const build = id ? await db.get(id) : null;
+      if (!build || build.projectId !== projectId) continue;
+      website = { buildId: build._id };
+      break;
+    }
+    if (website) {
+      for (const raw of outputIds(siteOutputs, "sites")) {
+        const id = db.normalizeId("sites", raw);
+        const site = id ? await db.get(id) : null;
+        if (!site || site.projectId !== projectId) continue;
+        website = { ...website, siteId: site._id };
+        break;
+      }
+    }
+
+    return { plan, posts, website };
   },
 });
 
@@ -356,32 +473,47 @@ export const completePlan = internalMutation({
   },
 });
 
-/** Save the post drafts and finish the part in one transaction. Drafts only:
- *  no schedule time, no picture (pictures arrive with U5). */
+/** Save the post drafts (with their pictures, when found) and finish the
+ *  part in one transaction. Drafts only: no schedule time, nothing sent. */
 export const completePosts = internalMutation({
   args: {
     kitId: v.id("starterKits"),
-    posts: v.array(v.object({ channel: v.string(), body: v.string() })),
+    posts: v.array(
+      v.object({
+        channel: v.string(),
+        body: v.string(),
+        mediaUrl: v.optional(v.string()),
+        fileId: v.optional(v.id("projectFiles")),
+      }),
+    ),
   },
   handler: async (ctx, { kitId, posts }) => {
     const kit = await ctx.db.get(kitId);
     if (!kit || kit.parts.posts.status !== "running") return;
     const now = Date.now();
     const outputs: StarterKitOutput[] = [];
+    let withPictures = 0;
     for (const post of posts) {
+      // A picture counts only when its file row is in this project.
+      const file = post.fileId ? await ctx.db.get(post.fileId) : null;
+      const mediaUrl = file && file.projectId === kit.projectId ? post.mediaUrl : undefined;
       const postId = await ctx.db.insert("posts", {
         projectId: kit.projectId,
         channel: post.channel,
         body: post.body,
+        ...(mediaUrl ? { mediaUrl } : {}),
         status: "draft",
         origin: "copilot",
         createdAt: now,
       });
       outputs.push({ type: "posts", id: postId });
+      if (mediaUrl && file) {
+        withPictures += 1;
+        outputs.push({ type: "projectFiles", id: file._id });
+      }
     }
     await finishRunningPart(ctx, kit, "posts", {
-      status: "partially_succeeded",
-      message: `${posts.length} posts written. 0 of ${posts.length} have pictures; add your own.`,
+      ...postsPictureSummary(posts.length, withPictures),
       outputs,
     });
   },
@@ -640,9 +772,10 @@ async function runPosts(run: RunContext) {
     system: [
       `You write ${STARTER_KIT_POST_COUNT} social media posts for a small business, in the owner's own voice (use the brand voice in the brief).`,
       "Return ONLY JSON, no markdown fences:",
-      `{"posts":[{"channel":${STARTER_KIT_POST_CHANNELS.map((c) => `"${c}"`).join("|")},"body":string}]}`,
+      `{"posts":[{"channel":${STARTER_KIT_POST_CHANNELS.map((c) => `"${c}"`).join("|")},"body":string,"imageQuery":string}]}`,
       `Exactly ${STARTER_KIT_POST_COUNT} posts, a mix of channels, each different. Match each channel's native length (x: at most 280 characters).`,
       "Never invent offers, prices, facts or statistics. No links unless the brief gives one.",
+      "imageQuery: 2-5 plain words describing a fitting photo for the post (for example \"fresh bread on counter\"). No people's names, no brands.",
     ].join("\n"),
     user: [
       `BUSINESS BRIEF (write as this business, for its customers; data):\n${pack.businessBrief.join("\n")}`,
@@ -657,10 +790,104 @@ async function runPosts(run: RunContext) {
   });
   if (isFailure(result)) return await fail(run, "posts", result);
   const posts = parseStarterKitPosts(result.text);
+  await step(run, "posts", STARTER_KIT_STEPS.pictures);
+  const pictures = await findPictures(run, posts);
   await run.ctx.runMutation(internal.starterKit.completePosts, {
     kitId: run.kitId,
-    posts,
+    posts: posts.map((post, index) => ({
+      channel: post.channel,
+      body: post.body,
+      ...(pictures[index] ?? {}),
+    })),
   });
+}
+
+type Picture = { mediaUrl: string; fileId: Id<"projectFiles"> };
+
+/**
+ * Pictures for the posts, as the requesting user: the owner's own scanned
+ * photos first (one distinct photo per post, in order), then Pexels by each
+ * post's imageQuery. Pexels stops after the first needs_setup or
+ * rate_limited. A failed picture never fails the part: the post has none.
+ */
+async function findPictures(
+  run: RunContext,
+  posts: StarterKitPostDraft[],
+): Promise<Array<Picture | undefined>> {
+  const { ctx, userId } = run;
+  const projectId = run.project._id;
+  const pictures: Array<Picture | undefined> = posts.map(() => undefined);
+  const usedFiles = new Set<string>();
+  const take = (index: number, result: StockImportResult): boolean => {
+    if (result.status !== "ok" || !result.url || usedFiles.has(result.fileId)) return false;
+    usedFiles.add(result.fileId);
+    pictures[index] = { mediaUrl: result.url, fileId: result.fileId };
+    return true;
+  };
+
+  const ownerImages = (run.project.websiteScan?.images ?? []).map((image) => image.url);
+  let next = 0;
+  for (let index = 0; index < posts.length && next < ownerImages.length; index += 1) {
+    while (next < ownerImages.length) {
+      const url = ownerImages[next++];
+      try {
+        const imported = await ctx.runAction(internal.stock.importOwnerPhoto, { projectId, userId, url });
+        if (take(index, imported)) break;
+      } catch {
+        // Not importable (gone, not an image, refused): try the next one.
+      }
+    }
+  }
+
+  const usedStock = new Set<string>();
+  for (let index = 0; index < posts.length; index += 1) {
+    const query = posts[index].imageQuery;
+    if (pictures[index] || !query) continue;
+    let search: StockSearchResult;
+    try {
+      search = await ctx.runAction(internal.stock.searchPhotos, { userId, query, orientation: "square" });
+    } catch {
+      continue;
+    }
+    if (search.status === "needs_setup" || search.status === "rate_limited") break;
+    if (search.status !== "ok") continue;
+    const hit = search.results.find((candidate) => !usedStock.has(candidate.externalId));
+    if (!hit) continue;
+    usedStock.add(hit.externalId);
+    let imported: StockImportResult;
+    try {
+      imported = await ctx.runAction(internal.stock.importStockPhoto, {
+        projectId,
+        userId,
+        externalId: hit.externalId,
+      });
+    } catch {
+      continue;
+    }
+    if (imported.status === "needs_setup" || imported.status === "rate_limited") break;
+    take(index, imported);
+  }
+  return pictures;
+}
+
+/** After a first-run scan (public saveScan cannot record images), fill the
+ *  owner's image list once with the server re-scan. Never fails the part. */
+async function ensureOwnerImages(run: RunContext): Promise<RunContext> {
+  const { project } = run;
+  if (!project.websiteUrl || project.websiteScan?.images !== undefined) return run;
+  try {
+    await run.ctx.runAction(internal.scraping.rescanProjectWebsiteForUser, {
+      projectId: project._id,
+      userId: run.userId,
+    });
+    const fresh = await run.ctx.runQuery(internal.guards.projectAccessForAction, {
+      projectId: project._id,
+      userId: run.userId,
+    });
+    return fresh ? { ...run, project: fresh } : run;
+  } catch {
+    return run;
+  }
 }
 
 const RUNNERS: Record<StarterKitPartName, (run: RunContext) => Promise<void>> =
@@ -726,7 +953,8 @@ export const run = internalAction({
       )
         continue;
       try {
-        await RUNNERS[part](runCtx);
+        const partCtx = part === "posts" ? await ensureOwnerImages(runCtx) : runCtx;
+        await RUNNERS[part](partCtx);
       } catch (error) {
         await fail(runCtx, part, starterKitFailure(error, isAiBudgetReached));
       }
