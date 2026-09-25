@@ -39,6 +39,7 @@ import {
   type ProjectSettingsTab,
 } from "@/components/app/ProjectSettings";
 import { ModuleGrid, type ModuleCardId } from "@/components/app/ModuleGrid";
+import { SinceYouWereAway } from "@/components/app/SinceYouWereAway";
 import { ThisWeekNextStep } from "@/components/app/ThisWeekNextStep";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -905,6 +906,10 @@ export default function Overview({
       />
 
       {/* U4 slot: the starter kit cards go here, above "This week". */}
+
+      <ModuleErrorBoundary>
+        <SinceYouWereAway projectId={projectId} />
+      </ModuleErrorBoundary>
 
       <Reveal>
         <ModuleErrorBoundary>
