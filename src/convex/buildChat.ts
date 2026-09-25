@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { type ActionCtx } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,9 +15,11 @@ import { AUDIENCE_AND_SUBJECT_RULES } from "./lib/businessProfile";
 import {
   MODEL_GATEWAY_REPAIR_ATTEMPTS,
   modelComplete,
+  type ModelGatewayResult,
 } from "./lib/modelGateway";
 import { normalizeSitePath } from "./lib/sitePaths";
 import { isAiBudgetReached } from "./lib/aiBudget";
+import { starterKitFailure, starterLinkErrors } from "../shared/starterKitJob";
 import {
   BLOCK_REGISTRY,
   getBlockDef,
@@ -47,6 +49,15 @@ import {
  * Queries/mutations live in buildInternals.ts (Convex: only actions in Node).
  */
 
+type CompleteOptions = {
+  temperature?: number;
+  maxTokens?: number;
+  validateOutput?: (text: string) => void;
+  /** Defaults keep the Build chat's own values ("v2", build + request). */
+  promptVersion?: string;
+  contextSources?: string[];
+};
+
 async function complete(
   ctx: ActionCtx,
   userId: Id<"users">,
@@ -54,16 +65,29 @@ async function complete(
   agentId: string,
   system: string,
   user: string,
-  opts: { temperature?: number; maxTokens?: number; validateOutput?: (text: string) => void } = {},
+  opts: CompleteOptions = {},
 ): Promise<string> {
+  return (await completeResult(ctx, userId, projectId, agentId, system, user, opts)).text;
+}
+
+/** `complete` with the gateway's usage (the starter kit books its cost). */
+async function completeResult(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  agentId: string,
+  system: string,
+  user: string,
+  opts: CompleteOptions = {},
+): Promise<ModelGatewayResult> {
   const result = await modelComplete({
     ctx,
     userId,
     projectId,
     agentId,
-    promptVersion: "v2",
+    promptVersion: opts.promptVersion ?? "v2",
     autonomy: "draft",
-    contextSources: ["build.context", "request.context"],
+    contextSources: opts.contextSources ?? ["build.context", "request.context"],
     provider: "openrouter",
     // Model: resolved by the gateway from the operator allow-list.
     messages: [
@@ -77,7 +101,7 @@ async function complete(
     maxOutputTokens: opts.maxTokens ?? 1600,
     validateOutput: opts.validateOutput,
   });
-  return result.text;
+  return result;
 }
 
 /** Server-loaded site context: the business brief, customer personas and the
@@ -274,6 +298,8 @@ export const MAX_GENERATED_PAGES = 6;
 export function analyzeSitePlan(
   text: string,
   mintId: () => string = newBlockId,
+  /** Extra per-block rules a caller adds (the starter kit's link policy). */
+  extraBlockErrors?: (block: Block) => string[],
 ): { valid: PlannedPage[]; skipped: SkippedPage[] } {
   const value = parseJson<{ pages?: unknown }>(text);
   if (!Array.isArray(value.pages)) throw new Error("invalid site plan");
@@ -313,6 +339,7 @@ export function analyzeSitePlan(
       });
     });
     errors.push(...aiDocumentErrors(blocks));
+    if (extraBlockErrors) errors.push(...blocks.flatMap(extraBlockErrors));
     if (errors.length) {
       skipped.push({ name, path, reason: errors.slice(0, 3).join("; ") });
       continue;
@@ -334,11 +361,13 @@ export function analyzeSitePlan(
  * turn, a plan with at least one valid page is accepted; the remaining
  * invalid pages are reported to the user as not written.
  */
-function sitePlanValidator(): (text: string) => void {
+function sitePlanValidator(
+  extraBlockErrors?: (block: Block) => string[],
+): (text: string) => void {
   let attempts = 0;
   return (text: string) => {
     attempts += 1;
-    const { valid, skipped } = analyzeSitePlan(text);
+    const { valid, skipped } = analyzeSitePlan(text, newBlockId, extraBlockErrors);
     if (!valid.length) throw new Error("no valid pages");
     if (skipped.length && attempts <= MODEL_GATEWAY_REPAIR_ATTEMPTS) {
       throw new Error("some pages are invalid");
@@ -538,18 +567,48 @@ function describeSkipped(skipped: SkippedPage[]): string {
     .join("; ");
 }
 
-export const generateSite = moduleAction("build", {
-  recordArg: "buildId",
-  args: { buildId: v.id("builds"), message: v.string() },
-  handler: async (ctx, { buildId, message }) => {
-    const build = await requireOwnedBuild(ctx, buildId);
-    const userId = await requireActionUser(ctx);
-    await consumeAiQuotaForAction(ctx, userId);
-    const project = (await ctx.runQuery(internal.buildInternals.getProject, {
-      id: build.projectId,
-    })) as Doc<"projects"> | null;
-    if (!project) throw new Error("Not found");
+export type GenerateSiteDraftOptions = {
+  build: Doc<"builds">;
+  project: Doc<"projects">;
+  userId: Id<"users">;
+  message: string;
+  /** Build chat: "build.site_generation"; the starter kit names its own. */
+  agentId?: string;
+  promptVersion?: string;
+  contextSources?: string[];
+  /** Extra server-built brief appended to the prompt (starter kit rules). */
+  extraBrief?: string;
+  /** Per-block rules on top of the registry validator. */
+  extraBlockErrors?: (block: Block) => string[];
+  /** Write the user/assistant turns into the build chat (default true). */
+  recordChat?: boolean;
+};
 
+export type GenerateSiteDraftResult = {
+  written: string[];
+  skipped: { name: string; path: string; reason: string }[];
+  version: number;
+  reply: string;
+  siteId: Id<"sites">;
+  /** Provider-reported cost of the accepted call, when known. */
+  costMicrousd: number | null;
+};
+
+/**
+ * The site generator itself: plan pages with the model, checkpoint, write the
+ * valid pages as drafts, snapshot a version. Never publishes or deploys.
+ * The caller has already authorized the build and consumed AI quota. Shared by
+ * `generateSite` (Build chat) and the starter kit.
+ */
+export async function generateSiteDraft(
+  ctx: ActionCtx,
+  options: GenerateSiteDraftOptions,
+): Promise<GenerateSiteDraftResult> {
+  const { build, project, userId, message } = options;
+  const buildId = build._id;
+  const recordChat = options.recordChat ?? true;
+
+  if (recordChat) {
     await ctx.runMutation(internal.buildInternals.insertMessage, {
       buildId,
       projectId: build.projectId,
@@ -557,12 +616,13 @@ export const generateSite = moduleAction("build", {
       content: message,
       mode: "build",
     });
+  }
 
-    // 1. plan pages + sections (validated page by page; one repair turn)
-    let planText: string;
-    try {
-      planText = await complete(ctx, userId, build.projectId, "build.site_generation",
-        `You are MOSAI's site generator. Given the business idea, return ONLY valid JSON:
+  // 1. plan pages + sections (validated page by page; one repair turn)
+  let planResult: ModelGatewayResult;
+  try {
+    planResult = await completeResult(ctx, userId, build.projectId, options.agentId ?? "build.site_generation",
+      `You are MOSAI's site generator. Given the business idea, return ONLY valid JSON:
 {
   "pages": [
     {
@@ -578,12 +638,19 @@ export const generateSite = moduleAction("build", {
 3-${MAX_GENERATED_PAGES} pages, homepage first with path "/". Other paths are lower-case, like "/about" or "/services/web-design". 3-6 semantic sections per page, top to bottom.
 ${blockPropSpec()}
 Rules: specific benefit-led headings, no lorem ipsum, no invented statistics, concrete CTA labels. Every page must use only the block types and props above, with every required prop filled.`,
-        `${await siteContext(ctx, build.projectId, userId)}
+      `${await siteContext(ctx, build.projectId, userId)}
 Idea: ${build.idea ?? message}
-Latest instruction: ${message}`,
-        { temperature: 0.7, maxTokens: 6000, validateOutput: sitePlanValidator() },
-      );
-    } catch (error) {
+Latest instruction: ${message}${options.extraBrief ? `\n${options.extraBrief}` : ""}`,
+      {
+        temperature: 0.7,
+        maxTokens: 6000,
+        validateOutput: sitePlanValidator(options.extraBlockErrors),
+        promptVersion: options.promptVersion,
+        contextSources: options.contextSources,
+      },
+    );
+  } catch (error) {
+    if (recordChat) {
       await ctx.runMutation(internal.buildInternals.insertMessage, {
         buildId,
         projectId: build.projectId,
@@ -593,69 +660,74 @@ Latest instruction: ${message}`,
           : "I couldn't produce a valid site this time, so nothing was changed. Try rephrasing.",
         mode: "build",
       });
-      throw error;
     }
-    const { valid, skipped } = analyzeSitePlan(planText);
-    if (!valid.length) throw new Error("AI produced no valid pages — try rephrasing.");
+    throw error;
+  }
+  const { valid, skipped } = analyzeSitePlan(planResult.text, newBlockId, options.extraBlockErrors);
+  if (!valid.length) throw new Error("AI produced no valid pages — try rephrasing.");
 
-    // 2. checkpoint the current drafts before anything is overwritten
-    await ctx.runMutation(internal.buildInternals.checkpointBeforeAiWrite, {
+  // 2. checkpoint the current drafts before anything is overwritten
+  await ctx.runMutation(internal.buildInternals.checkpointBeforeAiWrite, {
+    projectId: build.projectId,
+    buildId,
+    label: message.slice(0, 60) || "site generation",
+    actingUserId: userId,
+  });
+
+  // 3. materialize the site + the valid pages only (no empty pages)
+  const materialized = (await ctx.runMutation(
+    internal.buildInternals.ensureSiteWithPages,
+    {
       projectId: build.projectId,
-      buildId,
-      label: message.slice(0, 60) || "site generation",
-    });
+      projectName: project.name || build.name,
+      actingUserId: userId,
+      pages: valid.map((page) => ({ name: page.name, path: page.path, goal: page.goal })),
+    },
+  )) as { siteId: Id<"sites">; pages: { path: string; pageId: Id<"cmsPages"> }[] };
+  const pageIdByPath = new Map(materialized.pages.map((page) => [page.path, page.pageId]));
 
-    // 3. materialize the site + the valid pages only (no empty pages)
-    const materialized = (await ctx.runMutation(
-      internal.buildInternals.ensureSiteWithPages,
-      {
-        projectId: build.projectId,
-        projectName: project.name || build.name,
-        pages: valid.map((page) => ({ name: page.name, path: page.path, goal: page.goal })),
-      },
-    )) as { siteId: Id<"sites">; pages: { path: string; pageId: Id<"cmsPages"> }[] };
-    const pageIdByPath = new Map(materialized.pages.map((page) => [page.path, page.pageId]));
-
-    // 4. write each page's draft (sanitized + validated on save)
-    const written: string[] = [];
-    const writtenPaths: string[] = [];
-    for (const page of valid) {
-      const pageId = pageIdByPath.get(page.path);
-      if (!pageId) {
-        skipped.push({ name: page.name, path: page.path, reason: "the page could not be created" });
-        continue;
-      }
-      try {
-        await ctx.runMutation(internal.buildInternals.saveDraftInternal, {
-          pageId,
-          document: { schemaVersion: 1, blocks: page.blocks },
-        });
-        written.push(page.name);
-        writtenPaths.push(page.path);
-      } catch (error) {
-        skipped.push({
-          name: page.name,
-          path: page.path,
-          reason: error instanceof Error ? error.message : "it failed validation on save",
-        });
-      }
+  // 4. write each page's draft (sanitized + validated on save)
+  const written: string[] = [];
+  const writtenPaths: string[] = [];
+  for (const page of valid) {
+    const pageId = pageIdByPath.get(page.path);
+    if (!pageId) {
+      skipped.push({ name: page.name, path: page.path, reason: "the page could not be created" });
+      continue;
     }
-    if (!written.length)
-      throw new Error("AI produced no valid pages — try rephrasing.");
+    try {
+      await ctx.runMutation(internal.buildInternals.saveDraftInternal, {
+        pageId,
+        document: { schemaVersion: 1, blocks: page.blocks },
+      });
+      written.push(page.name);
+      writtenPaths.push(page.path);
+    } catch (error) {
+      skipped.push({
+        name: page.name,
+        path: page.path,
+        reason: error instanceof Error ? error.message : "it failed validation on save",
+      });
+    }
+  }
+  if (!written.length)
+    throw new Error("AI produced no valid pages — try rephrasing.");
 
-    // 5. snapshot the result as a version
-    const version = (await ctx.runMutation(internal.buildInternals.snapshotVersion, {
-      projectId: build.projectId,
-      buildId,
-      label: message.slice(0, 80) || "Initial build",
-    })) as number;
+  // 5. snapshot the result as a version
+  const version = (await ctx.runMutation(internal.buildInternals.snapshotVersion, {
+    projectId: build.projectId,
+    buildId,
+    label: message.slice(0, 80) || "Initial build",
+    actingUserId: userId,
+  })) as number;
 
-    const reply = [
-      `Built ${written.length} page${written.length === 1 ? "" : "s"}: ${written.join(", ")}. The preview on the right is updated — tell me what to change.`,
-      skipped.length
-        ? `Not written (${skipped.length}), because the output failed validation after a repair attempt: ${describeSkipped(skipped)}.`
-        : "",
-    ].filter(Boolean).join(" ");
+  const reply = [
+    `Built ${written.length} page${written.length === 1 ? "" : "s"}: ${written.join(", ")}. The preview on the right is updated — tell me what to change.`,
+    skipped.length
+      ? `Not written (${skipped.length}), because the output failed validation after a repair attempt: ${describeSkipped(skipped)}.`
+      : "",
+  ].filter(Boolean).join(" ");
+  if (recordChat) {
     await ctx.runMutation(internal.buildInternals.insertMessage, {
       buildId,
       projectId: build.projectId,
@@ -664,17 +736,98 @@ Latest instruction: ${message}`,
       mode: "build",
       changedPaths: writtenPaths,
     });
-    await ctx.runMutation(internal.buildInternals.patchBuild, {
-      id: buildId,
-      status: "generated",
-    });
+  }
+  await ctx.runMutation(internal.buildInternals.patchBuild, {
+    id: buildId,
+    status: "generated",
+  });
 
+  return {
+    written,
+    skipped: skipped.map((page) => ({ name: page.name, path: page.path, reason: page.reason })),
+    version,
+    reply,
+    siteId: materialized.siteId,
+    costMicrousd: planResult.usage.costMicrousd,
+  };
+}
+
+export const generateSite = moduleAction("build", {
+  recordArg: "buildId",
+  args: { buildId: v.id("builds"), message: v.string() },
+  handler: async (ctx, { buildId, message }) => {
+    const build = await requireOwnedBuild(ctx, buildId);
+    const userId = await requireActionUser(ctx);
+    await consumeAiQuotaForAction(ctx, userId);
+    const project = (await ctx.runQuery(internal.buildInternals.getProject, {
+      id: build.projectId,
+    })) as Doc<"projects"> | null;
+    if (!project) throw new Error("Not found");
+
+    const result = await generateSiteDraft(ctx, { build, project, userId, message });
     return {
-      written,
-      skipped: skipped.map((page) => ({ name: page.name, path: page.path, reason: page.reason })),
-      version,
-      reply,
+      written: result.written,
+      skipped: result.skipped,
+      version: result.version,
+      reply: result.reply,
     };
+  },
+});
+
+/**
+ * Starter kit (U3) site part. Internal only: the kit job (a default-runtime
+ * action) has already checked `build.edit` for the tenant, the kit budget and
+ * the AI quota. Draft only — this never publishes or deploys. Returns a plain
+ * result instead of throwing, so no provider text reaches the kit's message.
+ */
+export const generateSiteForStarterKit = internalAction({
+  args: {
+    buildId: v.id("builds"),
+    userId: v.id("users"),
+    extraBrief: v.string(),
+  },
+  handler: async (
+    ctx,
+    { buildId, userId, extraBrief },
+  ): Promise<
+    | { ok: true; written: number; skipped: number; siteId: Id<"sites">; costMicrousd: number | null }
+    | { ok: false; errorCode: string; message: string }
+  > => {
+    const build = (await ctx.runQuery(internal.buildInternals.getBuild, {
+      id: buildId,
+    })) as Doc<"builds"> | null;
+    const project = build
+      ? ((await ctx.runQuery(internal.guards.projectAccessForAction, {
+          projectId: build.projectId,
+          userId,
+        })) as Doc<"projects"> | null)
+      : null;
+    if (!build || !project || build.kind !== "website") {
+      return { ok: false, errorCode: "not_found", message: "We could not find your website draft." };
+    }
+    try {
+      const result = await generateSiteDraft(ctx, {
+        build,
+        project,
+        userId,
+        message: "Draft a starter website for this business",
+        agentId: "starter_kit.site",
+        promptVersion: "v1",
+        contextSources: ["starter_kit.project", "build.context"],
+        extraBrief,
+        extraBlockErrors: starterLinkErrors,
+        recordChat: false,
+      });
+      return {
+        ok: true,
+        written: result.written.length,
+        skipped: result.skipped.length,
+        siteId: result.siteId,
+        costMicrousd: result.costMicrousd,
+      };
+    } catch (error) {
+      return { ok: false, ...starterKitFailure(error, isAiBudgetReached) };
+    }
   },
 });
 

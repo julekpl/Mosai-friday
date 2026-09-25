@@ -18,8 +18,14 @@ export type WebsiteBusinessDetails = {
   footerExcerpt?: string;
 };
 
+/** A public picture address found on the owner's page (U5). Data only:
+ *  nothing is fetched at scan time; an import later goes through
+ *  `safeFetchBytes`. */
+export type WebsiteImage = { url: string; alt?: string; pageUrl?: string };
+
 export type WebsitePageExtraction = WebsitePageFinding & {
   internalLinks: Array<{ url: string; label: string }>;
+  images: WebsiteImage[];
   socialChannels: string[];
   businessDetails: WebsiteBusinessDetails;
 };
@@ -237,8 +243,87 @@ function collectJsonLd(value: unknown, facts: {
   Object.values(node).forEach((child) => collectJsonLd(child, facts));
 }
 
+export const MAX_SCAN_IMAGES = 12;
+
+/** Absolute https address of a picture, or null for data:, http:, .svg,
+ *  credentialed or unparsable addresses. */
+export function normalizeImageUrl(raw: string, pageUrl: string): string | null {
+  const value = raw.trim();
+  if (!value || /^data:/i.test(value)) return null;
+  try {
+    const url = new URL(value, pageUrl);
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    if (/\.svgz?$/i.test(url.pathname)) return null;
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** The best candidate of a `srcset`: the largest width (`w`) or density
+ *  (`x`) descriptor; the first entry when none is given. */
+export function bestSrcsetCandidate(srcset: string): string | null {
+  let best: { url: string; score: number } | null = null;
+  for (const part of srcset.split(",")) {
+    const [candidate, descriptor = ""] = part.trim().split(/\s+/, 2);
+    if (!candidate) continue;
+    const match = descriptor.match(/^(\d+(?:\.\d+)?)([wx])$/i);
+    const score = match ? Number(match[1]) * (match[2].toLowerCase() === "x" ? 1_000 : 1) : 0;
+    if (!best || score > best.score) best = { url: candidate, score };
+  }
+  return best?.url ?? null;
+}
+
+function isTrackingPixel(width: string | undefined, height: string | undefined): boolean {
+  const tiny = (value: string | undefined) => {
+    if (value === undefined) return false;
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) && n <= 2;
+  };
+  return tiny(width) || tiny(height);
+}
+
+/** og:image first, then `<img>` (srcset best candidate, else src), unique,
+ *  at most `MAX_SCAN_IMAGES`. */
+export function extractPageImages($: cheerio.CheerioAPI, pageUrl: string): WebsiteImage[] {
+  const images: WebsiteImage[] = [];
+  const add = (raw: string | undefined, alt?: string) => {
+    if (!raw || images.length >= MAX_SCAN_IMAGES) return;
+    const url = normalizeImageUrl(raw, pageUrl);
+    if (!url || images.some((image) => image.url === url)) return;
+    const cleanAlt = alt ? cleanText(alt, 200) : "";
+    images.push({ url, ...(cleanAlt ? { alt: cleanAlt } : {}), pageUrl });
+  };
+  const ogAlt = $('meta[property="og:image:alt"]').first().attr("content");
+  $('meta[property="og:image"], meta[property="og:image:secure_url"], meta[name="og:image"]').each((_, element) => {
+    add($(element).attr("content"), ogAlt);
+  });
+  $("img").each((_, element) => {
+    const img = $(element);
+    if (isTrackingPixel(img.attr("width"), img.attr("height"))) return;
+    const srcset = img.attr("srcset") ?? img.attr("data-srcset");
+    const fromSet = srcset ? bestSrcsetCandidate(srcset) : null;
+    add(fromSet ?? img.attr("src") ?? img.attr("data-src"), img.attr("alt"));
+  });
+  return images;
+}
+
+/** Merge per-page image lists, unique by address, capped. */
+export function mergeScanImages(lists: WebsiteImage[][]): WebsiteImage[] {
+  const out: WebsiteImage[] = [];
+  for (const list of lists) {
+    for (const image of list) {
+      if (out.length >= MAX_SCAN_IMAGES) return out;
+      if (!out.some((existing) => existing.url === image.url)) out.push(image);
+    }
+  }
+  return out;
+}
+
 export function extractWebsitePage(html: string, url: string): WebsitePageExtraction {
   const $ = cheerio.load(html);
+  const images = extractPageImages($, url);
   const title = cleanText($("head title").first().text(), 180) || undefined;
   const description = cleanText(
     $('meta[name="description"], meta[property="og:description"]').first().attr("content") ?? "",
@@ -310,6 +395,7 @@ export function extractWebsitePage(html: string, url: string): WebsitePageExtrac
     productsServices,
     excerpt: cleanText(mainText, 1_800),
     internalLinks: internalLinks.slice(0, 150),
+    images,
     socialChannels,
     businessDetails: facts.businessDetails,
   };
