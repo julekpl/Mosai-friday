@@ -68,6 +68,10 @@ you think it means?" Then write down the word.
 These are the places the build review flagged as most likely to fail. Watch them
 before anything else:
 
+0. **Finding the kit on a phone.** At 320 px the kit cards sit below Overview's
+   existing header (four "0" tiles such as "Audience profiles" and "Verified
+   connections", and the word "workspace"). Do owners scroll down to their kit, or
+   read the zeros as "nothing happened"? (Backlog U4b.)
 1. **Q2 "Where can we read about it?"** It is one field for a website *or* a Google
    listing. Do owners understand that a listing only counts if they pick it from
    the suggestions? A typed name that nobody picks is ignored.

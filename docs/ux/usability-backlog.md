@@ -23,7 +23,7 @@ proven with real owners (U12).
 | U1 | Research inputs: redacted interview + analytics summary in `docs/ux/research/`; baseline funnel numbers | owner | S | blocked (owner, strategy Q1) |
 | U2 | Three-question wizard | — | M | **code done**, PR #14 · unit + e2e (3 screens, keyboard, axe at 320 px) pass; not yet used by real owners (U12) |
 | U3 | Starter-kit job (`starterKits` table, state machine, registry) | U2 · strategy Q2 for gating | L | **code done**, PR #12 (table) + #15 (job) · 17 job tests incl. cross-tenant; per-kit AI budget (US$0.40) awaits owner confirmation |
-| U4 | Kit screen on Home (three cards, five states, live region) | U3 | M | in progress |
+| U4 | Kit screen on Home (three cards, five states, live region) | U3 | M | **code done**, PR #20 · 10 unit + 6 e2e (all five states, live region, draft vs live, 320 px, axe); the wizard now starts the kit |
 | U5 | Posts with pictures (owner photos, then Pexels with cache) | U3 · Q7 | M | **code done**, PR #16 (adapter, `safeFetchBytes`) + #18 (U5b, wired into the kit) · needs `PEXELS_API_KEY` on the deployment |
 | U6 | "This week" Home + outcome-ordered next step | U4 | M | **code done**, PR #17 · 22 unit tests; contact step is checklist-only until U6b; no browser test of the card with a live site yet |
 | U7 | "Since you were away" | U6 | S | **code done**, PR #19 · 10 tests (receipt-backed only); no browser test of a returning visit yet |
@@ -34,6 +34,7 @@ proven with real owners (U12).
 | U12 | Moderated usability test, 5 owners, after U4 | U4 | S | script ready ([`u12-usability-test-script.md`](u12-usability-test-script.md)); sessions not run (owner) |
 | U5b | Pictures in the kit's posts and the `starterKit.content` query (U3 × U5 integration) | U3 · U5 | S | **code done**, PR #18 · 9 tests incl. per-user limit reuse |
 | U6b | Contact details in Edit project (phone, email, booking link), restoring "add a way to be contacted" as a real next step and "Book" on the website | U6 | S | not started (found in U6 review) |
+| U4b | Kit follow-ups from review: (1) put the kit above Overview's header in kit mode (at 320 px it sits below four "0" tiles, method words and "workspace"); (2) a "start your kit" entry on Home when a project has none; (3) a server mutation to mark the plan "Looks right" without inventing profile data | U4 | S | not started |
 
 ---
 
