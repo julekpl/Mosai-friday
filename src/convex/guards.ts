@@ -18,6 +18,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import { roleCan, type OrgCapability, type OrgRole } from "./lib/roles";
 import { businessBriefLines } from "./lib/businessProfile";
+import { brandBriefLines, type ActiveMessage, type BrandUse } from "./lib/brandProfile";
 import {
   isPlatformAdminEmail,
   normalizeEmail,
@@ -1186,6 +1187,9 @@ type ContextPackRequest = {
   buildId?: Id<"builds">;
   pageId?: Id<"buildPages">;
   includeAllEntities?: boolean;
+  /** Which area is asking, so the owner's Brand switches apply. Omitted means
+   *  the brand agents themselves ("all"). */
+  brandUse?: BrandUse | "all";
 };
 
 /** Load the saved inputs for a content draft after checking its project access.
@@ -1229,6 +1233,8 @@ function buildContextPack(
     build?: Doc<"builds">;
     page?: Doc<"buildPages">;
     providerMetrics?: ProviderMetricRow[];
+    activeMessages?: ActiveMessage[];
+    brandUse?: BrandUse | "all";
   },
 ): ContextPack {
   const files = input.files.slice(0, 8);
@@ -1520,7 +1526,13 @@ function buildContextPack(
   return {
     projectId: project._id,
     builtAt: Date.now(),
-    businessBrief: businessBriefLines(project).map((line) => line.slice(0, 1_000)),
+    // The brand kit and active campaign messages ride on the business brief,
+    // so every agent that reads the brief (content, social, website and app
+    // builders, Sell) writes in the owner's voice without extra wiring.
+    businessBrief: [
+      ...businessBriefLines(project),
+      ...brandBriefLines(project.brandProfile, input.activeMessages ?? [], input.brandUse ?? "all", project.brandUse),
+    ].map((line) => line.slice(0, 1_000)),
     products: visibleProducts,
     personas: visiblePersonas,
     journeys: visibleJourneys,
@@ -1589,6 +1601,19 @@ async function loadContextPack(
     // Grow's synced Google metrics (bounded snapshot) — provider data only
     // exists after a verified server-side sync.
     const providerMetrics = await ctx.db.query("googleTopItems").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(120);
+    // Active marketing communications (Create module) are campaign messages
+    // every agent may use; drafts and archived ones are never sent.
+    const communications = await ctx.db.query("communications").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(50);
+    const activeMessages: ActiveMessage[] = communications
+      .filter((row) => row.status === "active")
+      .slice(0, 5)
+      .map((row) => ({
+        name: row.name.slice(0, 120),
+        message: row.message.slice(0, 400),
+        audience: row.audience?.slice(0, 160),
+        proofPoints: row.proofPoints?.slice(0, 5),
+        callToAction: row.callToAction,
+      }));
     return buildContextPack(project, {
       files,
       personas: [...selectedPersonas.values()],
@@ -1604,6 +1629,8 @@ async function loadContextPack(
       build: build ?? undefined,
       page: page ?? undefined,
       providerMetrics,
+      activeMessages,
+      brandUse: args.brandUse,
     });
 }
 
@@ -1616,6 +1643,16 @@ export const contextPackForAction = internalQuery({
     buildId: v.optional(v.id("builds")),
     pageId: v.optional(v.id("buildPages")),
     includeAllEntities: v.optional(v.boolean()),
+    brandUse: v.optional(
+      v.union(
+        v.literal("content"),
+        v.literal("social"),
+        v.literal("website"),
+        v.literal("shop"),
+        v.literal("research"),
+        v.literal("all"),
+      ),
+    ),
   },
   handler: loadContextPack,
 });

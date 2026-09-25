@@ -1,0 +1,1 @@
+import{j as a}from"./framer-motion-D8D9qFxL.js";import{a as o}from"./index-CC-Y4i7L.js";function m({className:e,...n}){return a.jsx("div",{"data-slot":"skeleton","aria-hidden":"true",className:o("bg-accent rounded-md animate-mosaic-shimmer dark:bg-none dark:animate-pulse motion-reduce:animate-none motion-reduce:bg-none",e),...n})}export{m as S};

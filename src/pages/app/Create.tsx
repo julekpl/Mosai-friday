@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import { BrandUseChip } from "@/components/app/brand/BrandUse";
 import { ConfirmDelete, ModuleEmpty, StatusBadge } from "@/components/app/module-kit";
 import { ContentEditor, type AiEditRequest } from "@/components/app/ContentEditor";
 import { SourcesPanel } from "@/components/app/create/SourcesPanel";
@@ -120,7 +121,9 @@ export default function Create({ projectId }: { projectId: Id<"projects"> }) {
         icon={PenTool}
         title="Create"
         subtitle="Map content gaps per persona × journey stage → research topics → write with AI in a collaborative editor"
-      />
+      >
+        <BrandUseChip projectId={projectId} use="content" />
+      </ModuleHeader>
       <Tabs value={tab} onValueChange={setTab} className="gap-4">
         <TabsList>
           <TabsTrigger value="gaps" className="font-mono text-caption">

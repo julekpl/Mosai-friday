@@ -39,6 +39,29 @@ const project = {
     status: "ai_draft",
     updatedAt: now,
   },
+  brandProfile: {
+    positioning:
+      "For home brewers who notice stale coffee, Northwind is the local roaster that ships within 48 hours of roasting, unlike supermarket beans that sit in warehouses for months.",
+    alternatives: ["supermarket beans", "national subscription services"],
+    promise: "Coffee that tastes the way the farmer intended",
+    pillars: [
+      { title: "Roasted to order", message: "Every bag is roasted within 48 hours of your order.", proofPoints: ["Roasting on Harbour Street since 2016"] },
+      { title: "Traceable sourcing", message: "You know the farm behind every bag.", proofPoints: [] },
+    ],
+    personality: ["Warm", "Knowledgeable", "Unpretentious"],
+    voice: { formality: 4, humor: 3, respect: 2, enthusiasm: 4 },
+    writeLike: ["Talk like a barista to a regular"],
+    neverLike: ["Wine-critic tasting-note jargon without explanation"],
+    preferredWords: ["fresh", "farm"],
+    avoidWords: ["premium", "artisanal"],
+    colors: { primary: "#6b3e26", accent: "#e0a458", dark: "#1c1917", light: "#fbf8f3" },
+    headingFont: "Fraunces",
+    bodyFont: "Inter",
+    imageryStyle: ["Real roastery photos in natural light"],
+    shape: "soft",
+    status: "ai_draft",
+    updatedAt: now,
+  },
 };
 
 const MODULES = ["understand", "journeys", "create", "build", "customers", "promote", "sell", "grow"];
@@ -103,7 +126,11 @@ const backendData = {
       audience: "home brewers",
       channels: ["email", "instagram", "website"],
       rationale: "Freshness is the most-cited reason for choosing a local roaster.",
-      status: "draft",
+      proofPoints: ["Roasting on Harbour Street since 2016"],
+      desiredResponse: { think: "This is fresher than supermarket coffee", feel: "Looked after", do: "Start a subscription" },
+      callToAction: "Start your subscription",
+      pillar: "Roasted to order",
+      status: "active",
     },
   ],
 };
@@ -190,7 +217,7 @@ for (const width of [320, 375, 414]) {
     await main.getByRole("button", { name: /edit project/i }).first().click();
     const sheet = page.getByRole("dialog", { name: "Edit project" });
     await expect(sheet).toBeVisible();
-    for (const tab of ["Your business", "Customers", "Details"]) {
+    for (const tab of ["Your business", "Customers", "Brand", "Details"]) {
       await sheet.getByRole("tab", { name: tab }).click();
       await expect(sheet.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
       await settle(page);
@@ -209,3 +236,40 @@ for (const width of [320, 375, 414]) {
     expect(dialogOverflow.offenders, dialogOverflow.offenders.join("\n")).toEqual([]);
   });
 }
+
+test("the Brand tab: keyboard voice scales, presets, readability repair and module switches", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(`/app/${PROJECT_ID}?edit=brand`);
+  const sheet = page.getByRole("dialog", { name: "Edit project" });
+  await expect(sheet.getByRole("tab", { name: "Brand" })).toHaveAttribute("aria-selected", "true");
+
+  // Every text field offers AI help; key messages can be suggested.
+  await expect(sheet.getByRole("button", { name: /improve brand promise with ai/i })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: /suggest more/i })).toBeVisible();
+
+  // Voice scales are radio groups that follow the arrow keys, with a live example.
+  const formality = sheet.getByRole("radiogroup", { name: /formal ↔ casual/i });
+  await expect(formality.getByRole("radio", { checked: true })).toHaveAccessibleName("Quite casual");
+  await formality.getByRole("radio", { checked: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(formality.getByRole("radio", { checked: true })).toHaveAccessibleName("Very casual");
+  await expect(sheet.getByText("Got it, thanks! Talk tomorrow.")).toBeVisible();
+
+  // A personality preset sets all four scales at once.
+  await sheet.getByRole("button", { name: /trusted expert/i }).click();
+  await expect(sheet.getByRole("button", { name: /trusted expert/i })).toHaveAttribute("aria-pressed", "true");
+  await expect(formality.getByRole("radio", { checked: true })).toHaveAccessibleName("Quite formal");
+
+  // The fixture accent fails 3:1; one tap repairs it.
+  const readability = sheet.getByRole("region", { name: "Readability check" });
+  await expect(readability.getByText(/too faint/)).toBeVisible();
+  await readability.getByRole("button", { name: /fix it for me/i }).click();
+  await expect(readability.getByText("All colours readable")).toBeVisible();
+
+  // Font pairings are recommended from the brand's personality and voice.
+  await expect(sheet.getByText(/Fits: /).first()).toBeVisible();
+
+  // Where AI uses the brand: research is off by default, the rest on.
+  await expect(sheet.getByRole("switch", { name: /customer research/i })).not.toBeChecked();
+  await expect(sheet.getByRole("switch", { name: /content and messages/i })).toBeChecked();
+});

@@ -29,6 +29,7 @@ const STATUS_TONE = {
   connected: "green",
   fresh: "green",
   approved: "green",
+  used_by_ai: "green",
   done: "green",
   paused: "amber",
   error: "red",

@@ -88,7 +88,7 @@ async function siteContext(
   projectId: Id<"projects">,
   userId: Id<"users">,
 ): Promise<string> {
-  const pack = await actionContextPack(ctx, { projectId, userId, includeAllEntities: true });
+  const pack = await actionContextPack(ctx, { projectId, userId, includeAllEntities: true, brandUse: "website" });
   const personas = pack.personas.slice(0, 4).map((persona) =>
     `- ${persona.name}${persona.role ? ` (${persona.role})` : ""}${persona.goals?.length ? `; wants: ${persona.goals.join("; ")}` : ""}${persona.pains?.length ? `; struggles with: ${persona.pains.join("; ")}` : ""}${persona.objections?.length ? `; objections: ${persona.objections.join("; ")}` : ""}`,
   );

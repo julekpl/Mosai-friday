@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import { BrandUseChip } from "@/components/app/brand/BrandUse";
 import {
   ConfirmDelete,
   ModuleEmpty,
@@ -581,7 +582,8 @@ export default function Promote({ projectId }: { projectId: Id<"projects"> }) {
         title="Promote"
         subtitle="Campaigns and social publishing — AI drafts, you approve, receipts are real"
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <BrandUseChip projectId={projectId} use="social" />
           <Button variant="outline" onClick={() => setOpenAi(true)}>
             <Sparkles className="size-4" /> AI variants
           </Button>
