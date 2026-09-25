@@ -111,6 +111,7 @@ import type * as social_credentials from "../social/credentials.js";
 import type * as social_executor from "../social/executor.js";
 import type * as social_oauth from "../social/oauth.js";
 import type * as social_platforms from "../social/platforms.js";
+import type * as starterKit from "../starterKit.js";
 import type * as storefront from "../storefront.js";
 import type * as users from "../users.js";
 import type * as variants from "../variants.js";
@@ -225,6 +226,7 @@ declare const fullApi: ApiFromModules<{
   "social/executor": typeof social_executor;
   "social/oauth": typeof social_oauth;
   "social/platforms": typeof social_platforms;
+  starterKit: typeof starterKit;
   storefront: typeof storefront;
   users: typeof users;
   variants: typeof variants;
