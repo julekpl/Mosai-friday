@@ -1,8 +1,9 @@
 "use node";
 
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, type ActionCtx } from "./_generated/server";
 import { consumeAiQuotaForAction, requireActionUser } from "./guards";
+import { reserveProviderCallForAction } from "./lib/providerUsage";
 
 /* ── Universal content-research hub ───────────────────────────────────────
  *
@@ -30,7 +31,7 @@ export type ResearchHit = {
 };
 
 export type SourceStatus = "ok" | "empty" | "needs_setup" | "rate_limited" | "failed";
-export type SourceErrorCategory = "timeout" | "rate_limit" | "network" | "authentication" | "access_denied" | "provider_error" | "invalid_response";
+export type SourceErrorCategory = "timeout" | "rate_limit" | "network" | "authentication" | "access_denied" | "provider_error" | "invalid_response" | "ceiling";
 export type ResearchSource = {
   provider: string;
   status: SourceStatus;
@@ -165,8 +166,17 @@ async function researchGdlt(query: string): Promise<ResearchHit[]> {
     }));
 }
 
-async function researchYoutube(query: string, serpKey?: string): Promise<ResearchHit[]> {
+/** LQ-1: every SerpApi-backed collector reserves against the platform
+ *  monthly ceiling before its fetch; at the ceiling the source degrades to
+ *  `needs_setup`, never a silently empty or fake result. */
+async function reserveSerpApiOrThrow(ctx: ActionCtx): Promise<void> {
+  const reserved = await reserveProviderCallForAction(ctx, "serpapi");
+  if (!reserved) throw new SourceRequestError("ceiling");
+}
+
+async function researchYoutube(ctx: ActionCtx, query: string, serpKey?: string): Promise<ResearchHit[]> {
   if (!serpKey) throw new SourceRequestError("provider_error");
+  await reserveSerpApiOrThrow(ctx);
   const params = new URLSearchParams({
       engine: "youtube",
       search_query: query,
@@ -207,9 +217,11 @@ async function researchNewsApi(query: string, key: string): Promise<ResearchHit[
 }
 
 async function serpSearch(
+  ctx: ActionCtx,
   params: Record<string, string>,
   key: string,
 ): Promise<Array<Record<string, unknown>>> {
+  await reserveSerpApiOrThrow(ctx);
   const sp = new URLSearchParams({ ...params, api_key: key });
   const data = await fetchJson<{
     news_results?: Array<Record<string, unknown>>;
@@ -227,7 +239,8 @@ async function serpSearch(
 }
 
 /** Google Trends via SerpApi: related rising queries = demand signal. */
-async function researchTrends(query: string, key: string): Promise<ResearchHit[]> {
+async function researchTrends(ctx: ActionCtx, query: string, key: string): Promise<ResearchHit[]> {
+  await reserveSerpApiOrThrow(ctx);
   const sp = new URLSearchParams({
     engine: "google_trends",
     data_type: "RELATED_QUERIES",
@@ -310,15 +323,16 @@ export const researchTopic = action({
       { provider: "wikipedia", configured: true, collect: () => researchWikimedia("en.wikipedia.org", "wikipedia", q) },
       { provider: "wikibooks", configured: true, collect: () => researchWikimedia("en.wikibooks.org", "wikibooks", q) },
       { provider: "gdlt", configured: true, collect: () => researchGdlt(q) },
-      { provider: "youtube", configured: Boolean(serpKey), collect: () => researchYoutube(q, serpKey) },
+      { provider: "youtube", configured: Boolean(serpKey), collect: () => researchYoutube(ctx, q, serpKey) },
       { provider: "google_books", configured: true, collect: () => researchGoogleBooks(q) },
       { provider: "newsapi", configured: Boolean(newsKey), collect: () => newsKey ? researchNewsApi(q, newsKey) : Promise.resolve([]) },
-      { provider: "trends", configured: Boolean(serpKey), collect: () => serpKey ? researchTrends(q, serpKey) : Promise.resolve([]) },
+      { provider: "trends", configured: Boolean(serpKey), collect: () => serpKey ? researchTrends(ctx, q, serpKey) : Promise.resolve([]) },
       {
         provider: "local_news",
         configured: Boolean(serpKey),
         collect: () => serpKey
           ? serpSearch(
+            ctx,
             {
               engine: "google",
               tbm: "nws",
@@ -341,7 +355,7 @@ export const researchTopic = action({
         provider: "serp_news",
         configured: Boolean(serpKey),
         collect: () => serpKey
-          ? serpSearch({ engine: "google_news", q }, serpKey)
+          ? serpSearch(ctx, { engine: "google_news", q }, serpKey)
             .then((rs) =>
               rs.slice(0, 4).map((r) => ({
                 source: "serp_news",
@@ -371,9 +385,11 @@ export const researchTopic = action({
           };
         } catch (error) {
           const category = error instanceof SourceRequestError ? error.category : "provider_error";
+          const status: SourceStatus =
+            category === "rate_limit" ? "rate_limited" : category === "ceiling" ? "needs_setup" : "failed";
           return {
             provider,
-            status: category === "rate_limit" ? "rate_limited" : "failed",
+            status,
             hits: [],
             retrievedAt: Date.now(),
             errorCategory: category,

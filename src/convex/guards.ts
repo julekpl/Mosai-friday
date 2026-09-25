@@ -1743,6 +1743,52 @@ export const consumeLookupQuota = internalMutation({
   },
 });
 
+const SERPAPI_DAILY_KIND = "serpapi_daily";
+const SERPAPI_DAILY_WINDOW_MS = 24 * 60 * 60_000;
+
+function serpApiDailyCap(): number {
+  const raw = process.env.SERPAPI_USER_DAILY_CAP;
+  if (!raw) return 10;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10;
+}
+
+/**
+ * LQ-1 / audit A5: the 10-minute `google_maps` window (60 calls) still lets
+ * one account drain the whole platform month. This adds a per-user daily
+ * cap (default 10, env `SERPAPI_USER_DAILY_CAP`) on top of it, reusing the
+ * `lookupRateLimits` table under a distinct kind and a day-long window.
+ */
+export const consumeSerpApiDailyQuota = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const limit = serpApiDailyCap();
+    const windowStart =
+      Math.floor(Date.now() / SERPAPI_DAILY_WINDOW_MS) * SERPAPI_DAILY_WINDOW_MS;
+    const bucket = await ctx.db
+      .query("lookupRateLimits")
+      .withIndex("by_user_kind_window", (q) =>
+        q.eq("userId", userId).eq("kind", SERPAPI_DAILY_KIND).eq("windowStart", windowStart),
+      )
+      .unique();
+    if (bucket) {
+      if (bucket.count >= limit) {
+        throw new Error("Too many business searches today — try again tomorrow or type your details instead.");
+      }
+      await ctx.db.patch(bucket._id, { count: bucket.count + 1 });
+      return;
+    }
+    await ctx.db.insert("lookupRateLimits", { userId, kind: SERPAPI_DAILY_KIND, windowStart, count: 1 });
+    const stale = await ctx.db
+      .query("lookupRateLimits")
+      .withIndex("by_user_kind_window", (q) =>
+        q.eq("userId", userId).eq("kind", SERPAPI_DAILY_KIND).lt("windowStart", windowStart - 7 * SERPAPI_DAILY_WINDOW_MS),
+      )
+      .collect();
+    for (const row of stale) await ctx.db.delete(row._id);
+  },
+});
+
 /** Action-side quota gate. Call it AFTER the project is authorized (so a
  *  foreign caller's refused request writes nothing) and BEFORE the provider
  *  call (so a runaway loop is stopped before it costs money). */

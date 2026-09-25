@@ -1,13 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useAction } from "convex/react";
-import { Check } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { displayDomain } from "@/lib/url";
 import { classifySource } from "@/components/app/wizard/classifySource";
 import type { BusinessSearchState, BusinessSuggestion } from "@/components/app/wizard/types";
+
+// LQ-1: shown at the platform SerpApi ceiling (or the per-user daily cap).
+// The server throws `GOOGLE_MAPS_CEILING_MESSAGE` (scraping.ts) for both;
+// this only needs to recognize it, not match it byte for byte.
+const CEILING_MESSAGE = "Business search is resting for now, type your details instead.";
+function isCeilingError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("resting for now");
+}
 
 /**
  * Q2 "What is it called?" (required) and one optional field for a website or
@@ -47,9 +56,11 @@ export function NameQuestion({
   const classified = classifySource(source);
   const listingQuery = classified.kind === "listing" ? classified.query : "";
 
-  useEffect(() => {
+  // LQ-1: search is explicit, never on typing — each search is a paid
+  // SerpApi call. The owner presses the button; typing only ever updates
+  // `source` and clears any stale results.
+  const runSearch = () => {
     if (listingQuery.length < 3 || selectedBusiness) return;
-    let current = true;
     const cacheKey = listingQuery.toLowerCase();
     const cached = cache.current.get(cacheKey);
     if (cached) {
@@ -58,27 +69,19 @@ export function NameQuestion({
       setSearchState(cached.length ? "results" : "empty");
       return;
     }
-    const timeout = window.setTimeout(() => {
-      setSearchState("loading");
-      void suggestGmb({ query: listingQuery }).then((found) => {
-        // Every search is a paid lookup: never repeat one the user already ran.
-        cache.current.set(cacheKey, found);
-        if (!current) return;
-        setSuggestions(found);
-        setActiveIndex(-1);
-        setSearchState(found.length ? "results" : "empty");
-      }).catch(() => {
-        if (!current) return;
-        setSuggestions([]);
-        setActiveIndex(-1);
-        setSearchState("error");
-      });
-    }, 700);
-    return () => {
-      current = false;
-      window.clearTimeout(timeout);
-    };
-  }, [listingQuery, selectedBusiness, suggestGmb]);
+    setSearchState("loading");
+    void suggestGmb({ query: listingQuery }).then((found) => {
+      // Every search is a paid lookup: never repeat one the user already ran.
+      cache.current.set(cacheKey, found);
+      setSuggestions(found);
+      setActiveIndex(-1);
+      setSearchState(found.length ? "results" : "empty");
+    }).catch((error) => {
+      setSuggestions([]);
+      setActiveIndex(-1);
+      setSearchState(isCeilingError(error) ? "resting" : "error");
+    });
+  };
 
   const closeSuggestions = () => {
     setSuggestions([]);
@@ -127,40 +130,54 @@ export function NameQuestion({
         <Label htmlFor="np-source">
           Where can we read about it? <span className="font-normal text-muted-foreground">(website or Google listing, optional)</span>
         </Label>
-        <Input
-          id="np-source"
-          value={source}
-          onChange={(event) => {
-            onSourceChange(event.target.value);
-            onSelectBusiness(null);
-            closeSuggestions();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" && suggestions.length) {
-              event.preventDefault();
-              setActiveIndex((index) => Math.min(index + 1, suggestions.length - 1));
-            } else if (event.key === "ArrowUp" && suggestions.length) {
-              event.preventDefault();
-              setActiveIndex((index) => Math.max(index - 1, 0));
-            } else if (event.key === "Enter" && activeIndex >= 0 && suggestions[activeIndex]) {
-              event.preventDefault();
-              pick(suggestions[activeIndex]);
-            } else if (event.key === "Escape" && suggestions.length) {
+        <div className="flex gap-2">
+          <Input
+            id="np-source"
+            value={source}
+            onChange={(event) => {
+              onSourceChange(event.target.value);
+              onSelectBusiness(null);
               closeSuggestions();
-            } else {
-              enterMovesOn(event);
-            }
-          }}
-          placeholder="yourbusiness.com or Northside Coffee, Bristol"
-          className="h-12"
-          autoComplete="off"
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={suggestions.length > 0}
-          aria-controls="np-source-suggestions"
-          aria-activedescendant={activeIndex >= 0 ? `np-source-suggestion-${activeIndex}` : undefined}
-          aria-describedby="np-source-help np-source-status"
-        />
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" && suggestions.length) {
+                event.preventDefault();
+                setActiveIndex((index) => Math.min(index + 1, suggestions.length - 1));
+              } else if (event.key === "ArrowUp" && suggestions.length) {
+                event.preventDefault();
+                setActiveIndex((index) => Math.max(index - 1, 0));
+              } else if (event.key === "Enter" && activeIndex >= 0 && suggestions[activeIndex]) {
+                event.preventDefault();
+                pick(suggestions[activeIndex]);
+              } else if (event.key === "Escape" && suggestions.length) {
+                closeSuggestions();
+              } else {
+                enterMovesOn(event);
+              }
+            }}
+            placeholder="yourbusiness.com or Northside Coffee, Bristol"
+            className="h-12"
+            autoComplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={suggestions.length > 0}
+            aria-controls="np-source-suggestions"
+            aria-activedescendant={activeIndex >= 0 ? `np-source-suggestion-${activeIndex}` : undefined}
+            aria-describedby="np-source-help np-source-status"
+          />
+          {classified.kind === "listing" && !selectedBusiness && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 shrink-0 gap-2"
+              disabled={listingQuery.length < 3 || searchState === "loading"}
+              onClick={runSearch}
+            >
+              <Search className="size-4" aria-hidden="true" />
+              Search Google for my listing
+            </Button>
+          )}
+        </div>
         <p id="np-source-help" className="font-mono text-caption text-muted-foreground">
           {forClient
             ? "We read your client’s public pages to learn their services, photos and style. Nothing is posted anywhere."
@@ -172,6 +189,7 @@ export function NameQuestion({
           {classified.kind === "listing" && !selectedBusiness && searchState === "results" && (forClient ? "Pick your client’s business from the list so we use the right one." : "Pick your business from the list so we use the right one.")}
           {classified.kind === "listing" && !selectedBusiness && searchState === "empty" && "No matching listing found. Try adding your town, or leave this empty."}
           {classified.kind === "listing" && !selectedBusiness && searchState === "error" && "We couldn’t search Google listings just now. You can continue without it."}
+          {classified.kind === "listing" && !selectedBusiness && searchState === "resting" && CEILING_MESSAGE}
         </div>
         {selectedBusiness && (
           <p className="flex items-start gap-2 rounded-md border border-terminal-green/30 bg-terminal-green-soft p-3 font-mono text-caption">

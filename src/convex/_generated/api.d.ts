@@ -77,6 +77,7 @@ import type * as lib_modelGateway from "../lib/modelGateway.js";
 import type * as lib_oauthBaseUrl from "../lib/oauthBaseUrl.js";
 import type * as lib_pexels from "../lib/pexels.js";
 import type * as lib_platformAdmin from "../lib/platformAdmin.js";
+import type * as lib_providerUsage from "../lib/providerUsage.js";
 import type * as lib_publicSites from "../lib/publicSites.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_safeFetch from "../lib/safeFetch.js";
@@ -199,6 +200,7 @@ declare const fullApi: ApiFromModules<{
   "lib/oauthBaseUrl": typeof lib_oauthBaseUrl;
   "lib/pexels": typeof lib_pexels;
   "lib/platformAdmin": typeof lib_platformAdmin;
+  "lib/providerUsage": typeof lib_providerUsage;
   "lib/publicSites": typeof lib_publicSites;
   "lib/roles": typeof lib_roles;
   "lib/safeFetch": typeof lib_safeFetch;

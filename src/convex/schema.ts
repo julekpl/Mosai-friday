@@ -2227,6 +2227,19 @@ const schema = defineSchema(
       .index("by_organization", ["organizationId", "period"])
       .index("by_user", ["userId", "period"])
       .index("by_scope_period", ["scope", "period"]),
+
+    // LQ-1: platform-wide monthly ceiling for paid lookup providers.
+    // One row per (kind, UTC month "2026-09"). Written solely by the
+    // internal `providerUsage.reserveProviderCall` mutation, which every
+    // SerpApi and Pexels caller runs before its provider fetch. Never
+    // project- or user-scoped: this caps total platform spend, not one
+    // tenant's usage (that is `lookupRateLimits`).
+    providerUsageRollups: defineTable({
+      kind: v.union(v.literal("serpapi"), v.literal("pexels")),
+      period: v.string(), // "2026-09", UTC month
+      count: v.number(),
+      updatedAt: v.number(),
+    }).index("by_kind_period", ["kind", "period"]),
   },
   {
     schemaValidation: false,
