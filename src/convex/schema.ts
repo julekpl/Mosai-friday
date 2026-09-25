@@ -3,6 +3,12 @@ import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
 import { orgRoleValidator } from "./lib/roles";
 import {
+  businessTypeValidator,
+  primaryGoalValidator,
+  starterKitPartValidator,
+  starterKitStatusValidator,
+} from "../shared/starterKit";
+import {
   compositionValidator,
   videoAssetKindValidator,
   videoAssetSourceValidator,
@@ -291,6 +297,11 @@ const schema = defineSchema(
       // The owner's own marketing problems ("high ad costs"). Kept apart from
       // customerPains so they never become the audience's problems in prompts.
       marketingChallenges: v.optional(v.array(v.string())),
+      // First-run answers (docs/ux/first-run-blueprint.md §2, U2): Q1 "What
+      // kind of business?" and Q3 "What do you want most right now?". They
+      // set defaults (main website button, post topics, plan focus) only.
+      businessType: v.optional(businessTypeValidator),
+      primaryGoal: v.optional(primaryGoalValidator),
       // The project's chosen AI model (one of the operator-enabled aiModels).
       aiModelId: v.optional(v.string()),
       // The reviewed "what this business is" statement every AI prompt is
@@ -1358,6 +1369,39 @@ const schema = defineSchema(
       adsCustomerId: v.optional(v.string()),
       adsCustomerName: v.optional(v.string()),
     }).index("by_project", ["projectId"]),
+
+    // The first-run starter kit (docs/ux/first-run-blueprint.md §4, U3): one
+    // job per project that drafts a plan, a website and a week of posts.
+    // Standard job states (AGENTS.md rule 13) with a status per part, so one
+    // part can fail alone and "Try again" resumes only the failed parts.
+    // Nothing the kit writes is published, scheduled or sent (rule 5).
+    starterKits: defineTable({
+      projectId: v.id("projects"),
+      organizationId: v.optional(v.id("organizations")),
+      requestedBy: v.id("users"),
+      // One kit per project: the key is the project id.
+      idempotencyKey: v.string(),
+      status: starterKitStatusValidator,
+      parts: v.object({
+        plan: starterKitPartValidator,
+        site: starterKitPartValidator,
+        posts: starterKitPartValidator,
+      }),
+      attempts: v.number(),
+      // Hard AI cost cap for the whole kit, in integer micro-USD (rule 7),
+      // and what the kit's aiRuns have spent so far.
+      budgetMicrousd: v.number(),
+      spentMicrousd: v.number(),
+      budgetCurrency: v.literal("USD"),
+      // The owner closed the kit cards on Home.
+      dismissedAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      startedAt: v.optional(v.number()),
+      finishedAt: v.optional(v.number()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_idempotency", ["idempotencyKey"]),
 
     // One sync job (AGENTS.md rule 13 states). Each source records its own
     // outcome; errors are plain-language plus an enum-like provider code.

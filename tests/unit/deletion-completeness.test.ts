@@ -436,6 +436,26 @@ const fixtures: Fixture[] = [
     }),
   },
   {
+    table: "starterKits",
+    doc: (s) => ({
+      projectId: s.projectId,
+      requestedBy: s.userId,
+      idempotencyKey: String(s.projectId),
+      status: "partially_succeeded",
+      parts: {
+        plan: { status: "succeeded", outputs: [], attempts: 1, updatedAt: at },
+        site: { status: "failed", errorCode: "ai_budget", outputs: [], attempts: 1, updatedAt: at },
+        posts: { status: "succeeded", outputs: [], attempts: 1, updatedAt: at },
+      },
+      attempts: 1,
+      budgetMicrousd: 500_000,
+      spentMicrousd: 120_000,
+      budgetCurrency: "USD",
+      createdAt: at,
+      updatedAt: at,
+    }),
+  },
+  {
     table: "googleMetricsDaily",
     doc: (s) => ({
       projectId: s.projectId,
