@@ -300,6 +300,17 @@ const schema = defineSchema(
       // The brand kit every AI feature writes and designs with
       // (lib/brandProfile.ts). Same ai_draft -> confirmed lifecycle.
       brandProfile: v.optional(brandProfileValidator),
+      // Where the brand kit and active marketing messages are applied
+      // (lib/brandProfile.ts BRAND_USES). Missing keys use DEFAULT_BRAND_USE.
+      brandUse: v.optional(
+        v.object({
+          content: v.optional(v.boolean()),
+          social: v.optional(v.boolean()),
+          website: v.optional(v.boolean()),
+          shop: v.optional(v.boolean()),
+          research: v.optional(v.boolean()),
+        }),
+      ),
       // The organization this project belongs to (T2.1). Optional only so the
       // migration can backfill pre-organization projects; every project
       // created after T2.1 is written with its owner's personal organization.

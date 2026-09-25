@@ -236,3 +236,40 @@ for (const width of [320, 375, 414]) {
     expect(dialogOverflow.offenders, dialogOverflow.offenders.join("\n")).toEqual([]);
   });
 }
+
+test("the Brand tab: keyboard voice scales, presets, readability repair and module switches", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(`/app/${PROJECT_ID}?edit=brand`);
+  const sheet = page.getByRole("dialog", { name: "Edit project" });
+  await expect(sheet.getByRole("tab", { name: "Brand" })).toHaveAttribute("aria-selected", "true");
+
+  // Every text field offers AI help; key messages can be suggested.
+  await expect(sheet.getByRole("button", { name: /improve brand promise with ai/i })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: /suggest more/i })).toBeVisible();
+
+  // Voice scales are radio groups that follow the arrow keys, with a live example.
+  const formality = sheet.getByRole("radiogroup", { name: /formal ↔ casual/i });
+  await expect(formality.getByRole("radio", { checked: true })).toHaveAccessibleName("Quite casual");
+  await formality.getByRole("radio", { checked: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(formality.getByRole("radio", { checked: true })).toHaveAccessibleName("Very casual");
+  await expect(sheet.getByText("Got it, thanks! Talk tomorrow.")).toBeVisible();
+
+  // A personality preset sets all four scales at once.
+  await sheet.getByRole("button", { name: /trusted expert/i }).click();
+  await expect(sheet.getByRole("button", { name: /trusted expert/i })).toHaveAttribute("aria-pressed", "true");
+  await expect(formality.getByRole("radio", { checked: true })).toHaveAccessibleName("Quite formal");
+
+  // The fixture accent fails 3:1; one tap repairs it.
+  const readability = sheet.getByRole("region", { name: "Readability check" });
+  await expect(readability.getByText(/too faint/)).toBeVisible();
+  await readability.getByRole("button", { name: /fix it for me/i }).click();
+  await expect(readability.getByText("All colours readable")).toBeVisible();
+
+  // Font pairings are recommended from the brand's personality and voice.
+  await expect(sheet.getByText(/Fits: /).first()).toBeVisible();
+
+  // Where AI uses the brand: research is off by default, the rest on.
+  await expect(sheet.getByRole("switch", { name: /customer research/i })).not.toBeChecked();
+  await expect(sheet.getByRole("switch", { name: /content and messages/i })).toBeChecked();
+});

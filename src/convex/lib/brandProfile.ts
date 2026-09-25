@@ -404,10 +404,40 @@ function joined(items: string[] | undefined): string {
  * Returns an empty list when there is neither a kit nor an active message,
  * so projects without a brand keep today's prompts.
  */
+/* ── Where the brand applies ──────────────────────────────────────────── */
+
+/** Areas of MOSAI an owner can switch the brand on or off for. `all` is used
+ *  by the brand agents themselves, which always need the kit. */
+export const BRAND_USES = ["content", "social", "website", "shop", "research"] as const;
+export type BrandUse = (typeof BRAND_USES)[number];
+export type BrandUseSettings = Record<BrandUse, boolean>;
+
+/** Research (personas, journeys, business summary) is off by default so
+ *  customer research stays neutral instead of echoing the brand's own claims. */
+export const DEFAULT_BRAND_USE: BrandUseSettings = {
+  content: true,
+  social: true,
+  website: true,
+  shop: true,
+  research: false,
+};
+
+export function brandApplies(settings: Partial<BrandUseSettings> | undefined, use: BrandUse | "all"): boolean {
+  if (use === "all") return true;
+  return settings?.[use] ?? DEFAULT_BRAND_USE[use];
+}
+
+/** Colours, fonts and imagery only matter where something is designed. */
+const VISUAL_USES: ReadonlySet<BrandUse | "all"> = new Set(["website", "social", "all"]);
+
 export function brandBriefLines(
   brand: StoredBrandProfile | undefined,
   activeMessages: ActiveMessage[] = [],
+  use: BrandUse | "all" = "all",
+  settings?: Partial<BrandUseSettings>,
 ): string[] {
+  if (!brandApplies(settings, use)) return [];
+  const visual = VISUAL_USES.has(use);
   const lines: string[] = [];
   if (brand) {
     lines.push(
@@ -432,8 +462,8 @@ export function brandBriefLines(
       joined(brand.preferredWords) ? `Preferred words: ${joined(brand.preferredWords)}` : "",
       joined(brand.avoidWords) ? `Words to avoid: ${joined(brand.avoidWords)}` : "",
       brand.language ? `Language and spelling: ${brand.language}` : "",
-      visualLine(brand),
-      joined(brand.imageryStyle) ? `Imagery style: ${joined(brand.imageryStyle)}` : "",
+      visual ? visualLine(brand) : "",
+      visual && joined(brand.imageryStyle) ? `Imagery style: ${joined(brand.imageryStyle)}` : "",
     );
   }
   if (activeMessages.length) {

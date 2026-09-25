@@ -362,6 +362,26 @@ export const brandProfileForAction = internalQuery({
   },
 });
 
+/** The owner chooses which areas of MOSAI use the brand (Brand tab switches).
+ *  Stored apart from the kit so an AI redraft never resets it. */
+export const setBrandUse = orgMutation({
+  args: {
+    id: v.id("projects"),
+    use: v.union(
+      v.literal("content"),
+      v.literal("social"),
+      v.literal("website"),
+      v.literal("shop"),
+      v.literal("research"),
+    ),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, { id, use, enabled }, access) => {
+    const { project } = await access.requireProject(id);
+    await ctx.db.patch(id, { brandUse: { ...project.brandUse, [use]: enabled } });
+  },
+});
+
 /** The owner edits and (optionally) confirms the brand kit. */
 export const saveBrandProfile = orgMutation({
   args: {

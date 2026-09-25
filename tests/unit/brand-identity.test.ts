@@ -151,7 +151,7 @@ describe("deterministic voice check", () => {
 });
 
 describe("the brand and active messages reach every AI agent", () => {
-  it("persona generation sees the brand kit and active messages, not drafts", async () => {
+  it("content generation sees the brand kit and active messages, not drafts", async () => {
     const t = newBackend();
     const owner = await seedUser(t, { plan: "starter" });
     const projectId = await owner.as.mutation(api.projects.create, { name: "Studio Forma", industry: "Architecture" });
@@ -165,8 +165,8 @@ describe("the brand and active messages reach every AI agent", () => {
     await owner.as.mutation(api.communications.update, { id: active, status: "active" });
     await owner.as.mutation(api.communications.create, { projectId, name: "Unreviewed idea", message: "Secret draft line." });
 
-    stubCompletionContent(JSON.stringify({ name: "Anna", role: "Homeowner", goals: [], pains: [], objections: [], channels: [], evidence: "x" }));
-    await owner.as.action(api.ai.generatePersona, { projectId });
+    stubCompletionContent(JSON.stringify({ gaps: [{ title: "Extension costs", severity: "high" }] }));
+    await owner.as.action(api.ai.detectContentGaps, { projectId });
 
     const call = completionCalls.at(-1);
     const system = call?.messages.find((m) => m.role === "system")?.content ?? "";

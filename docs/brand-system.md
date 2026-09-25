@@ -62,12 +62,64 @@ swatches. Each marketing communication now has a **Used by AI** switch
   instructions. Every function checks project access, and the cross-tenant tests
   cover the new functions.
 
+## Round 2 (25 Sep 2026): AI on every field, visual controls, per-module switches
+
+**Simple on the surface**
+
+- **AI on every text field.** "Write with AI" (empty) / "Improve" (filled) opens
+  three options, with one-tap requests (Shorter, Simpler, Bolder, Warmer, More
+  specific) or a free-text ask. Nothing is saved until the owner picks and saves.
+- **Key messages with AI.** "Suggest key messages" proposes 3–4 pillars tied to
+  the promise; each has Improve buttons and **Find proof in my website**
+  (evidence-only, low temperature, empty rather than invented).
+- **Starter chips** for personality, write-like/never-like, avoid-words and
+  imagery, plus "Suggest" (AI, specific to the business) on every chip list.
+- **Voice.** Six personality presets set all four scales at once. Each scale is a
+  five-stop track (an ARIA radio group with arrow keys) with the current setting
+  named ("Quite casual") and a live example sentence for that point.
+- **Look.** Visual corner choices; a live mini-page preview in the brand's
+  colours, fonts and corners; eight mood palettes; "Build a palette from your
+  main colour" (contrasting / harmonious / vibrant / one colour); "Suggest
+  palettes for my business" (AI); fine-tuning tucked behind a disclosure.
+- **Readability check** covers colours and fonts: **Fix it for me** darkens only
+  the failing colours (hue kept), and font advice flags display faces used for
+  body text and gives the WCAG 1.4.12 spacing guidance.
+- **Fonts** are recommended from personality, voice and corners (with the
+  reasons shown), previewed in the real typefaces, and "Ask AI for more
+  pairings" adds three more.
+- **Where AI uses your brand**: one switch per area (Content, Social, Website
+  and app, Product copy, Customer research). Each module header shows a chip
+  ("Brand on" / "Brand off here" / "No brand yet") linking back to the switch.
+
+**Powerful underneath**
+
+- `lib/brandDesign.ts` (pure): HSL palette generation, `fixReadability`
+  (lightness-only repair to 4.5:1 text and 3:1 accent), `cleanPalette` for AI
+  output, `recommendFonts` (owner-picked traits weigh 3, voice-inferred 2,
+  shape bonus), `fontAdvice`, `googleFontsHref` (plain family names only).
+- `projects.brandUse` + `projects.setBrandUse`. `brandBriefLines(..., use,
+  settings)` returns nothing for a switched-off area (active messages
+  included). Colours, fonts and imagery go only to website and social prompts.
+  **Customer research is off by default** so personas and journeys stay
+  neutral instead of echoing the brand's own claims.
+- Every `actionContextPack` call names its area: Create → content, Promote →
+  social, Build (site chat, plan, page drafts, app builder) → website, Sell →
+  shop, Understand/Journeys → research; brand agents use `all`.
+- The app builder now applies brand colours (Tailwind arbitrary values), Google
+  fonts (one `@import` in `src/index.css`) and corner style when the website
+  area is on.
+- `ai.brandAssist` (agent `brand.assistant`): one action for text options, list
+  suggestions, key messages, palettes (contrast-repaired) and font pairings
+  (plain names only). The current value and the owner's request are labelled
+  user data.
+
 ## Agents
 
 | Agent id | Job | Autonomy |
 |---|---|---|
 | `brand.identity_strategist` | Draft the whole kit from the brief and evidence | assistive (owner confirms) |
 | `brand.voice_reviewer` | Score copy, quote problems, rewrite on-brand | assistive |
+| `brand.assistant` | Draft or improve any brand field; palettes; font pairings; evidence-only proof | assistive (owner picks) |
 | `create.communication_generation` | One creative brief per message (upgraded) | assistive |
 
 ## Open question for the owner (AGENTS.md §7)

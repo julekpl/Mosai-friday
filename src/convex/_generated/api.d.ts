@@ -62,6 +62,7 @@ import type * as lib_aiBudget from "../lib/aiBudget.js";
 import type * as lib_aiModelCatalog from "../lib/aiModelCatalog.js";
 import type * as lib_billingCatalog from "../lib/billingCatalog.js";
 import type * as lib_billingReconcile from "../lib/billingReconcile.js";
+import type * as lib_brandDesign from "../lib/brandDesign.js";
 import type * as lib_brandProfile from "../lib/brandProfile.js";
 import type * as lib_businessProfile from "../lib/businessProfile.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
@@ -175,6 +176,7 @@ declare const fullApi: ApiFromModules<{
   "lib/aiModelCatalog": typeof lib_aiModelCatalog;
   "lib/billingCatalog": typeof lib_billingCatalog;
   "lib/billingReconcile": typeof lib_billingReconcile;
+  "lib/brandDesign": typeof lib_brandDesign;
   "lib/brandProfile": typeof lib_brandProfile;
   "lib/businessProfile": typeof lib_businessProfile;
   "lib/capabilities": typeof lib_capabilities;

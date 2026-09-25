@@ -93,7 +93,7 @@ export const generateDescription = moduleAction("sell", {
     // project's AI budget. The business context below is then loaded
     // SERVER-side from the database (T0.4) — never trusted from the client.
     const userId = await requireActionUser(ctx);
-    const project = await actionContextPack(ctx, { projectId: args.projectId, userId });
+    const project = await actionContextPack(ctx, { projectId: args.projectId, userId, brandUse: "shop" });
     await consumeAiQuotaForAction(ctx, userId);
 
     if (args.mode === "fill_missing") {
@@ -165,7 +165,7 @@ export const generateSeo = action({
     const userId = await requireActionUser(ctx);
     // T0.4: business context comes from the database for a project the
     // caller can reach — "Not found" for a foreign project id.
-    const project = await actionContextPack(ctx, { projectId: args.projectId, userId });
+    const project = await actionContextPack(ctx, { projectId: args.projectId, userId, brandUse: "shop" });
     await consumeAiQuotaForAction(ctx, userId);
     if (args.currentSeoTitle?.trim() && args.currentSeoDescription?.trim()) {
       throw new Error("SEO fields already filled — nothing to generate.");

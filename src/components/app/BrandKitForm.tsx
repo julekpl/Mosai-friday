@@ -1,38 +1,32 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useAction, useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Check, Download, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
-  COLOR_ROLES,
+  BRAND_USES,
   DEFAULT_VOICE,
   VOICE_DIMENSIONS,
-  VOICE_LABELS,
-  brandContrastChecks,
-  brandDesignTokens,
-  normalizeHex,
+  brandApplies,
+  describeVoice,
   type BrandProfile,
-  type ColorRole,
+  type BrandShape,
   type MessagePillar,
-  type VoiceDimension,
 } from "@/convex/lib/brandProfile";
-import { ChipInput } from "@/components/app/ChipInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { AiTextAssist, ChipField } from "@/components/app/brand/AiAssist";
+import { BrandUseSettings } from "@/components/app/brand/BrandUse";
+import { BRAND_USE_COPY } from "@/components/app/brand/brandUseCopy";
+import { errorText, useBrandAssist } from "@/components/app/brand/useBrandAssist";
+import { LookControls } from "@/components/app/brand/LookControls";
+import { VoicePresets, VoiceScaleControl } from "@/components/app/brand/VoiceControls";
 
 type Project = Doc<"projects">;
 type StoredBrand = NonNullable<Project["brandProfile"]>;
@@ -53,19 +47,14 @@ const EMPTY_BRAND: BrandProfile = {
   imageryStyle: [],
 };
 
-const COLOR_HELP: Record<ColorRole, string> = {
-  primary: "Main colour — buttons, links, highlights",
-  secondary: "Supporting colour — panels and sections",
-  accent: "Small pops — icons, badges",
-  dark: "Text colour",
-  light: "Page background",
-};
-
-const FONT_SUGGESTIONS = [
-  "Inter", "Roboto", "Open Sans", "Lato", "Source Sans 3", "Work Sans", "DM Sans",
-  "Manrope", "Poppins", "Montserrat", "Playfair Display", "Merriweather", "Lora",
-  "Fraunces", "Space Grotesk", "IBM Plex Sans",
-];
+/** Starter ideas: one tap adds them; the owner edits freely afterwards. */
+const STARTERS = {
+  personality: ["Warm", "Friendly", "Expert", "Trustworthy", "Bold", "Playful", "Calm", "Honest", "Premium", "Down-to-earth", "Innovative", "Caring", "Confident", "Straightforward", "Energetic", "Thoughtful"],
+  writeLike: ["Short sentences", "Plain words a customer uses", "Talk to “you”, not “customers”", "Lead with the benefit", "Specific numbers over adjectives", "Explain any jargon"],
+  neverLike: ["Jargon without explanation", "Hype and superlatives", "Pushy sales talk", "Stiff corporate voice", "Walls of text", "Fake urgency"],
+  avoidWords: ["cheap", "world-class", "revolutionary", "cutting-edge", "synergy", "best-in-class", "hassle-free"],
+  imageryStyle: ["Real photos of our work", "Natural light", "People using the product", "No generic stock photos", "Bright and airy", "Warm and moody", "Clean flat illustrations", "Close-up details"],
+} as const;
 
 function editable(brand: StoredBrand | undefined): BrandProfile {
   if (!brand) return EMPTY_BRAND;
@@ -94,10 +83,6 @@ function editable(brand: StoredBrand | undefined): BrandProfile {
   };
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message.replace(/^.*Uncaught Error:\s*/s, "").split("\n")[0] : "Try again.";
-}
-
 function Field({ id, label, help, children }: { id: string; label: string; help?: string; children: ReactNode }) {
   return (
     <div className="grid gap-1.5">
@@ -112,13 +97,62 @@ function Field({ id, label, help, children }: { id: string; label: string; help?
   );
 }
 
-function Group({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
+function Group({ step, title, intro, children }: { step?: string; title: string; intro: string; children: ReactNode }) {
   return (
-    <fieldset className="grid min-w-0 gap-4 rounded-md border p-4">
-      <legend className="px-1 font-mono text-small font-medium">{title}</legend>
+    <fieldset className="grid min-w-0 grid-cols-1 gap-4 rounded-lg border p-4">
+      <legend className="flex items-center gap-2 px-1 font-mono text-small font-medium">
+        {step ? (
+          <span className="grid size-6 place-items-center rounded-full bg-terminal-green-soft font-mono text-caption text-terminal-green-ink" aria-hidden="true">
+            {step}
+          </span>
+        ) : null}
+        {title}
+      </legend>
       <p className="-mt-2 font-mono text-caption text-muted-foreground">{intro}</p>
       {children}
     </fieldset>
+  );
+}
+
+/** A text field with "Write with AI" / "Improve" beside its label. */
+function AiTextField({
+  project,
+  id,
+  label,
+  help,
+  field,
+  value,
+  onChange,
+  related,
+  multiline,
+  maxLength,
+  placeholder,
+}: {
+  project: Project;
+  id: string;
+  label: string;
+  help?: string;
+  field: Parameters<typeof AiTextAssist>[0]["field"];
+  value: string;
+  onChange: (value: string) => void;
+  related?: string;
+  multiline?: boolean;
+  maxLength: number;
+  placeholder?: string;
+}) {
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-1">
+        <Label htmlFor={id}>{label}</Label>
+        <AiTextAssist projectId={project._id} field={field} value={value} related={related} label={label.toLowerCase()} onPick={onChange} />
+      </div>
+      {help ? <p id={`${id}-help`} className="font-mono text-caption text-muted-foreground">{help}</p> : null}
+      {multiline ? (
+        <Textarea id={id} aria-describedby={help ? `${id}-help` : undefined} value={value} onChange={(e) => onChange(e.target.value)} rows={3} maxLength={maxLength} placeholder={placeholder} />
+      ) : (
+        <Input id={id} aria-describedby={help ? `${id}-help` : undefined} value={value} onChange={(e) => onChange(e.target.value)} maxLength={maxLength} placeholder={placeholder} />
+      )}
+    </div>
   );
 }
 
@@ -142,9 +176,10 @@ export function BrandStatus({ brand }: { brand: StoredBrand | undefined }) {
 }
 
 /**
- * Edit project → Brand. One page, three plain-language groups (what you say,
- * how you sound, how you look) plus a copy checker. Behind it: a messaging
- * house, NN/g tone dimensions, WCAG contrast checks and a DTCG token export.
+ * Edit project → Brand. Plain-language groups (what you say, how you sound,
+ * how you look, where it's used) with AI help on every field. Behind it: a
+ * messaging house, NN/g tone dimensions, WCAG contrast repair, font pairing
+ * rules and a DTCG token export.
  */
 export function BrandKitForm({ project }: { project: Project }) {
   const uid = useId();
@@ -173,7 +208,7 @@ export function BrandKitForm({ project }: { project: Project }) {
     try {
       await save({ id: project._id, profile: form, confirm });
       setDirty(false);
-      toast.success(confirm ? "Brand confirmed — every AI writer now uses it" : "Saved");
+      toast.success(confirm ? "Brand confirmed — AI now writes with it" : "Saved");
     } catch (error) {
       toast.error("Couldn’t save", { description: errorText(error) });
     } finally {
@@ -199,6 +234,7 @@ export function BrandKitForm({ project }: { project: Project }) {
   };
 
   const hasBrand = Boolean(project.brandProfile);
+  const usedIn = BRAND_USES.filter((use) => brandApplies(project.brandUse, use)).map((use) => BRAND_USE_COPY[use].module);
 
   return (
     <div className="grid grid-cols-1 gap-5">
@@ -206,7 +242,7 @@ export function BrandKitForm({ project }: { project: Project }) {
         <div className="grid gap-1">
           <p className="font-mono text-small font-medium">Your brand</p>
           <p className="font-mono text-caption text-muted-foreground">
-            What you say, how you sound and how you look. Content, posts, your website and product copy all follow it.
+            What you say, how you sound and how you look. Used by AI in: {usedIn.length ? usedIn.join(", ") : "nowhere yet"}.
           </p>
         </div>
         <BrandStatus brand={project.brandProfile} />
@@ -236,11 +272,25 @@ export function BrandKitForm({ project }: { project: Project }) {
 
       {hasBrand || manual ? (
         <>
-          <MessagingGroup uid={uid} form={form} set={set} />
-          <VoiceGroup uid={uid} form={form} set={set} />
-          <LookGroup uid={uid} form={form} set={set} projectName={project.name} />
+          <MessagingGroup uid={uid} project={project} form={form} set={set} />
+          <VoiceGroup uid={uid} project={project} form={form} set={set} />
+          <Group step="3" title="How you look" intro="Colours, fonts and imagery. Everything is checked so it stays readable for everyone.">
+            <ShapePicker value={form.shape} onChange={(shape) => set("shape", shape)} />
+            <LookControls uid={uid} projectId={project._id} projectName={project.name} form={form} set={set} />
+            <ChipField
+              projectId={project._id}
+              id={`${uid}-imagery`}
+              label="Photo and image style"
+              help="Guides image choices and AI image prompts."
+              field="imageryStyle"
+              values={form.imageryStyle}
+              onChange={(v) => set("imageryStyle", v)}
+              max={5}
+              starters={STARTERS.imageryStyle}
+            />
+          </Group>
 
-          <div className="flex flex-wrap gap-2 border-t pt-4">
+          <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap gap-2 border-t bg-background/95 px-1 py-3 backdrop-blur">
             <Button onClick={() => submit(true)} disabled={busy !== null}>
               {busy === "confirm" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
               Save and confirm
@@ -257,58 +307,141 @@ export function BrandKitForm({ project }: { project: Project }) {
           {hasBrand ? <BrandChecker project={project} /> : null}
         </>
       ) : null}
+
+      <Group step={hasBrand || manual ? "4" : undefined} title="Where AI uses your brand" intro="Switch it off for any area where you want AI to write without it. Changes apply straight away.">
+        <BrandUseSettings project={project} />
+      </Group>
     </div>
   );
 }
 
 type GroupProps = {
   uid: string;
+  project: Project;
   form: BrandProfile;
   set: <K extends keyof BrandProfile>(key: K, value: BrandProfile[K]) => void;
 };
 
 /* ── What you say: positioning and the messaging house ───────────────────── */
 
-function MessagingGroup({ uid, form, set }: GroupProps) {
+function MessagingGroup({ uid, project, form, set }: GroupProps) {
+  const pillarsAi = useBrandAssist(project._id);
+  const [suggested, setSuggested] = useState<MessagePillar[]>([]);
   const setPillar = (index: number, patch: Partial<MessagePillar>) =>
     set("pillars", form.pillars.map((pillar, i) => (i === index ? { ...pillar, ...patch } : pillar)));
+  const suggestPillars = async () => {
+    const result = await pillarsAi.run({
+      field: "pillars",
+      related: [form.promise && `Promise: ${form.promise}`, ...form.pillars.map((p) => `Existing key message: ${p.title}: ${p.message}`)].filter(Boolean).join("\n") || undefined,
+    });
+    if (result?.kind === "pillars") setSuggested(result.pillars);
+  };
+  const taken = new Set(form.pillars.map((pillar) => pillar.title.toLowerCase()));
 
   return (
-    <Group title="What you say" intro="One promise, a few key messages, and the proof behind them.">
-      <Field id={`${uid}-promise`} label="Brand promise" help="The one thing customers can always count on. Short enough to remember.">
-        <Input
-          id={`${uid}-promise`}
-          aria-describedby={`${uid}-promise-help`}
-          value={form.promise}
-          onChange={(e) => set("promise", e.target.value)}
-          maxLength={400}
-          placeholder="e.g. A home designed around your family, on budget"
-        />
-      </Field>
-      <Field id={`${uid}-positioning`} label="Why you, not someone else" help="Who it’s for, what you do better than their alternatives.">
-        <Textarea
-          id={`${uid}-positioning`}
-          aria-describedby={`${uid}-positioning-help`}
-          value={form.positioning}
-          onChange={(e) => set("positioning", e.target.value)}
-          rows={3}
-          maxLength={400}
-        />
-      </Field>
+    <Group step="1" title="What you say" intro="One promise, a few key messages, and the proof behind them. AI can draft or improve every line.">
+      <AiTextField
+        project={project}
+        id={`${uid}-promise`}
+        label="Brand promise"
+        help="The one thing customers can always count on. Short enough to remember."
+        field="promise"
+        value={form.promise}
+        onChange={(v) => set("promise", v)}
+        related={form.positioning || undefined}
+        maxLength={400}
+        placeholder="e.g. A home designed around your family, on budget"
+      />
+      <AiTextField
+        project={project}
+        id={`${uid}-positioning`}
+        label="Why you, not someone else"
+        help="Who it’s for, and what you do better than their alternatives."
+        field="positioning"
+        value={form.positioning}
+        onChange={(v) => set("positioning", v)}
+        related={form.promise || undefined}
+        multiline
+        maxLength={400}
+      />
 
       <div className="grid gap-3">
-        <p className="text-sm font-medium">Key messages</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium">Key messages</p>
+          <Button type="button" size="sm" variant="outline" onClick={suggestPillars} disabled={pillarsAi.busy}>
+            {pillarsAi.busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
+            {form.pillars.length ? "Suggest more" : "Suggest key messages"}
+          </Button>
+        </div>
+        <p className="-mt-2 font-mono text-caption text-muted-foreground">
+          2–4 reasons to believe your promise. Each one becomes a theme for posts, pages and emails.
+        </p>
+
+        <div aria-live="polite" className="grid gap-2">
+          {pillarsAi.error ? <p className="font-mono text-caption text-terminal-red" role="alert">{pillarsAi.error}</p> : null}
+          {suggested.filter((pillar) => !taken.has(pillar.title.toLowerCase())).map((pillar) => (
+            <div key={pillar.title} className="grid gap-1.5 rounded-md border border-dashed border-terminal-green/50 bg-terminal-green-soft/40 p-3">
+              <p className="font-mono text-small font-medium">{pillar.title}</p>
+              <p className="text-sm">{pillar.message}</p>
+              {pillar.proofPoints.length ? (
+                <p className="font-mono text-caption text-muted-foreground">Proof found: {pillar.proofPoints.join("; ")}</p>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="h-7 w-fit"
+                disabled={form.pillars.length >= 4}
+                onClick={() => set("pillars", [...form.pillars, pillar])}
+              >
+                <Plus className="size-3.5" aria-hidden="true" /> {form.pillars.length >= 4 ? "Four is the maximum" : "Add this message"}
+              </Button>
+            </div>
+          ))}
+        </div>
+
         {form.pillars.map((pillar, index) => (
-          <div key={index} className="grid gap-2 rounded-md border bg-card p-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor={`${uid}-pillar-${index}`} className="sr-only">Key message {index + 1} title</Label>
-              <Input
-                id={`${uid}-pillar-${index}`}
-                value={pillar.title}
-                onChange={(e) => setPillar(index, { title: e.target.value })}
-                placeholder="Short title, e.g. Fixed fees"
-                maxLength={120}
-              />
+          <div key={index} className="grid min-w-0 gap-3 rounded-lg border bg-card p-3">
+            <div className="flex items-start gap-2">
+              <span className="mt-2 grid size-6 shrink-0 place-items-center rounded-full border font-mono text-caption" aria-hidden="true">{index + 1}</span>
+              <div className="grid min-w-0 flex-1 gap-3">
+                <AiTextField
+                  project={project}
+                  id={`${uid}-pillar-${index}`}
+                  label={`Key message ${index + 1} title`}
+                  field="pillarTitle"
+                  value={pillar.title}
+                  onChange={(v) => setPillar(index, { title: v })}
+                  related={pillar.message || undefined}
+                  maxLength={120}
+                  placeholder="Short title, e.g. Fixed fees"
+                />
+                <AiTextField
+                  project={project}
+                  id={`${uid}-pillar-${index}-msg`}
+                  label="Message"
+                  field="pillarMessage"
+                  value={pillar.message}
+                  onChange={(v) => setPillar(index, { message: v })}
+                  related={[pillar.title && `Title: ${pillar.title}`, form.promise && `Promise: ${form.promise}`].filter(Boolean).join("; ") || undefined}
+                  multiline
+                  maxLength={400}
+                  placeholder="The message, in one or two sentences"
+                />
+                <ChipField
+                  projectId={project._id}
+                  id={`${uid}-pillar-${index}-proof`}
+                  label="Proof"
+                  help="Facts only. AI never claims more than this."
+                  field="proofPoints"
+                  aiLabel="Find proof in my website"
+                  values={pillar.proofPoints}
+                  onChange={(v) => setPillar(index, { proofPoints: v })}
+                  max={4}
+                  related={`${pillar.title}: ${pillar.message}`}
+                  placeholder="e.g. 120 homes designed since 2012"
+                />
+              </div>
               <Button
                 size="icon-sm"
                 variant="ghost"
@@ -318,104 +451,91 @@ function MessagingGroup({ uid, form, set }: GroupProps) {
                 <X className="size-3.5" aria-hidden="true" />
               </Button>
             </div>
-            <Label htmlFor={`${uid}-pillar-${index}-msg`} className="sr-only">Key message {index + 1}</Label>
-            <Textarea
-              id={`${uid}-pillar-${index}-msg`}
-              value={pillar.message}
-              onChange={(e) => setPillar(index, { message: e.target.value })}
-              rows={2}
-              maxLength={400}
-              placeholder="The message, in one or two sentences"
-            />
-            <Label htmlFor={`${uid}-pillar-${index}-proof`} className="font-mono text-caption text-muted-foreground">
-              Proof (facts only — AI never claims more than this)
-            </Label>
-            <ChipInput
-              id={`${uid}-pillar-${index}-proof`}
-              values={pillar.proofPoints}
-              onChange={(v) => setPillar(index, { proofPoints: v })}
-              maxItems={4}
-              placeholder="e.g. 120 homes designed since 2012"
-            />
           </div>
         ))}
         {form.pillars.length < 4 ? (
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             className="w-fit"
             onClick={() => set("pillars", [...form.pillars, { title: "", message: "", proofPoints: [] }])}
           >
-            Add a key message
+            <Plus className="size-4" aria-hidden="true" /> Write one myself
           </Button>
         ) : null}
       </div>
 
-      <Field id={`${uid}-tagline`} label="Tagline (optional)">
-        <Input id={`${uid}-tagline`} value={form.tagline ?? ""} onChange={(e) => set("tagline", e.target.value || undefined)} maxLength={120} />
-      </Field>
+      <AiTextField
+        project={project}
+        id={`${uid}-tagline`}
+        label="Tagline (optional)"
+        field="tagline"
+        value={form.tagline ?? ""}
+        onChange={(v) => set("tagline", v || undefined)}
+        related={form.promise || undefined}
+        maxLength={120}
+      />
+      <AiTextField
+        project={project}
+        id={`${uid}-pitch`}
+        label="Elevator pitch (optional)"
+        help="How you’d describe the business in 20 seconds."
+        field="elevatorPitch"
+        value={form.elevatorPitch ?? ""}
+        onChange={(v) => set("elevatorPitch", v || undefined)}
+        related={form.promise || undefined}
+        multiline
+        maxLength={600}
+      />
     </Group>
   );
 }
 
-/* ── How you sound: NN/g tone dimensions + concrete rules ────────────────── */
+/* ── How you sound: presets, NN/g tone scales with examples, word rules ──── */
 
-function VoiceGroup({ uid, form, set }: GroupProps) {
-  const setVoice = (dimension: VoiceDimension, value: string) => {
-    const n = Number(value);
-    if (n >= 1 && n <= 5) set("voice", { ...form.voice, [dimension]: n });
-  };
+function VoiceGroup({ uid, project, form, set }: GroupProps) {
   return (
-    <Group title="How you sound" intro="Your voice stays the same everywhere; AI adjusts only the tone to the channel.">
-      {VOICE_DIMENSIONS.map((dimension) => {
-        const { low, high } = VOICE_LABELS[dimension];
-        const labelId = `${uid}-voice-${dimension}`;
-        return (
-          <div key={dimension} className="grid gap-1.5">
-            <p id={labelId} className="text-sm font-medium">{low} or {high.toLowerCase()}?</p>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              aria-labelledby={labelId}
-              value={String(form.voice[dimension])}
-              onValueChange={(value) => setVoice(dimension, value)}
-              className="w-full sm:w-80"
-            >
-              {[1, 2, 3, 4, 5].map((step) => (
-                <ToggleGroupItem
-                  key={step}
-                  value={String(step)}
-                  aria-label={step === 1 ? `Very ${low.toLowerCase()}` : step === 5 ? `Very ${high.toLowerCase()}` : step === 3 ? "Balanced" : step < 3 ? low : high}
-                  className="flex-1"
-                >
-                  {step}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <div className="flex w-full justify-between font-mono text-caption text-muted-foreground sm:w-80" aria-hidden="true">
-              <span>{low}</span>
-              <span>{high}</span>
-            </div>
-          </div>
-        );
-      })}
-      <Field id={`${uid}-personality`} label="Personality in a few words">
-        <ChipInput id={`${uid}-personality`} values={form.personality} onChange={(v) => set("personality", v)} maxItems={5} placeholder="e.g. Warm" />
-      </Field>
+    <Group step="2" title="How you sound" intro="Your voice stays the same everywhere; AI adapts only the tone to the channel.">
+      <VoicePresets
+        voice={form.voice}
+        onPick={(preset) => {
+          set("voice", preset.voice);
+          const merged = [...form.personality];
+          for (const trait of preset.personality) {
+            if (merged.length < 5 && !merged.some((item) => item.toLowerCase() === trait.toLowerCase())) merged.push(trait);
+          }
+          set("personality", merged);
+        }}
+      />
+      <p className="font-mono text-caption text-muted-foreground" aria-live="polite">
+        Your voice: {describeVoice(form.voice)}.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {VOICE_DIMENSIONS.map((dimension) => (
+          <VoiceScaleControl
+            key={dimension}
+            dimension={dimension}
+            value={form.voice[dimension]}
+            onChange={(value) => set("voice", { ...form.voice, [dimension]: value })}
+          />
+        ))}
+      </div>
+      <ChipField
+        projectId={project._id}
+        id={`${uid}-personality`}
+        label="Personality in a few words"
+        field="personality"
+        values={form.personality}
+        onChange={(v) => set("personality", v)}
+        max={5}
+        starters={STARTERS.personality}
+        placeholder="Type your own and press Enter"
+      />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id={`${uid}-like`} label="Write like this">
-          <ChipInput id={`${uid}-like`} values={form.writeLike} onChange={(v) => set("writeLike", v)} maxItems={6} placeholder="e.g. Plain words" />
-        </Field>
-        <Field id={`${uid}-never`} label="Never like this">
-          <ChipInput id={`${uid}-never`} values={form.neverLike} onChange={(v) => set("neverLike", v)} maxItems={6} placeholder="e.g. Jargon" />
-        </Field>
-        <Field id={`${uid}-prefer`} label="Words you use">
-          <ChipInput id={`${uid}-prefer`} values={form.preferredWords} onChange={(v) => set("preferredWords", v)} maxItems={12} />
-        </Field>
-        <Field id={`${uid}-avoid`} label="Words you never use">
-          <ChipInput id={`${uid}-avoid`} values={form.avoidWords} onChange={(v) => set("avoidWords", v)} maxItems={12} />
-        </Field>
+        <ChipField projectId={project._id} id={`${uid}-like`} label="Write like this" field="writeLike" values={form.writeLike} onChange={(v) => set("writeLike", v)} max={6} starters={STARTERS.writeLike} aiLabel="Suggest" />
+        <ChipField projectId={project._id} id={`${uid}-never`} label="Never like this" field="neverLike" values={form.neverLike} onChange={(v) => set("neverLike", v)} max={6} starters={STARTERS.neverLike} aiLabel="Suggest" />
+        <ChipField projectId={project._id} id={`${uid}-prefer`} label="Words you use" help="Your customers’ own words." field="preferredWords" values={form.preferredWords} onChange={(v) => set("preferredWords", v)} max={12} aiLabel="Suggest" />
+        <ChipField projectId={project._id} id={`${uid}-avoid`} label="Words you never use" field="avoidWords" values={form.avoidWords} onChange={(v) => set("avoidWords", v)} max={12} starters={STARTERS.avoidWords} aiLabel="Suggest" />
       </div>
       <Field id={`${uid}-language`} label="Language and spelling">
         <Input
@@ -431,139 +551,36 @@ function VoiceGroup({ uid, form, set }: GroupProps) {
   );
 }
 
-/* ── How you look: colours with live contrast, fonts, imagery ────────────── */
+/* ── Corner style as visual choices ──────────────────────────────────────── */
 
-function LookGroup({ uid, form, set, projectName }: GroupProps & { projectName: string }) {
-  const checks = useMemo(() => brandContrastChecks(form.colors), [form.colors]);
-  const setColor = (role: ColorRole, value: string) => {
-    const next = { ...form.colors };
-    const hex = normalizeHex(value);
-    if (hex) next[role] = hex;
-    else if (!value.trim()) delete next[role];
-    else return;
-    set("colors", next);
-  };
-  const downloadTokens = () => {
-    const blob = new Blob([JSON.stringify(brandDesignTokens(form), null, 2)], { type: "application/design-tokens+json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${projectName.replace(/[^\w-]+/g, "-").toLowerCase() || "brand"}.tokens.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+const SHAPES: Array<{ value: BrandShape; name: string; mood: string; radius: string }> = [
+  { value: "sharp", name: "Sharp", mood: "Precise, formal", radius: "rounded-sm" },
+  { value: "soft", name: "Soft", mood: "Friendly, modern", radius: "rounded-lg" },
+  { value: "round", name: "Round", mood: "Playful, approachable", radius: "rounded-2xl" },
+];
 
+function ShapePicker({ value, onChange }: { value?: BrandShape; onChange: (shape: BrandShape) => void }) {
   return (
-    <Group title="How you look" intro="Colours, fonts and imagery. MOSAI checks the colours are readable for everyone.">
-      <div className="grid gap-3 sm:grid-cols-2">
-        {COLOR_ROLES.map((role) => (
-          <ColorField key={role} id={`${uid}-color-${role}`} role={role} value={form.colors[role]} onChange={(v) => setColor(role, v)} />
+    <div className="grid gap-2">
+      <p className="text-sm font-medium" id="brand-shape-label">Corners</p>
+      <div role="radiogroup" aria-labelledby="brand-shape-label" className="grid grid-cols-3 gap-2">
+        {SHAPES.map((shape) => (
+          <button
+            key={shape.value}
+            type="button"
+            role="radio"
+            aria-checked={value === shape.value}
+            onClick={() => onChange(shape.value)}
+            className={cn(
+              "grid justify-items-start gap-1.5 rounded-lg border bg-card p-2.5 text-left transition-all ease-terminal hover:shadow-soft",
+              value === shape.value && "border-terminal-green/60 ring-2 ring-terminal-green/30",
+            )}
+          >
+            <span className={cn("h-6 w-full border-2 border-foreground/70 bg-muted", shape.radius)} aria-hidden="true" />
+            <span className="font-mono text-caption font-medium">{shape.name}</span>
+            <span className="font-mono text-caption text-muted-foreground">{shape.mood}</span>
+          </button>
         ))}
-      </div>
-
-      {checks.length ? (
-        <div className="grid gap-1.5" aria-live="polite">
-          <p className="text-sm font-medium">Readability check</p>
-          <ul className="grid gap-1">
-            {checks.map((check) => (
-              <li key={check.id} className="flex items-center gap-2 font-mono text-caption">
-                {check.passes ? (
-                  <Check className="size-3.5 shrink-0 text-terminal-green" aria-hidden="true" />
-                ) : (
-                  <X className="size-3.5 shrink-0 text-terminal-red" aria-hidden="true" />
-                )}
-                <span className="min-w-0">
-                  {check.label}: {check.ratio}:1{" "}
-                  <span className={check.passes ? "text-muted-foreground" : "text-terminal-red"}>
-                    {check.passes ? "readable" : `too faint — needs ${check.use === "text" ? "4.5" : "3"}:1`}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FontField id={`${uid}-heading-font`} listId={`${uid}-fonts`} label="Heading font" value={form.headingFont} onChange={(v) => set("headingFont", v)} />
-        <FontField id={`${uid}-body-font`} listId={`${uid}-fonts`} label="Body font" value={form.bodyFont} onChange={(v) => set("bodyFont", v)} />
-      </div>
-      <datalist id={`${uid}-fonts`}>
-        {FONT_SUGGESTIONS.map((font) => <option key={font} value={font} />)}
-      </datalist>
-
-      <Field id={`${uid}-shape`} label="Corners">
-        <Select value={form.shape ?? ""} onValueChange={(value) => set("shape", value as BrandProfile["shape"])}>
-          <SelectTrigger id={`${uid}-shape`} className="w-full sm:w-60">
-            <SelectValue placeholder="Choose a style" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="sharp">Sharp — precise, formal</SelectItem>
-            <SelectItem value="soft">Soft — friendly, modern</SelectItem>
-            <SelectItem value="round">Round — playful, approachable</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-
-      <Field id={`${uid}-imagery`} label="Photo and image style" help="Guides image choices and AI image prompts.">
-        <ChipInput
-          id={`${uid}-imagery`}
-          ariaDescribedBy={`${uid}-imagery-help`}
-          values={form.imageryStyle}
-          onChange={(v) => set("imageryStyle", v)}
-          maxItems={5}
-          placeholder="e.g. Natural light, real projects, no stock people"
-        />
-      </Field>
-
-      <Button variant="outline" size="sm" className="h-auto w-fit whitespace-normal text-left" onClick={downloadTokens}>
-        <Download className="size-4" aria-hidden="true" /> Download for designers (design tokens)
-      </Button>
-    </Group>
-  );
-}
-
-function FontField({ id, listId, label, value, onChange }: { id: string; listId: string; label: string; value?: string; onChange: (v: string | undefined) => void }) {
-  return (
-    <Field id={id} label={label}>
-      <Input id={id} list={listId} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)} maxLength={60} placeholder="e.g. Inter" />
-    </Field>
-  );
-}
-
-function ColorField({ id, role, value, onChange }: { id: string; role: ColorRole; value?: string; onChange: (v: string) => void }) {
-  const [text, setText] = useState(value ?? "");
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(value ?? "");
-  }
-  const invalid = text.trim() !== "" && !normalizeHex(text);
-  return (
-    <div className="grid gap-1.5">
-      <Label htmlFor={id} className="capitalize">{role}</Label>
-      <p id={`${id}-help`} className="font-mono text-caption text-muted-foreground">{COLOR_HELP[role]}</p>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          aria-label={`Pick ${role} colour`}
-          value={value ?? "#ffffff"}
-          onChange={(e) => onChange(e.target.value)}
-          className="size-9 shrink-0 cursor-pointer rounded-md border bg-transparent p-0.5"
-        />
-        <Input
-          id={id}
-          aria-describedby={`${id}-help`}
-          aria-invalid={invalid || undefined}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (!e.target.value.trim() || normalizeHex(e.target.value)) onChange(e.target.value);
-          }}
-          placeholder="Not set"
-          maxLength={7}
-          className={cn("font-mono", invalid && "border-terminal-red")}
-        />
       </div>
     </div>
   );

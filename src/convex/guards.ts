@@ -18,7 +18,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import { roleCan, type OrgCapability, type OrgRole } from "./lib/roles";
 import { businessBriefLines } from "./lib/businessProfile";
-import { brandBriefLines, type ActiveMessage } from "./lib/brandProfile";
+import { brandBriefLines, type ActiveMessage, type BrandUse } from "./lib/brandProfile";
 import {
   isPlatformAdminEmail,
   normalizeEmail,
@@ -1187,6 +1187,9 @@ type ContextPackRequest = {
   buildId?: Id<"builds">;
   pageId?: Id<"buildPages">;
   includeAllEntities?: boolean;
+  /** Which area is asking, so the owner's Brand switches apply. Omitted means
+   *  the brand agents themselves ("all"). */
+  brandUse?: BrandUse | "all";
 };
 
 /** Load the saved inputs for a content draft after checking its project access.
@@ -1231,6 +1234,7 @@ function buildContextPack(
     page?: Doc<"buildPages">;
     providerMetrics?: ProviderMetricRow[];
     activeMessages?: ActiveMessage[];
+    brandUse?: BrandUse | "all";
   },
 ): ContextPack {
   const files = input.files.slice(0, 8);
@@ -1527,7 +1531,7 @@ function buildContextPack(
     // builders, Sell) writes in the owner's voice without extra wiring.
     businessBrief: [
       ...businessBriefLines(project),
-      ...brandBriefLines(project.brandProfile, input.activeMessages ?? []),
+      ...brandBriefLines(project.brandProfile, input.activeMessages ?? [], input.brandUse ?? "all", project.brandUse),
     ].map((line) => line.slice(0, 1_000)),
     products: visibleProducts,
     personas: visiblePersonas,
@@ -1626,6 +1630,7 @@ async function loadContextPack(
       page: page ?? undefined,
       providerMetrics,
       activeMessages,
+      brandUse: args.brandUse,
     });
 }
 
@@ -1638,6 +1643,16 @@ export const contextPackForAction = internalQuery({
     buildId: v.optional(v.id("builds")),
     pageId: v.optional(v.id("buildPages")),
     includeAllEntities: v.optional(v.boolean()),
+    brandUse: v.optional(
+      v.union(
+        v.literal("content"),
+        v.literal("social"),
+        v.literal("website"),
+        v.literal("shop"),
+        v.literal("research"),
+        v.literal("all"),
+      ),
+    ),
   },
   handler: loadContextPack,
 });

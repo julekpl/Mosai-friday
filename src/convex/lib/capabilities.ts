@@ -580,6 +580,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/billingReconcile": "internal",
   "lib/websiteScan": "internal",
   "lib/googleMaps": "internal",
+  "lib/brandDesign": "internal",
   "lib/brandProfile": "internal",
   "lib/businessProfile": "internal",
   "lib/aiModelCatalog": "internal",
