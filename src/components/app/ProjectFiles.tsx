@@ -166,7 +166,7 @@ export function ProjectFilesSection({
       </div>
 
       {files.length > 0 && (
-        <ul className="mt-3 grid gap-1.5">
+        <ul className="mt-3 grid grid-cols-1 gap-1.5">
           {files.map((f) => (
             <FileRow
               key={f._id}
