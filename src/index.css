@@ -634,3 +634,10 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Range an AI selection edit acts on; stays visible while focus is in the menu. */
+.content-editor .tiptap .ai-target {
+  background: var(--terminal-blue-soft);
+  outline: 1px solid var(--terminal-blue);
+  border-radius: 2px;
+}
