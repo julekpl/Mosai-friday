@@ -1,3 +1,12 @@
+> **MOSAI status (25 Sep 2026): principles adopted, machinery deferred.**
+>
+> - **Adopted now:** modelGateway stays the only AI boundary; one user-authority order (user_confirmed + locked flag > accepted_artifact > first_party > provider > public_source > population_prior > inferred) enforced by `decideWrite` (CT-1); no silent overwrite of confirmed facts (KIT-2); "What needs you / Ready for you / What to do next" becomes one Home "For you now" list, max 3 items, with "Why this?" (HM-1, HM-2); manual path kept everywhere.
+> - **Changed:** capability registry lives in `src/convex/agent/` (not `capabilities/`, which already means plan access in `lib/capabilities.ts`); the starter-kit job is the bootstrap workflow, no second bootstrap; event names follow `<entity>.<past_tense>.vN` and only enter the union when something emits them.
+> - **Deferred until after U12 (D14):** Convex Workflow component (pre-1.0; keep job tables, D7), `domainEvents`, `capabilityRuns`, agentArtifacts, projectMemory, orchestrator, modelClass, evals harness, Ask MOSAI.
+> Binding plan: `../MVP-BLUEPRINT-PLAN.md` (sections 3, 9 and 10 win over this file). Owner decisions: `../OWNER-DECISIONS.md`. Where this blueprint and the plan disagree, follow the plan. The original blueprint text below is kept unchanged for reference.
+
+---
+
 # MOSAI Future-Proof Agent Architecture Blueprint
 
 **Status:** implementation blueprint  

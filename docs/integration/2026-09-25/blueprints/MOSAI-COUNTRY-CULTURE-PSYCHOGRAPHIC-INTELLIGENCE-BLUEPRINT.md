@@ -1,3 +1,13 @@
+> **MOSAI status (25 Sep 2026): markets and locale only; psychographics cut.**
+>
+> - **Adopted now:** markets are a list with roles, never one country field (`projects.marketContext`, MK-1), resolved on the server from the site scan, Google listing and confirmed profile; one Settings "Market" row replaces "Where you sell" (MK-3); no USD/en-US default when unknown; the persona "Country / market" field is relabelled so the owner never sees two market fields (FU-5).
+> - **After U12:** Sell currency suggestion for empty fields only, labelled "Suggested" (MK-3b, D13).
+> - **Cut (D6):** Big Five population priors and World Values Survey data. Existing persona Big Five values are an AI guess and are labelled "AI guess, not a real customer".
+> - **Deferred:** CLDR into ContextPack (MK-2), World Bank indicators (MK-5), UNDP, OECD, Eurostat, Cloudflare Radar, GDELT, Wikidata.
+> Binding plan: `../MVP-BLUEPRINT-PLAN.md` (sections 3, 9 and 10 win over this file). Owner decisions: `../OWNER-DECISIONS.md`. Where this blueprint and the plan disagree, follow the plan. The original blueprint text below is kept unchanged for reference.
+
+---
+
 # MOSAI Country, Culture & Psychographic Intelligence Blueprint
 
 **Status:** implementation blueprint  

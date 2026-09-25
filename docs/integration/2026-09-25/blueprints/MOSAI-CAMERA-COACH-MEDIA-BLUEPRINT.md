@@ -1,3 +1,12 @@
+> **MOSAI status (25 Sep 2026): authentic-first media, no vendor.**
+>
+> - **Adopted now:** `projectFiles` is the one media record, extended additively (MD-1), not a new `mediaAssets` table or `src/convex/media/` folder; one MediaPicker ("Your photos" first, then website and stock) wired into kit posts (MD-0); "take a photo" is the phone camera via `capture` on the upload input; originals are never replaced; outcome words only ("Ready", "Usable", "Retake recommended"), never a numeric score.
+> - **After U12:** post-upload quality note (MD-2a), browser-side checks only.
+> - **Deferred or cut (D4):** live in-browser camera coaching, shot planner, crop presets and `mediaCrops` (renamed from `mediaVariants`), server-side enhancement (`sharp` spike first), Cloudinary, Adobe, Canva, Creative AI edits, video.
+> Binding plan: `../MVP-BLUEPRINT-PLAN.md` (sections 3, 9 and 10 win over this file). Owner decisions: `../OWNER-DECISIONS.md`. Where this blueprint and the plan disagree, follow the plan. The original blueprint text below is kept unchanged for reference.
+
+---
+
 # MOSAI Camera Coach, Authentic Media Enhancement & Multi-Channel Asset Blueprint
 
 **Status:** implementation blueprint  

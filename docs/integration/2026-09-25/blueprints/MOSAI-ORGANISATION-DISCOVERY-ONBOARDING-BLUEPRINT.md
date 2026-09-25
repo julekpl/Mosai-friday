@@ -1,3 +1,12 @@
+> **MOSAI status (25 Sep 2026): conditional backlog, $0 path only.**
+>
+> - **Adopted now:** the shipped three-question wizard is the onboarding; discovery, when built, pre-fills it and never adds a screen (caps: 3 owner, 4 agency, 2 on the discovery path); the goal options are the shipped four plus "Not sure yet"; the Google listing search becomes an explicit button under a SerpApi ceiling (LQ-1).
+> - **Built only if U12 shows first-run friction (OD-1, OD-2, OD-4):** website-and-domain resolver with no paid provider, confirm card with no checkmarks and no "found/verified" wording for guesses, free-mail domains never looked up, lookup only after sign-in with Skip (D12).
+> - **Cut or off (D3, D5, D11):** Apollo, CompanyEnrich or any paid enrichment (spending cap $0); person enrichment; LinkedIn scraping. A GDPR Art. 14 notice and lawyer review are needed only if a paid provider is ever enabled.
+> Binding plan: `../MVP-BLUEPRINT-PLAN.md` (sections 3, 9 and 10 win over this file). Owner decisions: `../OWNER-DECISIONS.md`. Where this blueprint and the plan disagree, follow the plan. The original blueprint text below is kept unchanged for reference.
+
+---
+
 # MOSAI Zero-Input Organization Discovery & Smart Onboarding Blueprint
 
 **Status:** implementation blueprint  
