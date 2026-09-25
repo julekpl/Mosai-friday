@@ -351,6 +351,12 @@ const schema = defineSchema(
             excerpt: v.string(),
           }))),
           socialChannels: v.optional(v.array(v.string())),
+          // Public image addresses found on the owner's own pages (U5), so the
+          // starter kit can use their photos before any stock picture. Data
+          // only: imported later by id through safeFetch, never hotlinked.
+          images: v.optional(
+            v.array(v.object({ url: v.string(), alt: v.optional(v.string()), pageUrl: v.optional(v.string()) })),
+          ),
           businessDetails: v.optional(v.object({
             name: v.optional(v.string()),
             address: v.optional(v.string()),
@@ -1089,6 +1095,19 @@ const schema = defineSchema(
       // text extracted for AI context (best-effort)
       excerpt: v.optional(v.string()),
       uploadedBy: v.id("users"),
+      // Where the file came from (U5). Missing means an owner upload.
+      source: v.optional(v.union(v.literal("upload"), v.literal("owner_site"), v.literal("stock"))),
+      // Stock credit, stored per asset as the Pexels guidelines require
+      // (CREATE-VIDEO-BLUEPRINT D6); shown where results are shown.
+      attribution: v.optional(
+        v.object({
+          provider: v.literal("pexels"),
+          externalId: v.string(),
+          photographer: v.string(),
+          photographerUrl: v.string(),
+          pageUrl: v.string(),
+        }),
+      ),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
@@ -1402,6 +1421,30 @@ const schema = defineSchema(
     })
       .index("by_project", ["projectId"])
       .index("by_idempotency", ["idempotencyKey"]),
+
+    // Shared stock search cache (CREATE-VIDEO-BLUEPRINT V4, U5). Protects the
+    // app-wide Pexels quota (200/h, 20k/month). No user data: the normalized
+    // query, result ids, thumbnails and credit. Expired rows are swept.
+    stockSearchCache: defineTable({
+      key: v.string(), // provider:orientation:normalized query
+      results: v.array(
+        v.object({
+          provider: v.literal("pexels"),
+          externalId: v.string(),
+          width: v.number(),
+          height: v.number(),
+          alt: v.optional(v.string()),
+          thumbUrl: v.string(),
+          photographer: v.string(),
+          photographerUrl: v.string(),
+          pageUrl: v.string(),
+        }),
+      ),
+      fetchedAt: v.number(),
+      expiresAt: v.number(),
+    })
+      .index("by_key", ["key"])
+      .index("by_expires", ["expiresAt"]),
 
     // One sync job (AGENTS.md rule 13 states). Each source records its own
     // outcome; errors are plain-language plus an enum-like provider code.

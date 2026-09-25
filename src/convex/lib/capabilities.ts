@@ -546,6 +546,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
 
   // ── internal helpers / libraries (no public functions) ──
   schema: "internal",
+  stock: "internal", // U5: Pexels search/import and owner-photo import, internal only
   "test.setup": "internal",
   buildInternals: "internal",
   cmsReleaseMigration: "internal", // internalMutation only (published → release_prepared)

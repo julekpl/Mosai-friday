@@ -1708,7 +1708,8 @@ export const consumeAiQuota = internalMutation({
 });
 
 export const LOOKUP_QUOTA_WINDOW_MS = 10 * 60_000;
-export const LOOKUP_QUOTA_LIMITS: Record<string, number> = { google_maps: 60, website_scan: 6 };
+// stock_search: 5 per 10 minutes is the V4 per-user limit of 30 an hour.
+export const LOOKUP_QUOTA_LIMITS: Record<string, number> = { google_maps: 60, website_scan: 6, stock_search: 5 };
 
 /** Per-user budget for paid lookup providers (SerpApi). Throws when spent. */
 export const consumeLookupQuota = internalMutation({
