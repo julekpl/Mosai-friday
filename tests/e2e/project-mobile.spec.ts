@@ -34,7 +34,7 @@ const project = {
     customerProblems: ["stale supermarket coffee", "inconsistent wholesale deliveries"],
     primaryGoals: ["grow online subscriptions"],
     market: "United Kingdom",
-    differentiators: ["roasted within 48 hours of the order"],
+    differentiators: ["roasted within 48 hours of the order, never left sitting in a warehouse"],
     contentThemes: ["brewing guides", "farm stories"],
     status: "ai_draft",
     updatedAt: now,

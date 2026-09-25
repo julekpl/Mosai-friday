@@ -46,16 +46,17 @@ export function ChipInput({
       {values.length > 0 && (
         <ul className="mb-2 flex flex-wrap gap-1.5" aria-label={ariaLabel ? `${ariaLabel}: added` : undefined}>
           {values.map((v) => (
-            <li key={v}>
+            <li key={v} className="min-w-0 max-w-full">
+              {/* Long chips wrap instead of widening the form on a phone. */}
               <Badge
                 variant="outline"
-                className="gap-1 border-terminal-green/40 bg-terminal-green-soft font-mono text-caption text-terminal-green"
+                className="max-w-full gap-1 whitespace-normal break-words border-terminal-green/40 bg-terminal-green-soft text-left font-mono text-caption text-terminal-green"
               >
-                {renderChip ? renderChip(v) : v}
+                <span className="min-w-0">{renderChip ? renderChip(v) : v}</span>
                 <button
                   type="button"
                   aria-label={`Remove ${v}`}
-                  className="ml-0.5 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring"
+                  className="ml-0.5 shrink-0 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring"
                   onClick={() => onChange(values.filter((x) => x !== v))}
                 >
                   <X className="size-3" aria-hidden="true" />
