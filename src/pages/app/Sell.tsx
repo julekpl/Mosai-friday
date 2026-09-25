@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import { BrandUseChip } from "@/components/app/brand/BrandUse";
 import {
   ConfirmDelete,
   ModuleEmpty,
@@ -1135,7 +1136,9 @@ export default function Sell({ projectId }: { projectId: Id<"projects"> }) {
         icon={ShoppingBag}
         title="Sell"
         subtitle="Products, readiness and channel feeds — the commerce brain behind every MOSAI module"
-      />
+      >
+        <BrandUseChip projectId={projectId} use="shop" />
+      </ModuleHeader>
 
       <Tabs defaultValue="products">
         <TabsList>

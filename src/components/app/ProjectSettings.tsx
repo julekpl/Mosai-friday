@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { BrandKitForm } from "@/components/app/BrandKitForm";
 import { ChipInput } from "@/components/app/ChipInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,6 +99,8 @@ function FieldRow({
   );
 }
 
+export type ProjectSettingsTab = "understanding" | "customers" | "brand" | "details";
+
 /**
  * "Edit project": the owner can change everything onboarding asked, review
  * the AI's understanding of the business (the brief every AI feature uses),
@@ -113,7 +116,7 @@ export function ProjectSettingsSheet({
   projectId: Id<"projects">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialTab?: "understanding" | "details" | "customers";
+  initialTab?: ProjectSettingsTab;
 }) {
   const project = useQuery(api.projects.get, open ? { id: projectId } : "skip");
 
@@ -123,7 +126,7 @@ export function ProjectSettingsSheet({
         <SheetHeader>
           <SheetTitle className="font-mono">Edit project</SheetTitle>
           <SheetDescription>
-            Everything MOSAI creates — customer profiles, journeys, content and your website — starts from what you set here.
+            Everything MOSAI creates — customer profiles, journeys, content and your website — starts from what you set here, and is written in your brand’s voice.
           </SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-8">
@@ -137,9 +140,10 @@ export function ProjectSettingsSheet({
             </p>
           ) : (
             <Tabs key={`${open}-${initialTab}`} defaultValue={initialTab}>
-              <TabsList className="w-full">
+              <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-4">
                 <TabsTrigger value="understanding">Your business</TabsTrigger>
                 <TabsTrigger value="customers">Customers</TabsTrigger>
+                <TabsTrigger value="brand">Brand</TabsTrigger>
                 <TabsTrigger value="details">Details</TabsTrigger>
               </TabsList>
               <TabsContent value="understanding" className="mt-5">
@@ -147,6 +151,9 @@ export function ProjectSettingsSheet({
               </TabsContent>
               <TabsContent value="customers" className="mt-5">
                 <CustomersForm project={project} />
+              </TabsContent>
+              <TabsContent value="brand" className="mt-5">
+                <BrandKitForm project={project} />
               </TabsContent>
               <TabsContent value="details" className="mt-5">
                 <DetailsForm project={project} />

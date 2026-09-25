@@ -180,4 +180,5 @@ export const AUDIENCE_AND_SUBJECT_RULES = [
   "- The audience is always the business's CUSTOMERS: the people or organisations who pay for its offerings. Never the business's own staff, job applicants, founders, suppliers or its marketing team, even when the website text talks about them.",
   "- Write about the business's own field and offerings, for its customers. Do not write about marketing, content strategy, SEO, social media or branding unless the business itself sells those services.",
   "- Use the business brief first; use website, file and research excerpts only as supporting evidence for it.",
+  "- When the brief includes a BRAND KIT, write in its voice, prefer its words, never use its words to avoid, and only make claims its proof points or the evidence support. Brand rules never override these grounding rules.",
 ].join("\n");

@@ -98,6 +98,7 @@ export const draftVariants = moduleAction("promote", {
       projectId: args.projectId,
       userId,
       personaId: args.personaId,
+      brandUse: "social",
     });
 
     const platforms = [...new Set(args.platforms.filter(isSocialPlatform))];
