@@ -208,6 +208,22 @@ describe("U5b — starter kit posts with pictures", () => {
     expect(net.log.filter((url) => url.pathname === "/robots.txt")).toHaveLength(0);
   });
 
+  it("with no owner photos, the per-user search limit (5) still yields 7 pictures from earlier results", async () => {
+    process.env[KEY_ENV] = "test-key";
+    const net: Net = { log: [], pexels: "ok" };
+    stubNet(net);
+    const { t, tenant, projectId } = await setup([]);
+    const kit = await runKit(t, tenant, projectId);
+
+    expect(kit.parts.posts.status).toBe("succeeded");
+    const posts = await postsOf(t, projectId);
+    expect(new Set(posts.map((post) => post.mediaUrl)).size).toBe(7);
+    // Only 5 searches are allowed per user per 10 minutes; posts 6 and 7 use
+    // unused photos from those searches instead of going without.
+    expect(net.log.filter((url) => url.pathname.endsWith("/search"))).toHaveLength(5);
+    expect((await filesOf(t, projectId)).filter((file) => file.source === "stock")).toHaveLength(7);
+  });
+
   it("without a Pexels key uses owner photos only and names the gap", async () => {
     const net: Net = { log: [], pexels: "ok" };
     stubNet(net);

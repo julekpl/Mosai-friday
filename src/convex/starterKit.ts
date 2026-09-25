@@ -21,6 +21,7 @@ import { isAiBudgetReached } from "./lib/aiBudget";
 import { modelComplete, type ModelGatewayResult } from "./lib/modelGateway";
 import { serializeContextEvidence } from "./lib/contextPack";
 import type { StockImportResult, StockSearchResult } from "./stock";
+import type { StockHit } from "./lib/pexels";
 import {
   emptyStarterKitPart,
   starterKitOutputValidator,
@@ -839,19 +840,36 @@ async function findPictures(
     }
   }
 
+  // Every search returns a page of photos but a post uses one. The unused
+  // ones stay in a pool, so when a later search is refused (the per-user
+  // limit of 5 per 10 minutes, or a Pexels 429) the remaining posts still
+  // get a fitting picture from this business's earlier searches instead of
+  // none. A refused *import* stops stock entirely: nothing more can be
+  // downloaded.
   const usedStock = new Set<string>();
+  const pool: StockHit[] = [];
+  let searchesRefused = false;
   for (let index = 0; index < posts.length; index += 1) {
     const query = posts[index].imageQuery;
-    if (pictures[index] || !query) continue;
-    let search: StockSearchResult;
-    try {
-      search = await ctx.runAction(internal.stock.searchPhotos, { userId, query, orientation: "square" });
-    } catch {
-      continue;
+    if (pictures[index]) continue;
+    let candidates: StockHit[] = [];
+    if (!searchesRefused && query) {
+      let search: StockSearchResult | null = null;
+      try {
+        search = await ctx.runAction(internal.stock.searchPhotos, { userId, query, orientation: "square" });
+      } catch {
+        search = null;
+      }
+      if (search?.status === "needs_setup") break;
+      if (search?.status === "rate_limited") searchesRefused = true;
+      if (search?.status === "ok") {
+        candidates = search.results;
+        pool.push(...search.results);
+      }
     }
-    if (search.status === "needs_setup" || search.status === "rate_limited") break;
-    if (search.status !== "ok") continue;
-    const hit = search.results.find((candidate) => !usedStock.has(candidate.externalId));
+    const hit =
+      candidates.find((candidate) => !usedStock.has(candidate.externalId)) ??
+      (searchesRefused ? pool.find((candidate) => !usedStock.has(candidate.externalId)) : undefined);
     if (!hit) continue;
     usedStock.add(hit.externalId);
     let imported: StockImportResult;
