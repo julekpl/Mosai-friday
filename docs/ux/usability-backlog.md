@@ -26,7 +26,7 @@ passing in CI except the pre-existing full-history secret scan; "merged" means o
 | U4 | Kit screen on Home (three cards, five states, live region) | U3 | M | **merged** (`a5b4255`, 25 Sep 2026), PR #20 · 10 unit + 6 e2e (all five states, live region, draft vs live, 320 px, axe); the wizard now starts the kit |
 | U5 | Posts with pictures (owner photos, then Pexels with cache) | U3 · Q7 | M | **merged** (`a5b4255`, 25 Sep 2026), PR #16 (adapter, `safeFetchBytes`) + #18 (U5b, wired into the kit) · needs `PEXELS_API_KEY` on the deployment |
 | U6 | "This week" Home + outcome-ordered next step | U4 | M | **merged** (`a5b4255`, 25 Sep 2026), PR #17 · 22 unit tests; contact step is checklist-only until U6b; no browser test of the card with a live site yet |
-| U7 | "Since you were away" | U6 | S | **merged** (`a5b4255`, 25 Sep 2026), PR #19 · 10 tests (receipt-backed only); no browser test of a returning visit yet |
+| U7 | "Since you were away" | U6 | S | **code done**, PR #19 open (up to date with `main`, CI pending) · 10 tests (receipt-backed only); no browser test of a returning visit yet |
 | U8 | Website contact form into Customers | option A hosting · Q4 | L | blocked (hosting decision) |
 | U9 | Agency path: many client projects, hand-off | U2 | M | **first slice merged** (`a5b4255`), PR #21 · client set-up in three questions and a one-click client list on `/app` (7 unit + 7 e2e); **hand-off to the client not started** (needs an owner decision on who pays after hand-off) |
 | U10 | Module naming test and rename | Q5 | S | blocked (owner, naming test) |
