@@ -316,7 +316,7 @@ once T0.4's server-side context loading landed (BP-01 re-verified 23 Sep).
 
 Source: `docs/ux/usability-strategy.md`, `first-run-blueprint.md`,
 `usability-backlog.md` (the backlog holds the per-ticket status; this row is the
-summary). The stack below merged as `a5b4255` on 25 Sep 2026 except #19 (U7)
+summary). The stack below merged as `a5b4255` on 25 Sep 2026 except #19 (U7, merged separately the same day)
 and #22 (this docs PR); merged `main` passes `bun run check` (1057 unit tests,
 0 lint errors / 33 warnings, 84 tables). Original order:
 #11 (docs + U0) → #12 (U2a schema) → #14 (U2) → #15 (U3) → #16 (U5) → #17 (U6)
@@ -326,7 +326,7 @@ and #22 (this docs PR); merged `main` passes `bun run check` (1057 unit tests,
 | Ticket | Status | Evidence |
 |---|---|---|
 | U0, U2, U3, U4, U5, U5b, U6 | **merged** in `a5b4255` (25 Sep 2026), not yet proven with owners |
-| U7 since you were away | code done, PR #19 open | | Unit, cross-tenant and (where UI) e2e tests per PR; baseline was 959 tests, the combined branch 1040+. Lint stays at 0 errors / 33 warnings. |
+| U7 since you were away | **merged** (PR #19, 25 Sep 2026), not yet proven with owners | | Unit, cross-tenant and (where UI) e2e tests per PR; baseline was 959 tests, the combined branch 1040+. Lint stays at 0 errors / 33 warnings. |
 | U9 agency path | first slice **merged** (`a5b4255`); hand-off not started | client projects use the agency user's plan (owner-based entitlement) |
 | U6b contact details, U4b kit follow-ups | not started | found in review (see backlog) |
 | U1, U8, U10, U11 | blocked | owner decisions / hosting option A |
