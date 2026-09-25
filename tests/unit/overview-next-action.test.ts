@@ -73,15 +73,18 @@ describe("Home next step — outcome order", () => {
     expect(model.checklist[1].detail).toBe("Not checked yet");
   });
 
-  it("3: once posts are out, asks for a way to be contacted", () => {
-    const model = getNextActionModel(snap({ contactable: false }));
-    expect(model.key).toBe("contact");
-    expect(model.title).toBe("Add a way for people to reach you");
-    expect(model.action.target).toBe("build");
+  it("3: missing contact details never trap the owner (no screen can add them yet; U6b)", () => {
+    const model = getNextActionModel(snap({ contactable: false, resultsConnected: false }));
+    expect(model.key).toBe("results");
+    const contact = model.checklist.find((item) => item.key === "contact");
+    expect(contact).toMatchObject({ state: "to_do", detail: "No phone, email or address saved" });
   });
 
-  it("3b: unknown contact details count as not contactable", () => {
-    expect(getNextActionModel(snap({ contactable: undefined })).key).toBe("contact");
+  it("3b: unknown contact details count as not contactable, and 'done' does not claim people can reach you", () => {
+    const model = getNextActionModel(snap({ contactable: undefined }));
+    expect(model.checklist.find((item) => item.key === "contact")?.state).toBe("to_do");
+    expect(model.key).toBe("done");
+    expect(model.description).not.toMatch(/reach you/);
   });
 
   it("4: then asks to look at results, connecting Google", () => {

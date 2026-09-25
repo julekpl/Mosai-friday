@@ -3,7 +3,7 @@
  *
  *   1. publish the website (or make one)  → Build
  *   2. use or schedule this week's posts  → Promote
- *   3. add a way to be contacted          → Build (the site's main button)
+ *   3. add a way to be contacted          → checklist only until U6b (see below)
  *   4. look at your results               → Grow
  *   5. nothing to do                      → "You're set for this week"
  *
@@ -224,20 +224,10 @@ export function getNextActionModel(snapshot: OutcomeSnapshot): NextActionModel {
     };
   }
 
-  // 3. A way to be contacted.
-  if (!contactable) {
-    return {
-      ...base,
-      key: "contact",
-      title: "Add a way for people to reach you",
-      description:
-        "Your website's main button needs a phone number, email or address. Add one so visitors can call, write or find you.",
-      status: null,
-      locked: false,
-      action: { label: "Add your contact details", target: "build", emphasis: "primary" },
-      checklist: withNext("contact"),
-    };
-  }
+  // 3. A way to be contacted: shown on the checklist, but not a blocking
+  // step yet. No screen lets the owner add a phone, email or booking link
+  // after the first run, so making it "the next step" would trap them here
+  // (lead review, U6). U6b adds those fields to Edit project and restores it.
 
   // 4. Results.
   if (!has("grow")) {
@@ -270,7 +260,9 @@ export function getNextActionModel(snapshot: OutcomeSnapshot): NextActionModel {
     ...base,
     key: "done",
     title: "You're set for this week",
-    description: "Your website is online, your posts are going out and people can reach you.",
+    description: contactable
+      ? "Your website is online, your posts are going out and people can reach you."
+      : "Your website is online and your posts are going out.",
     status: null,
     locked: false,
     action: { label: "See your results", target: "grow", emphasis: "quiet" },
