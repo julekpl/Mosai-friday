@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import { BrandUseChip } from "@/components/app/brand/BrandUse";
 import {
   ModuleEmpty,
   ModuleErrorBoundary,
@@ -829,7 +830,9 @@ function BuildModule({ projectId }: { projectId: Id<"projects"> }) {
         icon={Blocks}
         title="Build"
         subtitle="One website and one app per project, planned from your idea, personas and journeys"
-      />
+      >
+        <BrandUseChip projectId={projectId} use="website" />
+      </ModuleHeader>
 
       {slots === null ? (
         <ModuleSkeleton label="Loading your website and app…" rows={2} variant="cards" />
