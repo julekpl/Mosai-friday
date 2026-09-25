@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { ModuleHeader } from "@/components/app/AppShell";
+import { BrandUseChip } from "@/components/app/brand/BrandUse";
 import { ModuleEmpty } from "@/components/app/module-kit";
 import { Button } from "@/components/ui/button";
 import {
@@ -586,7 +587,8 @@ export default function Journeys({
         title="Journeys"
         subtitle="Journey maps — the emotional and practical path each persona takes, feeding content research in Create"
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <BrandUseChip projectId={projectId} use="research" />
           <Button variant="outline" onClick={() => setCsvOpen(true)}>
             <FileUp className="size-4" /> Import CSV
           </Button>

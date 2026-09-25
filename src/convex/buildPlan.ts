@@ -96,7 +96,7 @@ export const generateBuildPlan = moduleAction("build", {
   args: { projectId: v.id("projects"), buildId: v.id("builds") },
   handler: async (ctx, { projectId, buildId }, access) => {
     const { userId } = await access.requireProject(projectId);
-    const project = await actionContextPack(ctx, { projectId, userId, buildId });
+    const project = await actionContextPack(ctx, { projectId, userId, buildId, brandUse: "website" });
     const build = project.build;
     if (!build) throw new Error("Not found");
     await consumeAiQuotaForAction(ctx, userId);
@@ -246,7 +246,7 @@ export const generatePageDraft = moduleAction("build", {
   },
   handler: async (ctx, { projectId, pageId, userInstructions }, access) => {
     const { userId } = await access.requireProject(projectId);
-    const project = await actionContextPack(ctx, { projectId, userId, pageId });
+    const project = await actionContextPack(ctx, { projectId, userId, pageId, brandUse: "website" });
     const build = project.build;
     const page = project.page;
     if (!build || !page) throw new Error("Not found");
