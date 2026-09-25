@@ -118,6 +118,7 @@ import type * as stockStore from "../stockStore.js";
 import type * as storefront from "../storefront.js";
 import type * as users from "../users.js";
 import type * as variants from "../variants.js";
+import type * as visits from "../visits.js";
 
 import type {
   ApiFromModules,
@@ -236,6 +237,7 @@ declare const fullApi: ApiFromModules<{
   storefront: typeof storefront;
   users: typeof users;
   variants: typeof variants;
+  visits: typeof visits;
 }>;
 
 /**
