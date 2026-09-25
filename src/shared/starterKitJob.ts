@@ -10,6 +10,7 @@
 
 import type {
   BusinessType,
+  PostingChannel,
   PrimaryGoal,
   StarterKitPart,
   StarterKitPartName,
@@ -222,7 +223,10 @@ export function postsPictureSummary(
 }
 
 /** Parse and validate the posts reply: exactly 7 posts on known channels. */
-export function parseStarterKitPosts(output: string): StarterKitPostDraft[] {
+export function parseStarterKitPosts(
+  output: string,
+  allowed: readonly StarterKitPostChannel[] = STARTER_KIT_POST_CHANNELS,
+): StarterKitPostDraft[] {
   const value = jsonObject(output);
   const list = isRecord(value) ? value.posts : value;
   if (!Array.isArray(list) || list.length !== STARTER_KIT_POST_COUNT) {
@@ -233,7 +237,7 @@ export function parseStarterKitPosts(output: string): StarterKitPostDraft[] {
     const channel = item.channel;
     if (
       typeof channel !== "string" ||
-      !(STARTER_KIT_POST_CHANNELS as readonly string[]).includes(channel)
+      !(allowed as readonly string[]).includes(channel)
     ) {
       throw new Error("invalid channel");
     }
@@ -252,6 +256,8 @@ export type StarterKitContact = {
   phone?: string;
   email?: string;
   address?: string;
+  /** The owner's own website, used only for online-shop and events buttons. */
+  website?: string;
 };
 
 export type MainButton = { label: string; href: string };
@@ -281,47 +287,111 @@ export function mapHref(address: string | undefined): string | null {
 /**
  * The site's main buttons by business type. Links are built on the server
  * from stored facts; the model may only use these. MOSAI stores no booking
- * link yet, so "Book" is not offered until one exists.
+ * link yet, so "Book" is not offered until one exists. The main type sets the
+ * first buttons; each other type the owner picked adds its own first button
+ * when it is a different link (at most three buttons).
  */
 export function mainButtonsFor(
   type: BusinessType | undefined,
   contact: StarterKitContact,
+  otherTypes: readonly BusinessType[] = [],
 ): MainButton[] {
+  const buttons: MainButton[] = [];
+  const main = buttonsForType(type, contact);
+  for (const button of main) buttons.push(button);
+  for (const other of otherTypes) {
+    const first = buttonsForType(other, contact)[0];
+    if (first && !buttons.some((button) => button.href === first.href)) buttons.push(first);
+  }
+  return buttons.slice(0, 3);
+}
+
+function buttonsForType(type: BusinessType | undefined, contact: StarterKitContact): MainButton[] {
   const call = telHref(contact.phone);
   const mail = mailtoHref(contact.email);
   const map = mapHref(contact.address);
+  const site = websiteHref(contact.website);
   const buttons: MainButton[] = [];
   const add = (label: string, href: string | null) => {
-    if (href) buttons.push({ label, href });
+    if (href && !buttons.some((button) => button.href === href)) buttons.push({ label, href });
   };
   switch (type) {
     case "walk_in":
+    case "shop":
       add("Find us", map);
       add("Call", call);
       break;
-    case "shop":
+    case "trades":
       add("Call", call);
+      add("Get a quote", mail);
+      break;
+    case "online_shop":
+      add("Shop online", site);
       add("Email", mail);
+      break;
+    case "events":
+      add("See what's on", site);
+      add("Call", call);
       break;
     default:
       add("Call", call);
       add("Email", mail);
       break;
   }
+  // Never drop a known way to reach the owner: a type whose own buttons have
+  // no link (no address, no website) falls back to Call and Email.
+  if (!buttons.length) {
+    add("Call", call);
+    add("Email", mail);
+  }
   return buttons;
+}
+
+/** The owner's own website as a button link: `https:` only. */
+export function websiteHref(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The social channels the kit writes posts for: only where the owner already
+ * posts and MOSAI can post. Google Business Profile and TikTok (video) are
+ * not post targets yet. "Nowhere yet", or only unsupported channels, starts
+ * them on Instagram and Facebook; a skipped question keeps the full mix.
+ */
+export function kitPostChannels(
+  channels: readonly PostingChannel[] | undefined,
+): StarterKitPostChannel[] {
+  if (!channels?.length) return [...STARTER_KIT_POST_CHANNELS];
+  const supported = STARTER_KIT_POST_CHANNELS.filter((channel) =>
+    (channels as readonly string[]).includes(channel),
+  );
+  return supported.length ? supported : ["instagram", "facebook"];
 }
 
 const GOAL_WORDS: Record<PrimaryGoal, string> = {
   bookings: "get more bookings",
-  sales: "sell more",
+  sales: "sell more in store",
+  online_orders: "get more online orders",
   visits: "get more people through the door",
   awareness: "become better known locally",
+  repeat_customers: "get more repeat customers",
+  reviews: "get more and better reviews",
 };
 
 const TYPE_WORDS: Record<BusinessType, string> = {
   appointments: "a business customers book appointments with",
-  shop: "a shop",
-  walk_in: "a place customers walk into (café, restaurant or salon)",
+  trades: "a trades or home services business",
+  shop: "a shop customers can walk into",
+  online_shop: "an online shop",
+  walk_in: "a café, restaurant or bar customers walk into",
+  professional: "a professional services firm",
+  events: "a business that runs events, classes or experiences",
   agency: "an agency working for clients",
 };
 

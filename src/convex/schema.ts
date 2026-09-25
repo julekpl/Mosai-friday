@@ -4,6 +4,9 @@ import { Infer, v } from "convex/values";
 import { orgRoleValidator } from "./lib/roles";
 import {
   businessTypeValidator,
+  customerGroupValidator,
+  firstRunNotesValidator,
+  postingChannelValidator,
   primaryGoalValidator,
   starterKitPartValidator,
   starterKitStatusValidator,
@@ -302,6 +305,16 @@ const schema = defineSchema(
       // set defaults (main website button, post topics, plan focus) only.
       businessType: v.optional(businessTypeValidator),
       primaryGoal: v.optional(primaryGoalValidator),
+      // Richer first-run answers (U2c): several types and goals can be
+      // picked; the first is the main one above, the rest are here. Plus
+      // where the owner already posts, who their customers are, and their
+      // own words ("Other: ___", "Anything we should know?"), which are data
+      // for the AI, never instructions.
+      otherBusinessTypes: v.optional(v.array(businessTypeValidator)),
+      otherGoals: v.optional(v.array(primaryGoalValidator)),
+      postingChannels: v.optional(v.array(postingChannelValidator)),
+      customerGroups: v.optional(v.array(customerGroupValidator)),
+      firstRunNotes: v.optional(firstRunNotesValidator),
       // The project's chosen AI model (one of the operator-enabled aiModels).
       aiModelId: v.optional(v.string()),
       // The reviewed "what this business is" statement every AI prompt is

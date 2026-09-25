@@ -15,6 +15,8 @@
  * treat it as a best guess. Pure module: no Convex imports, unit-testable.
  */
 
+import { firstRunAnswerLines, type FirstRunAnswers } from "../../shared/starterKit";
+
 export const BUSINESS_MODELS = ["b2b", "b2c", "b2b2c", "nonprofit", "public_sector", "mixed"] as const;
 export type BusinessModel = (typeof BUSINESS_MODELS)[number];
 
@@ -49,7 +51,7 @@ export type BusinessBriefSource = {
   customerPains?: string[];
   serviceArea?: string;
   businessProfile?: StoredBusinessProfile;
-};
+} & FirstRunAnswers;
 
 /** Always excluded from "the audience" unless the owner lists them as a segment. */
 export const DEFAULT_NOT_THE_AUDIENCE = [
@@ -166,6 +168,9 @@ export function businessBriefLines(source: BusinessBriefSource): string[] {
     profile?.market || source.serviceArea ? `Market served: ${profile?.market ?? source.serviceArea}` : "",
     list(profile?.differentiators) ? `Why customers choose it: ${list(profile?.differentiators)}` : "",
     list(profile?.contentThemes) ? `Subject-matter themes customers care about: ${list(profile?.contentThemes)}` : "",
+    // The owner's first-run answers (U2c): type(s), goals, channels, customers
+    // and their own words, quoted as data.
+    ...firstRunAnswerLines(source),
   ];
   return lines.filter(Boolean);
 }
