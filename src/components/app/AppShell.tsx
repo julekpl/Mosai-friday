@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -49,6 +49,7 @@ import { MOSAI_EASE, MOTION } from "@/components/motion";
 import { SkipLink } from "@/components/SkipLink";
 import { useAuth } from "@/hooks/use-auth";
 import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
+import { rememberLastProjectId } from "@/lib/last-project";
 import { cn } from "@/lib/utils";
 import { ConfirmDelete } from "@/components/app/module-kit";
 import { ModuleNav, NAV_MODULES } from "@/components/app/ModuleNav";
@@ -73,6 +74,12 @@ export function AppShell({
   const reduceMotion = useReducedMotion();
 
   const current = projects.find((p) => p._id === projectId) ?? projects[0];
+  // Remember the open project so `/app` resumes it next time (only once the
+  // caller's own project list confirms it exists).
+  const openedProjectId = projects.some((p) => p._id === projectId) ? projectId : undefined;
+  useEffect(() => {
+    if (openedProjectId) rememberLastProjectId(openedProjectId);
+  }, [openedProjectId]);
   // Entitlements come from the server, resolved for THIS project's
   // organization and the caller's role (`entitlements.matrix`, T2.3). The
   // client never hardcodes plan tiers or module lists, so the sidebar cannot

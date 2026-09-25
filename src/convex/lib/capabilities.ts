@@ -526,6 +526,9 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   aiModels: "base",
   aiBudget: "base",
   organizations: "base",
+  // First-run starter kit (U3): spans Create, Build and Promote, so each part
+  // checks its own capability inside the job; start/get are org-scoped.
+  starterKit: "base",
   http: "base",
   crons: "base",
   auth: "base",
@@ -546,6 +549,9 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
 
   // ── internal helpers / libraries (no public functions) ──
   schema: "internal",
+  stock: "internal", // U5: Pexels search/import and owner-photo import, internal only
+  stockStore: "internal", // U5: stock cache, file rows and sweep (non-node half of stock)
+  "lib/pexels": "internal", // U5: pure Pexels adapter
   "test.setup": "internal",
   buildInternals: "internal",
   cmsReleaseMigration: "internal", // internalMutation only (published → release_prepared)

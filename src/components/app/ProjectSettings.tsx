@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { looksLikeUrl } from "@/lib/url";
 
 type Project = Doc<"projects">;
 type StoredProfile = NonNullable<Project["businessProfile"]>;
@@ -520,6 +521,9 @@ function DetailsForm({ project }: { project: Project }) {
   const [competitors, setCompetitors] = useState(project.competitors ?? []);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // One-time consent, asked only when the owner scans (moved here from the
+  // first run, U2). Never stored: each scan asks again.
+  const [ignoreRobots, setIgnoreRobots] = useState(false);
 
   const save = async () => {
     if (!name.trim()) {
@@ -538,7 +542,7 @@ function DetailsForm({ project }: { project: Project }) {
         productsServices: offer,
         competitors,
         competitorEntries: competitors.map((value) => ({
-          type: /^(https?:\/\/)?[\w-]+(\.[\w-]+)+/i.test(value) ? ("website" as const) : ("gmb" as const),
+          type: looksLikeUrl(value) ? ("website" as const) : ("gmb" as const),
           value,
         })),
       });
@@ -553,7 +557,7 @@ function DetailsForm({ project }: { project: Project }) {
   const scanAgain = async () => {
     setScanning(true);
     try {
-      const result = await rescan({ projectId: project._id });
+      const result = await rescan({ projectId: project._id, ignoreRobots });
       toast.success("Website scanned", {
         description: `${result.scannedPageCount} page${result.scannedPageCount === 1 ? "" : "s"} read${result.status === "partial" ? " (some pages couldn’t be read)" : ""}.`,
       });
@@ -614,6 +618,19 @@ function DetailsForm({ project }: { project: Project }) {
             : "Your website hasn’t been read yet."}{" "}
           Save a changed address first, then scan again.
         </p>
+        <label className="flex items-start gap-3 font-mono text-caption text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={ignoreRobots}
+            onChange={(e) => setIgnoreRobots(e.target.checked)}
+            className="mt-0.5 size-4 accent-terminal-green"
+          />
+          <span>
+            <span className="font-medium text-foreground">I own this website and have permission to scan pages blocked by robots.txt</span>
+            <br />
+            Leave this off unless you control the site.
+          </span>
+        </label>
         <Button variant="outline" className="w-fit" onClick={scanAgain} disabled={scanning || !project.websiteUrl}>
           {scanning ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4" aria-hidden="true" />}
           {scanning ? "Reading your website…" : "Scan website again"}
