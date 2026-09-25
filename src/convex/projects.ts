@@ -176,7 +176,15 @@ export const storeServerScan = internalMutation({
   args: {
     projectId: v.id("projects"),
     userId: v.id("users"),
-    scan: v.object(scanFields),
+    // Only the server scan may record image addresses (U5); the public
+    // saveScan does not accept them, so a browser cannot choose what
+    // importOwnerPhoto later downloads.
+    scan: v.object({
+      ...scanFields,
+      images: v.optional(
+        v.array(v.object({ url: v.string(), alt: v.optional(v.string()), pageUrl: v.optional(v.string()) })),
+      ),
+    }),
   },
   handler: async (ctx, { projectId, userId, scan }) => {
     if (!(await projectAccessFor(ctx, projectId, userId))) throw new Error("Not found");
