@@ -7,31 +7,22 @@ import { toast } from "sonner";
 import { motion, type Variants } from "framer-motion";
 import {
   ArrowRight,
-  Blocks,
   CheckCircle2,
   Download,
   FileDown,
   FolderX,
   Globe,
-  LockKeyhole,
   Loader2,
   MapPin,
-  Megaphone,
   MessageSquareText,
   PenTool,
   Pencil,
   Plug,
   Plus,
-  Route,
-  Search,
-  ShoppingBag,
   Sparkles,
   Trash2,
-  TrendingUp,
-  Users,
 } from "lucide-react";
 
-import { MODULE_TILES, type TileName } from "@/components/mosaic";
 import { MOSAI_EASE, MOTION } from "@/components/motion";
 import {
   DATA_PROVIDERS,
@@ -47,8 +38,10 @@ import {
   ProjectSettingsSheet,
   type ProjectSettingsTab,
 } from "@/components/app/ProjectSettings";
-import { NextAction } from "@/components/app/NextAction";
-import { getNextActionModel } from "@/components/app/next-action-model";
+import { ModuleGrid, type ModuleCardId } from "@/components/app/ModuleGrid";
+import { SinceYouWereAway } from "@/components/app/SinceYouWereAway";
+import { ThisWeekNextStep } from "@/components/app/ThisWeekNextStep";
+import { StarterKitCards } from "@/components/app/kit/StarterKitCards";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -62,46 +55,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
-import {
-  capabilityStateLabel,
-  useModuleEntitlements,
-} from "@/hooks/use-module-entitlements";
-import type { CapabilityState } from "@/convex/lib/capabilities";
+import { useModuleEntitlements } from "@/hooks/use-module-entitlements";
 import { displayDomain } from "@/lib/url";
 import { cn } from "@/lib/utils";
 
-/* ── Presentation tables ────────────────────────────────────────────────── */
-
-/** Presentation only (icon, copy). Whether a module is unlocked is decided by
- *  the server's capability matrix, never by a tier column here. */
-const MODULE_CARDS = [
-  { to: "understand", icon: Search, name: "Understand", desc: "Personas, buyer profiles, journeys and evidence" },
-  { to: "journeys", icon: Route, name: "Journeys", desc: "Journey maps — stages, lanes and the experience curve" },
-  { to: "create", icon: PenTool, name: "Create", desc: "Gaps, topics, briefs and content generation" },
-  { to: "build", icon: Blocks, name: "Build", desc: "Websites & apps from personas, with SEO/WCAG checks" },
-  { to: "customers", icon: Users, name: "Customers", desc: "CRM, consent, segments — owned here, not by a vendor" },
-  { to: "promote", icon: Megaphone, name: "Promote", desc: "Campaigns, social scheduling, ads" },
-  { to: "sell", icon: ShoppingBag, name: "Sell", desc: "Products and product feeds for ads + website" },
-  { to: "grow", icon: TrendingUp, name: "Grow", desc: "Insights with source & freshness, no blended scores" },
-] as const;
-
-type ModuleCardId = (typeof MODULE_CARDS)[number]["to"];
-
-/** Static class sets per tile so Tailwind can see every class. `ink` is the
- *  AA-safe text/icon tone; `solid` is decoration only. */
-const TILE_CLASSES: Record<TileName, { soft: string; ink: string; solid: string; hoverBorder: string }> = {
-  teal: { soft: "bg-tile-teal-soft", ink: "text-tile-teal-ink", solid: "bg-tile-teal", hoverBorder: "hover:border-tile-teal/60" },
-  coral: { soft: "bg-tile-coral-soft", ink: "text-tile-coral-ink", solid: "bg-tile-coral", hoverBorder: "hover:border-tile-coral/60" },
-  violet: { soft: "bg-tile-violet-soft", ink: "text-tile-violet-ink", solid: "bg-tile-violet", hoverBorder: "hover:border-tile-violet/60" },
-  sky: { soft: "bg-tile-sky-soft", ink: "text-tile-sky-ink", solid: "bg-tile-sky", hoverBorder: "hover:border-tile-sky/60" },
-  rose: { soft: "bg-tile-rose-soft", ink: "text-tile-rose-ink", solid: "bg-tile-rose", hoverBorder: "hover:border-tile-rose/60" },
-  lime: { soft: "bg-tile-lime-soft", ink: "text-tile-lime-ink", solid: "bg-tile-lime", hoverBorder: "hover:border-tile-lime/60" },
-  amber: { soft: "bg-tile-amber-soft", ink: "text-tile-amber-ink", solid: "bg-tile-amber", hoverBorder: "hover:border-tile-amber/60" },
-};
-
-function tileFor(moduleId: ModuleCardId) {
-  return TILE_CLASSES[MODULE_TILES[moduleId]];
-}
 
 /* ── Motion: staggered, reduced-motion aware via the app MotionConfig ──── */
 
@@ -267,226 +224,6 @@ function WelcomeHeader({
         <HeaderStat label="Verified connections" value={stats.connected} />
       </dl>
     </header>
-  );
-}
-
-/* ── Next best action ───────────────────────────────────────────────────── */
-
-function NextActionSkeleton() {
-  return (
-    <div role="status" className="grid grid-cols-1 gap-6 rounded-xl border bg-card p-5 shadow-soft md:grid-cols-2 md:p-7">
-      <span className="sr-only">Finding a useful next step…</span>
-      <div aria-hidden="true" className="grid content-start gap-3">
-        <span className="h-6 w-40 animate-pulse rounded-full bg-muted" />
-        <span className="h-8 w-3/4 animate-pulse rounded-md bg-muted" />
-        <span className="h-4 w-full animate-pulse rounded-sm bg-muted" />
-        <span className="mt-4 h-10 w-40 animate-pulse rounded-md bg-muted" />
-      </div>
-      <div aria-hidden="true" className="grid gap-2">
-        {[0, 1, 2].map((i) => (
-          <span key={i} className="h-14 animate-pulse rounded-md bg-muted" />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function OverviewNextAction({
-  projectId,
-  modules,
-  personaCount,
-  journeyCount,
-  contentCount,
-  journeysRequested,
-  modulesLoading,
-}: {
-  projectId: Id<"projects">;
-  modules: string[];
-  personaCount: number | undefined;
-  journeyCount: number | undefined;
-  contentCount: number | undefined;
-  journeysRequested: boolean;
-  modulesLoading: boolean;
-}) {
-  if (
-    modulesLoading ||
-    personaCount === undefined ||
-    contentCount === undefined ||
-    (journeysRequested && journeyCount === undefined)
-  ) {
-    return <NextActionSkeleton />;
-  }
-
-  return (
-    <NextAction
-      projectId={projectId}
-      model={getNextActionModel({
-        personaCount,
-        journeyCount: journeyCount ?? 0,
-        contentCount,
-        modules,
-      })}
-    />
-  );
-}
-
-/* ── Module grid ────────────────────────────────────────────────────────── */
-
-function ModuleCard({
-  card,
-  projectId,
-  state,
-  savedLabel,
-}: {
-  card: (typeof MODULE_CARDS)[number];
-  projectId: Id<"projects">;
-  state: CapabilityState;
-  savedLabel?: string;
-}) {
-  const tile = tileFor(card.to);
-  const Icon = card.icon;
-  const included = state === "included";
-  const unavailable = state === "unavailable";
-  // Locked modules go straight to plan options; needs_setup opens the
-  // module (the route gate decides); unavailable is not a link at all.
-  const to = included ? `/app/${projectId}/${card.to}` : state === "locked" ? "/app/billing" : `/app/${projectId}/${card.to}`;
-
-  const body = (
-    <>
-      {/* Tile band + decorative corner mosaic */}
-      <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1", tile.solid, !included && "opacity-40")} />
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute right-4 top-5 grid grid-cols-2 gap-1 opacity-30 transition-transform duration-300 ease-mosaic group-hover:-translate-x-1 group-hover:translate-y-1 group-hover:rotate-6"
-      >
-        <span className={cn("size-3 rounded-xs", tile.solid)} />
-        <span className={cn("size-3 rounded-xs", tile.solid)} />
-        <span className="size-3" />
-        <span className={cn("size-3 rounded-xs", tile.solid)} />
-      </span>
-
-      <span
-        aria-hidden="true"
-        className={cn(
-          "grid size-11 place-items-center rounded-lg transition-transform duration-300 ease-mosaic group-hover:-rotate-6 group-hover:scale-105",
-          included ? [tile.soft, tile.ink] : "bg-muted text-muted-foreground",
-        )}
-      >
-        <Icon className="size-5" />
-      </span>
-      <h3 className="mt-4 font-mono text-h3">{card.name}</h3>
-      <p className="mt-1 font-mono text-caption text-muted-foreground">{card.desc}</p>
-
-      <span className="mt-auto flex items-center gap-2 pt-5 font-mono text-caption">
-        {included ? (
-          <>
-            <span className={cn("font-medium", tile.ink)}>{savedLabel ?? "Open"}</span>
-            <ArrowRight
-              aria-hidden="true"
-              className={cn("ml-auto size-4 transition-transform duration-200 ease-terminal group-hover:translate-x-1", tile.ink)}
-            />
-          </>
-        ) : (
-          <>
-            <LockKeyhole aria-hidden="true" className="size-3.5 text-terminal-amber-ink" />
-            <span className="text-muted-foreground">
-              {state === "locked" ? "Not on your plan · see options" : capabilityStateLabel(state)}
-            </span>
-          </>
-        )}
-      </span>
-    </>
-  );
-
-  const shell = "group relative flex h-full min-h-44 flex-col overflow-hidden rounded-lg border bg-card p-5 shadow-soft";
-
-  if (unavailable) {
-    return (
-      <div className={cn(shell, "opacity-90")} aria-label={`${card.name} — unavailable`}>
-        {body}
-      </div>
-    );
-  }
-
-  return (
-    <Link
-      to={to}
-      aria-label={
-        included
-          ? `Open ${card.name}${savedLabel ? ` — ${savedLabel}` : ""}`
-          : `${card.name} — ${capabilityStateLabel(state)}${state === "locked" ? ", view plan options" : ""}`
-      }
-      className={cn(shell, "hover-lift focus-ring", included && tile.hoverBorder)}
-    >
-      {body}
-    </Link>
-  );
-}
-
-function ModuleGridSkeleton() {
-  return (
-    <div role="status" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <span className="sr-only">Loading your modules…</span>
-      {MODULE_CARDS.map((m) => (
-        <div key={m.to} aria-hidden="true" className="h-44 animate-pulse rounded-lg border bg-card shadow-soft" />
-      ))}
-    </div>
-  );
-}
-
-function ModuleGrid({
-  projectId,
-  modules,
-  loading,
-  stateOf,
-  counts,
-}: {
-  projectId: Id<"projects">;
-  modules: string[];
-  loading: boolean;
-  stateOf: (module: string) => CapabilityState | null;
-  counts: Partial<Record<ModuleCardId, string>>;
-}) {
-  if (loading) return <ModuleGridSkeleton />;
-
-  const stateFor = (id: string): CapabilityState =>
-    modules.includes(id) ? "included" : (stateOf(id) ?? "locked");
-
-  if (MODULE_CARDS.every((m) => stateFor(m.to) !== "included")) {
-    return (
-      <ModuleEmpty
-        icon={LockKeyhole}
-        title="No modules are included on your plan yet"
-        hint="Your project details are saved. Choose a plan to unlock Understand, Create, Build and the rest."
-        action={
-          <Button asChild>
-            <Link to="/app/billing">
-              View plan options <ArrowRight className="size-4" />
-            </Link>
-          </Button>
-        }
-      />
-    );
-  }
-
-  return (
-    <motion.ul
-      variants={staggerParent}
-      initial="hidden"
-      animate="show"
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
-    >
-      {MODULE_CARDS.map((card) => (
-        <motion.li key={card.to} variants={riseIn} className="min-w-0">
-          <ModuleCard
-            card={card}
-            projectId={projectId}
-            state={stateFor(card.to)}
-            savedLabel={counts[card.to]}
-          />
-        </motion.li>
-      ))}
-    </motion.ul>
   );
 }
 
@@ -1169,6 +906,53 @@ export default function Overview({
         initialTab={editTab}
       />
 
+      {/* U4 slot: the starter kit cards go here, above "This week". */}
+      <ModuleErrorBoundary>
+        <StarterKitCards
+          projectId={projectId}
+          modules={modules}
+          modulesLoading={modulesLoading}
+          onFixFacts={() => openEdit("understanding")}
+        />
+      </ModuleErrorBoundary>
+
+      <ModuleErrorBoundary>
+        <SinceYouWereAway projectId={projectId} />
+      </ModuleErrorBoundary>
+
+      <Reveal>
+        <ModuleErrorBoundary>
+          <ThisWeekNextStep
+            projectId={projectId}
+            project={project}
+            modules={modules}
+            modulesLoading={modulesLoading}
+            personaCount={personas?.length}
+            journeyCount={journeys?.length}
+            contentCount={content?.length}
+          />
+        </ModuleErrorBoundary>
+      </Reveal>
+
+      <Reveal>
+        <section id="modules" aria-labelledby="modules-title">
+          <SectionHeading
+            id="modules-title"
+            title="Your tools"
+            hint="Each works on its own and gets smarter with the others — they all share this project."
+          />
+          <ModuleErrorBoundary>
+            <ModuleGrid
+              projectId={projectId}
+              modules={modules}
+              loading={modulesLoading}
+              stateOf={entitlements.stateOf}
+              counts={counts}
+            />
+          </ModuleErrorBoundary>
+        </section>
+      </Reveal>
+
       {project ? (
         <Reveal>
           <ModuleErrorBoundary>
@@ -1184,39 +968,6 @@ export default function Overview({
           </ModuleErrorBoundary>
         </Reveal>
       ) : null}
-
-      <Reveal>
-        <ModuleErrorBoundary>
-          <OverviewNextAction
-            projectId={projectId}
-            modules={modules}
-            personaCount={personas?.length}
-            journeyCount={journeys?.length}
-            contentCount={content?.length}
-            journeysRequested={journeysRequested}
-            modulesLoading={modulesLoading}
-          />
-        </ModuleErrorBoundary>
-      </Reveal>
-
-      <Reveal>
-        <section id="modules" aria-labelledby="modules-title">
-          <SectionHeading
-            id="modules-title"
-            title="Your modules"
-            hint="Each works on its own and gets smarter with the others — they all share this project."
-          />
-          <ModuleErrorBoundary>
-            <ModuleGrid
-              projectId={projectId}
-              modules={modules}
-              loading={modulesLoading}
-              stateOf={entitlements.stateOf}
-              counts={counts}
-            />
-          </ModuleErrorBoundary>
-        </section>
-      </Reveal>
 
       <Reveal className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ModuleErrorBoundary>

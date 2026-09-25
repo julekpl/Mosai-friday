@@ -183,6 +183,34 @@ export const patchBuild = internalMutation({
 });
 
 /**
+ * The project's website build, created as a `draft` when there is none (one
+ * website per project, P0-9; same rule as `builds.create`, whose read and
+ * insert are also one serializable mutation). Used by the starter kit, which
+ * has already checked `build.edit` for the tenant.
+ */
+export const ensureWebsiteBuild = internalMutation({
+  args: { projectId: v.id("projects"), name: v.string() },
+  handler: async (ctx, { projectId, name }): Promise<Id<"builds">> => {
+    const existing = await ctx.db
+      .query("builds")
+      .withIndex("by_project_kind", (q) =>
+        q.eq("projectId", projectId).eq("kind", "website"),
+      )
+      .first();
+    if (existing) return existing._id;
+    const now = Date.now();
+    return await ctx.db.insert("builds", {
+      projectId,
+      name,
+      kind: "website",
+      status: "draft",
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/**
  * Create the site (idempotent) and any planned pages that don't exist yet.
  * Paths go through the one shared normalizer (`lib/sitePaths.ts`), so the
  * path the generator writes to is exactly the path created here; nested
@@ -193,6 +221,9 @@ export const ensureSiteWithPages = internalMutation({
   args: {
     projectId: v.id("projects"),
     projectName: v.string(),
+    // A scheduled job (the starter kit) has no auth identity; it passes the
+    // user it acts for, and access is still checked for that user below.
+    actingUserId: v.optional(v.id("users")),
     pages: v.array(
       v.object({
         name: v.string(),
@@ -201,8 +232,8 @@ export const ensureSiteWithPages = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { projectId, projectName, pages }) => {
-    const userId = await getAuthUserId(ctx);
+  handler: async (ctx, { projectId, projectName, pages, actingUserId }) => {
+    const userId = (await getAuthUserId(ctx)) ?? actingUserId;
     if (!userId) throw new Error("Not authenticated");
     if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
       throw new Error("Not found");
@@ -372,8 +403,9 @@ async function authorizeBuildWrite(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   buildId: Id<"builds">,
+  actingUserId?: Id<"users">,
 ) {
-  const userId = await getAuthUserId(ctx);
+  const userId = (await getAuthUserId(ctx)) ?? actingUserId;
   if (!userId) throw new Error("Not authenticated");
   if (!(await projectAccessFor(ctx, projectId, userId as Id<"users">))) {
     throw new Error("Not found");
@@ -399,9 +431,12 @@ export const checkpointBeforeAiWrite = internalMutation({
     projectId: v.id("projects"),
     buildId: v.id("builds"),
     label: v.string(),
+    // A scheduled job (the starter kit) has no auth identity; it passes the
+    // user it acts for, and access is still checked for that user below.
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { projectId, buildId, label }) => {
-    await authorizeBuildWrite(ctx, projectId, buildId);
+  handler: async (ctx, { projectId, buildId, label, actingUserId }) => {
+    await authorizeBuildWrite(ctx, projectId, buildId, actingUserId);
     const pages = await snapshotPagesFor(ctx, projectId);
     if (!pages.length) return null;
     const versions = await ctx.db
@@ -428,9 +463,12 @@ export const snapshotVersion = internalMutation({
     projectId: v.id("projects"),
     buildId: v.id("builds"),
     label: v.string(),
+    // A scheduled job (the starter kit) has no auth identity; it passes the
+    // user it acts for, and access is still checked for that user below.
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { projectId, buildId, label }) => {
-    await authorizeBuildWrite(ctx, projectId, buildId);
+  handler: async (ctx, { projectId, buildId, label, actingUserId }) => {
+    await authorizeBuildWrite(ctx, projectId, buildId, actingUserId);
     const pages = await snapshotPagesFor(ctx, projectId);
     return insertVersion(ctx, { projectId, buildId, label, pages });
   },
