@@ -1,1 +1,0 @@
-import{j as a}from"./framer-motion-DG2j0eGW.js";import{a as o}from"./index-B4GUXuuN.js";function m({className:e,...n}){return a.jsx("div",{"data-slot":"skeleton","aria-hidden":"true",className:o("bg-accent rounded-md animate-mosaic-shimmer dark:bg-none dark:animate-pulse motion-reduce:animate-none motion-reduce:bg-none",e),...n})}export{m as S};
