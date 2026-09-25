@@ -215,8 +215,8 @@ function WelcomeHeader({
         </div>
       ) : (
         <>
-          <h1 className="mt-1 max-w-3xl font-mono text-h1 sm:text-display">{project?.name ?? "Project"}</h1>
-          <p className="mt-3 max-w-2xl font-mono text-small text-muted-foreground">
+          <h1 className="mt-1 max-w-3xl break-words font-mono text-h1 sm:text-display">{project?.name ?? "Project"}</h1>
+          <p className="mt-3 max-w-2xl break-words font-mono text-small text-muted-foreground">
             {project?.description ??
               "One shared picture of your business — audiences, content and connections — that every module builds on."}
           </p>
@@ -225,8 +225,8 @@ function WelcomeHeader({
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
         {project?.industry && (
-          <Badge variant="outline" className="bg-card font-mono text-caption">
-            {project.industry}
+          <Badge variant="outline" className="max-w-full bg-card font-mono text-caption">
+            <span className="truncate">{project.industry}</span>
           </Badge>
         )}
         {project?.websiteUrl && website && (
@@ -234,24 +234,24 @@ function WelcomeHeader({
             href={project.websiteUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 font-mono text-caption text-terminal-green-ink underline-offset-4 hover:underline"
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 font-mono text-caption text-terminal-green-ink underline-offset-4 hover:underline"
           >
-            <Globe aria-hidden="true" className="size-3.5" />
-            {website}
+            <Globe aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="truncate">{website}</span>
             <span className="sr-only">(opens in a new tab)</span>
           </a>
         )}
         {project?.googleBusinessName && (
-          <span className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 font-mono text-caption">
-            <MapPin aria-hidden="true" className="size-3.5 text-muted-foreground" />
-            {project.googleBusinessName}
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 font-mono text-caption">
+            <MapPin aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{project.googleBusinessName}</span>
           </span>
         )}
-        <div className="ml-auto flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onEdit}>
+        <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={onEdit}>
             <Pencil className="size-4" aria-hidden="true" /> Edit project
           </Button>
-          <Button variant="outline" size="sm" onClick={onDownloadPack} disabled={!packReady}>
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={onDownloadPack} disabled={!packReady}>
             <FileDown className="size-4" /> Download project pack
           </Button>
         </div>
@@ -271,7 +271,7 @@ function WelcomeHeader({
 
 function NextActionSkeleton() {
   return (
-    <div role="status" className="grid gap-6 rounded-xl border bg-card p-5 shadow-soft md:grid-cols-2 md:p-7">
+    <div role="status" className="grid grid-cols-1 gap-6 rounded-xl border bg-card p-5 shadow-soft md:grid-cols-2 md:p-7">
       <span className="sr-only">Finding a useful next step…</span>
       <div aria-hidden="true" className="grid content-start gap-3">
         <span className="h-6 w-40 animate-pulse rounded-full bg-muted" />
@@ -422,7 +422,7 @@ function ModuleCard({
 
 function ModuleGridSkeleton() {
   return (
-    <div role="status" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div role="status" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <span className="sr-only">Loading your modules…</span>
       {MODULE_CARDS.map((m) => (
         <div key={m.to} aria-hidden="true" className="h-44 animate-pulse rounded-lg border bg-card shadow-soft" />
@@ -471,7 +471,7 @@ function ModuleGrid({
       variants={staggerParent}
       initial="hidden"
       animate="show"
-      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
     >
       {MODULE_CARDS.map((card) => (
         <motion.li key={card.to} variants={riseIn} className="min-w-0">
@@ -635,11 +635,11 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {comms.map((c) => (
-            <article key={c._id} className="rounded-lg border bg-card p-4 shadow-soft">
+            <article key={c._id} className="min-w-0 break-words rounded-lg border bg-card p-4 shadow-soft">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="font-mono text-small font-medium">{c.name}</h3>
+                <h3 className="min-w-0 font-mono text-small font-medium">{c.name}</h3>
                 <div className="flex shrink-0 items-center gap-1">
                   <StatusBadge status={c.status} />
                   <Button
@@ -878,7 +878,7 @@ function ContentSection({
           </p>
         </div>
       ) : (
-        <ul className="grid gap-2">
+        <ul className="grid grid-cols-1 gap-2">
           {content.map((piece) => (
             <li
               key={piece._id}
@@ -887,8 +887,8 @@ function ContentSection({
               <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-md bg-tile-violet-soft text-tile-violet-ink">
                 <MessageSquareText className="size-4" />
               </span>
-              <span className="min-w-0 truncate font-mono text-small">{piece.title}</span>
-              <StatusBadge status={piece.status} className="ml-auto shrink-0" />
+              <span className="min-w-0 flex-1 truncate font-mono text-small">{piece.title}</span>
+              <StatusBadge status={piece.status} className="shrink-0" />
               <Button asChild size="icon-sm" variant="ghost" aria-label={`Download ${piece.title}`}>
                 <a
                   href={`data:text/markdown;charset=utf-8,${encodeURIComponent(
@@ -926,7 +926,7 @@ function BusinessUnderstandingCard({
     return (
       <section aria-labelledby="bu-title" className="grid gap-2 rounded-lg border bg-card p-5 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="bu-title" className="font-mono text-h3">Your business, as MOSAI understands it</h2>
+          <h2 id="bu-title" className="min-w-0 font-mono text-h3">Your business, as MOSAI understands it</h2>
           <div className="flex items-center gap-2">
             <BusinessUnderstandingStatus profile={profile} />
             <Button size="sm" variant="ghost" onClick={onReview}>Edit</Button>
@@ -945,7 +945,7 @@ function BusinessUnderstandingCard({
       className="grid gap-3 rounded-lg border border-terminal-amber/40 bg-terminal-amber-soft p-5 shadow-soft"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="bu-title" className="font-mono text-h3">
+        <h2 id="bu-title" className="min-w-0 font-mono text-h3">
           {profile ? "Check MOSAI’s summary of your business" : "MOSAI is getting to know your business"}
         </h2>
         <BusinessUnderstandingStatus profile={profile} />
@@ -961,7 +961,7 @@ function BusinessUnderstandingCard({
       <p className="font-mono text-caption text-muted-foreground">
         Customer profiles, content and your website are written for the customers in this summary — a minute here saves rewriting later.
       </p>
-      <Button className="w-fit" onClick={onReview}>
+      <Button className="w-full sm:w-fit" onClick={onReview}>
         {profile ? "Review and confirm" : "Open it now"} <ArrowRight className="size-4" aria-hidden="true" />
       </Button>
     </section>
@@ -1054,7 +1054,7 @@ export default function Overview({
       variants={staggerParent}
       initial="hidden"
       animate="show"
-      className="grid gap-10 pb-8"
+      className="grid grid-cols-1 gap-8 pb-8 sm:gap-10"
     >
       <Reveal>
         <ModuleErrorBoundary>
@@ -1121,7 +1121,7 @@ export default function Overview({
         </section>
       </Reveal>
 
-      <Reveal className="grid gap-4 lg:grid-cols-2">
+      <Reveal className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ModuleErrorBoundary>
           <AboutSection project={project} personaCount={personas?.length} projectId={projectId} onEdit={() => openEdit("details")} />
         </ModuleErrorBoundary>

@@ -238,7 +238,7 @@ function UnderstandingForm({ project }: { project: Project }) {
   const hasProfile = Boolean(project.businessProfile);
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border bg-card p-3">
         <div className="grid gap-1">
           <p className="font-mono text-small font-medium">How MOSAI understands your business</p>
@@ -402,7 +402,7 @@ function CustomersForm({ project }: { project: Project }) {
   };
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       <FieldRow
         id={`${uid}-audience`}
         label="Who pays you? Your customers"
@@ -462,7 +462,7 @@ function AiModelPicker({ project }: { project: Project }) {
   };
 
   return (
-    <div className="grid gap-2 rounded-md border bg-card p-3">
+    <div className="grid grid-cols-1 gap-2 rounded-md border bg-card p-3">
       <Label htmlFor={`${uid}-model`} className="font-mono text-small font-medium">AI model for this project</Label>
       <p id={`${uid}-model-help`} className="font-mono text-caption text-muted-foreground">
         Used for customer profiles, journeys, content and your website. Your administrator decides which models are offered.
@@ -560,7 +560,7 @@ function DetailsForm({ project }: { project: Project }) {
   const scannedAt = project.websiteScan?.scannedAt;
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       <FieldRow id={`${uid}-name`} label="Project name">
         <Input id={`${uid}-name`} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />
       </FieldRow>
@@ -599,7 +599,7 @@ function DetailsForm({ project }: { project: Project }) {
 
       <AiModelPicker project={project} />
 
-      <div className="grid gap-2 rounded-md border bg-card p-3">
+      <div className="grid grid-cols-1 gap-2 rounded-md border bg-card p-3">
         <p className="font-mono text-small font-medium">Website scan</p>
         <p className="font-mono text-caption text-muted-foreground">
           {scannedAt

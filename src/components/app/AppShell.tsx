@@ -403,16 +403,15 @@ export function AppShell({
         <span className="sr-only" aria-live="polite">
           Current location: {currentLocation}
         </span>
-        <Button asChild size="sm" variant="outline" className="ml-auto h-7">
+        <Button asChild size="sm" variant="outline" className="ml-auto h-7 min-w-0 max-w-1/2 shrink">
           <NavLink to={current ? `/app/${current._id}` : "/app/new"}>
-            {current ? current.name : "New project"}
+            <span className="truncate">{current ? current.name : "New project"}</span>
           </NavLink>
         </Button>
       </div>
-      <div className="h-12 lg:hidden" />
 
       {/* Content */}
-      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pt-12 focus:outline-none lg:pt-0">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={location.pathname}
