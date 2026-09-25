@@ -325,8 +325,7 @@ and #22 (this docs PR); merged `main` passes `bun run check` (1057 unit tests,
 
 | Ticket | Status | Evidence |
 |---|---|---|
-| U0, U2, U3, U4, U5, U5b, U6 | **merged** in `a5b4255` (25 Sep 2026), not yet proven with owners |
-| U7 since you were away | **merged** (PR #19, 25 Sep 2026), not yet proven with owners | | Unit, cross-tenant and (where UI) e2e tests per PR; baseline was 959 tests, the combined branch 1040+. Lint stays at 0 errors / 33 warnings. |
+| U0, U2, U3, U4, U5, U5b, U6, U7 | **merged** (`a5b4255`, and #19 for U7; 25 Sep 2026), not yet proven with owners | Unit, cross-tenant and (where UI) e2e tests per PR; baseline was 959 tests, merged `main` 1057+ (1069 with U7). Lint stays at 0 errors / 33 warnings. |
 | U9 agency path | first slice **merged** (`a5b4255`); hand-off not started | client projects use the agency user's plan (owner-based entitlement) |
 | U6b contact details, U4b kit follow-ups | not started | found in review (see backlog) |
 | U1, U8, U10, U11 | blocked | owner decisions / hosting option A |
