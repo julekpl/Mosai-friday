@@ -456,6 +456,15 @@ const fixtures: Fixture[] = [
     }),
   },
   {
+    table: "projectVisits",
+    doc: (s) => ({
+      projectId: s.projectId,
+      userId: s.userId,
+      lastSeenAt: at,
+      updatedAt: at,
+    }),
+  },
+  {
     table: "googleMetricsDaily",
     doc: (s) => ({
       projectId: s.projectId,

@@ -1446,6 +1446,19 @@ const schema = defineSchema(
       .index("by_key", ["key"])
       .index("by_expires", ["expiresAt"]),
 
+    // When each member last looked at a project's Home (U7 "Since you were
+    // away"). One row per user and project; the summary counts only rows
+    // created after `lastSeenAt`. No content, just two timestamps.
+    projectVisits: defineTable({
+      projectId: v.id("projects"),
+      userId: v.id("users"),
+      lastSeenAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_user_project", ["userId", "projectId"])
+      .index("by_project", ["projectId"])
+      .index("by_user", ["userId"]),
+
     // One sync job (AGENTS.md rule 13 states). Each source records its own
     // outcome; errors are plain-language plus an enum-like provider code.
     googleSyncRuns: defineTable({
