@@ -77,6 +77,7 @@ export function NewProjectWizard() {
 
   const create = useMutation(api.projects.create);
   const saveScan = useMutation(api.projects.saveScan);
+  const startKit = useMutation(api.starterKit.start);
   const draftBusinessProfile = useAction(api.ai.generateBusinessProfile);
   const scanWebsite = useAction(api.scraping.scanWebsite);
   const lookupGmb = useAction(api.scraping.lookupGoogleBusiness);
@@ -194,8 +195,19 @@ export function NewProjectWizard() {
       // Draft the business understanding on the server; the owner reviews it
       // on the project Home. It runs in the background and never blocks.
       void draftBusinessProfile({ projectId: id }).catch(() => undefined);
+      // Start the starter kit (plan, website, posts). If it cannot start
+      // (for example a role without edit), the project still exists, so Home
+      // opens anyway and the kit can be started again from there.
+      let kitStarted = true;
+      try {
+        await startKit({ projectId: id });
+      } catch {
+        kitStarted = false;
+      }
       toast.success("Project created", {
-        description: "MOSAI is drafting a summary of your business. Check it on the next screen.",
+        description: kitStarted
+          ? "Your starter kit is being drafted. Watch it fill in on the next screen."
+          : "We could not start your starter kit yet. Your answers are saved.",
       });
       navigate(`/app/${id}`);
     } catch (error) {
@@ -280,9 +292,7 @@ export function NewProjectWizard() {
 
       <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3 shadow-soft surface-glass">
         <p className="sr-only" role="status" aria-live="polite">
-          {/* Honest until U4 starts the kit job from here: this only creates the
-              project. U4 restores "Make my starter kit" when it wires starterKit.start. */}
-          {creating ? "Creating your project. Reading what you shared can take a little while." : ""}
+          {creating ? "Making your starter kit. Reading what you shared can take a little while." : ""}
         </p>
         {step > 0 && (
           <Button variant="ghost" className="min-h-11" onClick={() => setStep(step - 1)} disabled={creating}>
@@ -292,7 +302,7 @@ export function NewProjectWizard() {
         {isLast ? (
           <Button className="ml-auto min-h-11" onClick={() => void handleFinish()} disabled={creating}>
             {creating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
-            {creating ? "Creating your project…" : "Create my project"}
+            {creating ? "Making your starter kit…" : "Make my starter kit"}
           </Button>
         ) : (
           <Button className="ml-auto min-h-11" onClick={goNext}>
