@@ -28,7 +28,7 @@ proven with real owners (U12).
 | U6 | "This week" Home + outcome-ordered next step | U4 | M | **code done**, PR #17 · 22 unit tests; contact step is checklist-only until U6b; no browser test of the card with a live site yet |
 | U7 | "Since you were away" | U6 | S | **code done**, PR #19 · 10 tests (receipt-backed only); no browser test of a returning visit yet |
 | U8 | Website contact form into Customers | option A hosting · Q4 | L | blocked (hosting decision) |
-| U9 | Agency path: many client projects, hand-off | U2 | M | not started |
+| U9 | Agency path: many client projects, hand-off | U2 | M | **first slice code done**, PR #21 · client set-up in three questions and a one-click client list on `/app` (7 unit + 7 e2e); **hand-off to the client not started** (needs an owner decision on who pays after hand-off) |
 | U10 | Module naming test and rename | Q5 | S | blocked (owner, naming test) |
 | U11 | Readability test: proportional body font in the app | Q6 | S | blocked (owner) |
 | U12 | Moderated usability test, 5 owners, after U4 | U4 | S | script ready ([`u12-usability-test-script.md`](u12-usability-test-script.md)); sessions not run (owner) |
