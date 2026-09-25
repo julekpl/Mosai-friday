@@ -228,20 +228,42 @@ export type SafeFetchResult = {
   url: string;
 };
 
+/** One validated response, handed to a body reader while the timeout is
+ *  still armed. */
+type ValidatedResponse = {
+  res: Response;
+  url: URL;
+  signal: AbortSignal;
+};
+
+type GuardOptions = {
+  timeoutMs: number;
+  maxRedirects: number;
+  headers: Record<string, string>;
+  /** Exact hostnames every hop must match (redirects included). */
+  allowedHosts?: readonly string[];
+};
+
+function assertAllowedHost(url: URL, allowedHosts: readonly string[] | undefined): void {
+  if (!allowedHosts) return;
+  const host = url.hostname.toLowerCase();
+  if (!allowedHosts.some((allowed) => allowed.toLowerCase() === host)) {
+    throw new Error(`Host not allowed: ${url.hostname}`);
+  }
+}
+
 /**
- * Fetch a user-supplied URL with SSRF protections. Throws on any blocked
- * host, non-HTTPS URL, redirect loop, timeout or transport failure.
+ * The single SSRF guard shared by `safeFetch` and `safeFetchBytes`: HTTPS
+ * only, public addresses only (after DNS), optional exact host allow-list,
+ * manual redirects re-validated on every hop, and one wall-clock timer that
+ * stays armed while `read` consumes the body.
  */
-export async function safeFetch(
+async function guardedFetch<T>(
   input: string,
-  opts: SafeFetchOptions = {},
-): Promise<SafeFetchResult> {
-  const {
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    maxBytes = DEFAULT_MAX_BYTES,
-    maxRedirects = DEFAULT_MAX_REDIRECTS,
-    headers = {},
-  } = opts;
+  opts: GuardOptions,
+  read: (response: ValidatedResponse) => Promise<T>,
+): Promise<T> {
+  const { timeoutMs, maxRedirects, headers, allowedHosts } = opts;
 
   let current: URL;
   try {
@@ -254,6 +276,10 @@ export async function safeFetch(
   }
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (current.username || current.password) {
+      throw new Error("URLs with credentials are not allowed");
+    }
+    assertAllowedHost(current, allowedHosts);
     await assertPublicHost(current.hostname);
 
     const controller = new AbortController();
@@ -278,22 +304,14 @@ export async function safeFetch(
         continue;
       }
 
-      const contentType = res.headers.get("content-type");
-      if (!contentTypeAllowed(contentType)) {
-        const type = (contentType ?? "").split(";", 1)[0].trim();
-        throw new Error(`Refusing content type "${type}" — only text-like responses are read.`);
-      }
-
-      let text: string;
       try {
-        text = await readLimited(res, maxBytes);
+        return await read({ res, url: current, signal: controller.signal });
       } catch (err) {
         if (controller.signal.aborted) {
           throw new Error(`Request timed out after ${timeoutMs}ms reading ${current.hostname}`);
         }
         throw err;
       }
-      return { status: res.status, ok: res.ok, text, url: current.toString() };
     } catch (err) {
       if (controller.signal.aborted && !(err instanceof Error && /timed out/.test(err.message))) {
         throw new Error(`Request timed out after ${timeoutMs}ms reading ${current.hostname}`);
@@ -305,4 +323,132 @@ export async function safeFetch(
   }
 
   throw new Error(`Too many redirects (> ${maxRedirects})`);
+}
+
+/**
+ * Fetch a user-supplied URL with SSRF protections. Throws on any blocked
+ * host, non-HTTPS URL, redirect loop, timeout or transport failure.
+ */
+export async function safeFetch(
+  input: string,
+  opts: SafeFetchOptions = {},
+): Promise<SafeFetchResult> {
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    maxBytes = DEFAULT_MAX_BYTES,
+    maxRedirects = DEFAULT_MAX_REDIRECTS,
+    headers = {},
+  } = opts;
+
+  return await guardedFetch(input, { timeoutMs, maxRedirects, headers }, async ({ res, url }) => {
+    const contentType = res.headers.get("content-type");
+    if (!contentTypeAllowed(contentType)) {
+      const type = (contentType ?? "").split(";", 1)[0].trim();
+      throw new Error(`Refusing content type "${type}" — only text-like responses are read.`);
+    }
+    const text = await readLimited(res, maxBytes);
+    return { status: res.status, ok: res.ok, text, url: url.toString() };
+  });
+}
+
+/* ── Binary downloads (U5: owner photos and stock pictures) ─────────────── */
+
+/** Raster images only. SVG is never allowed: it is a document that can carry
+ *  script, so it is refused even if a caller lists it. */
+export const IMAGE_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
+const NEVER_ALLOWED_CONTENT_TYPES = new Set(["image/svg+xml"]);
+const DEFAULT_MAX_BINARY_BYTES = 8 * 1024 * 1024;
+
+export type SafeFetchBytesOptions = {
+  timeoutMs?: number;
+  /** Hard cap: a larger body is refused, never truncated. Default 8 MB. */
+  maxBytes?: number;
+  maxRedirects?: number;
+  headers?: Record<string, string>;
+  /** Content types accepted (exact, lower case). Default: raster images. */
+  allowedContentTypes?: readonly string[];
+  /** Exact hostnames every hop must match, redirects included. */
+  allowedHosts?: readonly string[];
+};
+
+export type SafeFetchBytesResult = {
+  status: number;
+  ok: boolean;
+  bytes: ArrayBuffer;
+  contentType: string;
+  url: string;
+};
+
+async function readBytesLimited(res: Response, maxBytes: number): Promise<ArrayBuffer> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`Response too large (over ${maxBytes} bytes)`);
+  }
+  const body = res.body;
+  if (!body) return new ArrayBuffer(0);
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`Response too large (over ${maxBytes} bytes)`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
+
+/**
+ * Download a user-supplied or scraped binary (an image) through the same SSRF
+ * guard as `safeFetch`. The content type must be declared and on the
+ * allow-list; an oversize body is refused while streaming. Throws on any
+ * refusal; a non-2xx answer is returned with `ok: false` and no body.
+ */
+export async function safeFetchBytes(
+  input: string,
+  opts: SafeFetchBytesOptions = {},
+): Promise<SafeFetchBytesResult> {
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    maxBytes = DEFAULT_MAX_BINARY_BYTES,
+    maxRedirects = DEFAULT_MAX_REDIRECTS,
+    headers = {},
+    allowedContentTypes = IMAGE_CONTENT_TYPES,
+    allowedHosts,
+  } = opts;
+  const allowed = new Set(
+    allowedContentTypes
+      .map((type) => type.toLowerCase())
+      .filter((type) => !NEVER_ALLOWED_CONTENT_TYPES.has(type)),
+  );
+
+  return await guardedFetch(
+    input,
+    { timeoutMs, maxRedirects, headers, allowedHosts },
+    async ({ res, url }) => {
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        return { status: res.status, ok: false, bytes: new ArrayBuffer(0), contentType: "", url: url.toString() };
+      }
+      const contentType = (res.headers.get("content-type") ?? "").split(";", 1)[0].trim().toLowerCase();
+      if (!allowed.has(contentType)) {
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`Refusing content type "${contentType || "none"}"`);
+      }
+      const bytes = await readBytesLimited(res, maxBytes);
+      return { status: res.status, ok: true, bytes, contentType, url: url.toString() };
+    },
+  );
 }

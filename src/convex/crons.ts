@@ -72,4 +72,13 @@ crons.daily(
   {},
 );
 
+// U5: expired Pexels search cache rows (24 h TTL) are swept daily in
+// bounded batches; a full batch schedules the next one.
+crons.daily(
+  "stock-search-cache-sweep",
+  { hourUTC: 3, minuteUTC: 47 },
+  internal.stockStore.sweepStockCache,
+  {},
+);
+
 export default crons;

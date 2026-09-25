@@ -16,7 +16,9 @@ import {
   parseRobotsTxt,
   prioritizeSiteUrls,
   type RobotsRules,
+  mergeScanImages,
   type WebsiteBusinessDetails,
+  type WebsiteImage,
   type WebsitePageFinding,
   type WebsitePageExtraction,
 } from "./lib/websiteScan";
@@ -150,6 +152,7 @@ type ScanResult = {
   metaDescription?: string;
   productsServices: string[];
   socialChannels: string[];
+  images: WebsiteImage[];
   businessDetails: WebsiteBusinessDetails;
   coverage: ScanCoverage;
   gmb?: {
@@ -220,6 +223,7 @@ export const rescanProjectWebsite = action({
         productsServices: scan.productsServices,
         pages: scan.pages,
         socialChannels: scan.socialChannels,
+        images: scan.images,
         businessDetails: scan.businessDetails,
         coverage: scan.coverage,
       },
@@ -261,7 +265,7 @@ async function runWebsiteScan(url: string, ignoreRobots: boolean): Promise<ScanR
         const match = rendered.text.match(/^Title:\s*(.+)$/m);
         if (match) renderedPage.title = match[1].trim();
       }
-      if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl };
+      if (renderedPage.excerpt.length > homepage.excerpt.length) homepage = { ...homepage, ...renderedPage, url: homepageUrl, images: homepage.images };
     } catch {
       // Keep the original HTML result and its honest evidence.
     }
@@ -322,6 +326,7 @@ async function runWebsiteScan(url: string, ignoreRobots: boolean): Promise<ScanR
   }
   const productsServices = [...new Set(pages.flatMap((page) => page.productsServices))].slice(0, 80);
   const socialChannels = [...new Set(pages.flatMap((page) => page.socialChannels))].slice(0, 50);
+  const images = mergeScanImages(pages.map((page) => page.images));
   const pendingDiscovered = [...candidates].filter((candidate) => !visited.has(candidate)).length;
   const truncated = sitemap.truncated || candidates.size >= MAX_DISCOVERED_URLS || pendingDiscovered > 0;
 
@@ -342,6 +347,7 @@ async function runWebsiteScan(url: string, ignoreRobots: boolean): Promise<ScanR
     metaDescription: homepage.description,
     productsServices,
     socialChannels,
+    images,
     businessDetails,
     coverage: {
       sitemapCount: sitemap.documentCount,
