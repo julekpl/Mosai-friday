@@ -44,6 +44,57 @@ export const businessProfileFields = {
   contentThemes: v.array(v.string()),
 };
 
+const hexColor = v.optional(v.string());
+
+// Brand kit (lib/brandProfile.ts): positioning, messaging house, voice and
+// visual identity. Bounded and normalised by projects.saveBrandProfile.
+export const brandProfileFields = {
+  positioning: v.string(),
+  category: v.optional(v.string()),
+  alternatives: v.array(v.string()),
+  promise: v.string(),
+  tagline: v.optional(v.string()),
+  elevatorPitch: v.optional(v.string()),
+  pillars: v.array(
+    v.object({
+      title: v.string(),
+      message: v.string(),
+      proofPoints: v.array(v.string()),
+    }),
+  ),
+  personality: v.array(v.string()),
+  voice: v.object({
+    formality: v.number(),
+    humor: v.number(),
+    respect: v.number(),
+    enthusiasm: v.number(),
+  }),
+  writeLike: v.array(v.string()),
+  neverLike: v.array(v.string()),
+  preferredWords: v.array(v.string()),
+  avoidWords: v.array(v.string()),
+  language: v.optional(v.string()),
+  colors: v.object({
+    primary: hexColor,
+    secondary: hexColor,
+    accent: hexColor,
+    dark: hexColor,
+    light: hexColor,
+  }),
+  headingFont: v.optional(v.string()),
+  bodyFont: v.optional(v.string()),
+  imageryStyle: v.array(v.string()),
+  shape: v.optional(v.union(v.literal("sharp"), v.literal("soft"), v.literal("round"))),
+  logoNotes: v.optional(v.string()),
+};
+
+const brandProfileValidator = v.object({
+  ...brandProfileFields,
+  status: v.union(v.literal("ai_draft"), v.literal("confirmed")),
+  updatedAt: v.number(),
+  confirmedAt: v.optional(v.number()),
+});
+
 const businessProfileValidator = v.object({
   ...businessProfileFields,
   status: v.union(v.literal("ai_draft"), v.literal("confirmed")),
@@ -246,6 +297,9 @@ const schema = defineSchema(
       // grounded in (lib/businessProfile.ts). Drafted by AI on the server,
       // confirmed by the owner in project settings.
       businessProfile: v.optional(businessProfileValidator),
+      // The brand kit every AI feature writes and designs with
+      // (lib/brandProfile.ts). Same ai_draft -> confirmed lifecycle.
+      brandProfile: v.optional(brandProfileValidator),
       // The organization this project belongs to (T2.1). Optional only so the
       // migration can backfill pre-organization projects; every project
       // created after T2.1 is written with its owner's personal organization.
@@ -1174,6 +1228,20 @@ const schema = defineSchema(
       rationale: v.optional(v.string()),
       channels: v.optional(v.array(v.string())),
       audience: v.optional(v.string()),
+      // Creative-brief fields (optional; older rows have none): the facts
+      // that make the message believable, what the audience should think,
+      // feel and do, the call to action, and the brand key message it
+      // supports (by title, from brandProfile.pillars).
+      proofPoints: v.optional(v.array(v.string())),
+      desiredResponse: v.optional(
+        v.object({
+          think: v.optional(v.string()),
+          feel: v.optional(v.string()),
+          do: v.optional(v.string()),
+        }),
+      ),
+      callToAction: v.optional(v.string()),
+      pillar: v.optional(v.string()),
       // draft | active | archived
       status: v.union(
         v.literal("draft"),

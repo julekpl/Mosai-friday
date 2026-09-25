@@ -39,6 +39,29 @@ const project = {
     status: "ai_draft",
     updatedAt: now,
   },
+  brandProfile: {
+    positioning:
+      "For home brewers who notice stale coffee, Northwind is the local roaster that ships within 48 hours of roasting, unlike supermarket beans that sit in warehouses for months.",
+    alternatives: ["supermarket beans", "national subscription services"],
+    promise: "Coffee that tastes the way the farmer intended",
+    pillars: [
+      { title: "Roasted to order", message: "Every bag is roasted within 48 hours of your order.", proofPoints: ["Roasting on Harbour Street since 2016"] },
+      { title: "Traceable sourcing", message: "You know the farm behind every bag.", proofPoints: [] },
+    ],
+    personality: ["Warm", "Knowledgeable", "Unpretentious"],
+    voice: { formality: 4, humor: 3, respect: 2, enthusiasm: 4 },
+    writeLike: ["Talk like a barista to a regular"],
+    neverLike: ["Wine-critic tasting-note jargon without explanation"],
+    preferredWords: ["fresh", "farm"],
+    avoidWords: ["premium", "artisanal"],
+    colors: { primary: "#6b3e26", accent: "#e0a458", dark: "#1c1917", light: "#fbf8f3" },
+    headingFont: "Fraunces",
+    bodyFont: "Inter",
+    imageryStyle: ["Real roastery photos in natural light"],
+    shape: "soft",
+    status: "ai_draft",
+    updatedAt: now,
+  },
 };
 
 const MODULES = ["understand", "journeys", "create", "build", "customers", "promote", "sell", "grow"];
@@ -103,7 +126,11 @@ const backendData = {
       audience: "home brewers",
       channels: ["email", "instagram", "website"],
       rationale: "Freshness is the most-cited reason for choosing a local roaster.",
-      status: "draft",
+      proofPoints: ["Roasting on Harbour Street since 2016"],
+      desiredResponse: { think: "This is fresher than supermarket coffee", feel: "Looked after", do: "Start a subscription" },
+      callToAction: "Start your subscription",
+      pillar: "Roasted to order",
+      status: "active",
     },
   ],
 };
@@ -190,7 +217,7 @@ for (const width of [320, 375, 414]) {
     await main.getByRole("button", { name: /edit project/i }).first().click();
     const sheet = page.getByRole("dialog", { name: "Edit project" });
     await expect(sheet).toBeVisible();
-    for (const tab of ["Your business", "Customers", "Details"]) {
+    for (const tab of ["Your business", "Customers", "Brand", "Details"]) {
       await sheet.getByRole("tab", { name: tab }).click();
       await expect(sheet.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
       await settle(page);

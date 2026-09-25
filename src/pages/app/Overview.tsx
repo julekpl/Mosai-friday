@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -40,10 +40,12 @@ import {
   ModuleSkeleton,
   StatusBadge,
 } from "@/components/app/module-kit";
+import { BrandStatus } from "@/components/app/BrandKitForm";
 import { ProjectFilesSection } from "@/components/app/ProjectFiles";
 import {
   BusinessUnderstandingStatus,
   ProjectSettingsSheet,
+  type ProjectSettingsTab,
 } from "@/components/app/ProjectSettings";
 import { NextAction } from "@/components/app/NextAction";
 import { getNextActionModel } from "@/components/app/next-action-model";
@@ -58,6 +60,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import {
   capabilityStateLabel,
@@ -545,8 +548,9 @@ function CommsDialog({
           Define a marketing communication
         </DialogTitle>
         <DialogDescription className="font-mono text-caption">
-          AI drafts the core message, rationale, audience and channels. It MAY
-          feed downstream modules — content, campaigns — when you want it to.
+          AI drafts a one-page brief: the core message, the proof behind it,
+          what customers should think, feel and do, and the channels. Switch
+          it to “Used by AI” and every writer in MOSAI will use it.
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-4">
@@ -617,7 +621,7 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
       <SectionHeading
         id="comms-title"
         title="Marketing communications"
-        hint="Your core messages, drafted with AI and kept as drafts."
+        hint="Messages switched to “Used by AI” shape every post, page and email MOSAI writes."
         action={
           <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
             <Plus className="size-3.5" /> New with AI
@@ -641,7 +645,7 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
               <div className="flex items-start justify-between gap-2">
                 <h3 className="min-w-0 font-mono text-small font-medium">{c.name}</h3>
                 <div className="flex shrink-0 items-center gap-1">
-                  <StatusBadge status={c.status} />
+                  <StatusBadge status={c.status === "active" ? "used_by_ai" : c.status} />
                   <Button
                     size="icon-sm"
                     variant="ghost"
@@ -660,6 +664,31 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
               <p className="mt-2 border-l-2 border-terminal-green/40 pl-2 font-mono text-caption">
                 {c.message}
               </p>
+              {c.pillar ? (
+                <p className="mt-2 font-mono text-caption text-muted-foreground">supports: {c.pillar}</p>
+              ) : null}
+              {c.proofPoints?.length ? (
+                <ul className="mt-2 grid gap-0.5 font-mono text-caption">
+                  {c.proofPoints.map((point) => (
+                    <li key={point}>✓ {point}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {c.desiredResponse && (c.desiredResponse.think || c.desiredResponse.feel || c.desiredResponse.do) ? (
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 font-mono text-caption">
+                  {(["think", "feel", "do"] as const).map((key) =>
+                    c.desiredResponse?.[key] ? (
+                      <Fragment key={key}>
+                        <dt className="text-muted-foreground">{key}</dt>
+                        <dd>{c.desiredResponse[key]}</dd>
+                      </Fragment>
+                    ) : null,
+                  )}
+                </dl>
+              ) : null}
+              {c.callToAction ? (
+                <p className="mt-2 font-mono text-caption">call to action: {c.callToAction}</p>
+              ) : null}
               {c.audience && (
                 <p className="mt-2 font-mono text-caption text-muted-foreground">
                   audience: {c.audience}
@@ -679,6 +708,23 @@ function CommunicationsSection({ projectId }: { projectId: Id<"projects"> }) {
                   {c.rationale}
                 </p>
               )}
+              {c.status !== "archived" ? (
+                <div className="mt-3 flex items-center gap-2 border-t pt-3">
+                  <Switch
+                    id={`comms-active-${c._id}`}
+                    checked={c.status === "active"}
+                    onCheckedChange={(checked) =>
+                      void update({ id: c._id, status: checked ? "active" : "draft" }).then(
+                        () => toast.success(checked ? `AI writers will now use “${c.name}”` : `“${c.name}” is a draft again`),
+                        () => toast.error("Couldn’t update the message"),
+                      )
+                    }
+                  />
+                  <Label htmlFor={`comms-active-${c._id}`} className="font-mono text-caption">
+                    Used by AI in content, posts and pages
+                  </Label>
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
@@ -968,6 +1014,49 @@ function BusinessUnderstandingCard({
   );
 }
 
+/* ── Brand kit: how every AI writer sounds and what it may claim ────────── */
+
+function BrandKitCard({ project, onOpen }: { project: ProjectDoc; onOpen: () => void }) {
+  const brand = project.brandProfile;
+  return (
+    <section aria-labelledby="brand-title" className="grid gap-2 rounded-lg border bg-card p-5 shadow-soft">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="brand-title" className="min-w-0 font-mono text-h3">Your brand</h2>
+        <div className="flex items-center gap-2">
+          <BrandStatus brand={brand} />
+          <Button size="sm" variant={brand ? "ghost" : "outline"} onClick={onOpen}>
+            {brand ? "Edit" : "Set it up"}
+          </Button>
+        </div>
+      </div>
+      {brand ? (
+        <>
+          {brand.promise ? <p className="font-mono text-small">{brand.promise}</p> : null}
+          <p className="font-mono text-caption text-muted-foreground">
+            {[
+              brand.personality.length ? brand.personality.join(" · ") : "",
+              brand.pillars.length ? `${brand.pillars.length} key message${brand.pillars.length === 1 ? "" : "s"}` : "",
+            ].filter(Boolean).join(" — ")}
+          </p>
+          {Object.values(brand.colors).some(Boolean) ? (
+            <ul className="flex gap-1.5" aria-label="Brand colours">
+              {Object.entries(brand.colors).filter(([, hex]) => hex).map(([role, hex]) => (
+                <li key={role} title={`${role} ${hex}`} className="size-5 rounded-full border" style={{ backgroundColor: hex }}>
+                  <span className="sr-only">{role} {hex}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        <p className="font-mono text-caption text-muted-foreground">
+          Set your promise, voice and colours once. Every post, page and email MOSAI writes will then sound like you and only claim what you can prove.
+        </p>
+      )}
+    </section>
+  );
+}
+
 /* ── Overview page ──────────────────────────────────────────────────────── */
 
 export default function Overview({
@@ -997,8 +1086,8 @@ export default function Overview({
   const [searchParams, setSearchParams] = useSearchParams();
   const editParam = searchParams.get("edit");
   const editTab =
-    editParam === "customers" || editParam === "details" ? editParam : "understanding";
-  const openEdit = (tab: "understanding" | "customers" | "details") =>
+    editParam === "customers" || editParam === "details" || editParam === "brand" ? editParam : "understanding";
+  const openEdit = (tab: ProjectSettingsTab) =>
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set("edit", tab);
@@ -1084,6 +1173,14 @@ export default function Overview({
         <Reveal>
           <ModuleErrorBoundary>
             <BusinessUnderstandingCard project={project} onReview={() => openEdit("understanding")} />
+          </ModuleErrorBoundary>
+        </Reveal>
+      ) : null}
+
+      {project ? (
+        <Reveal>
+          <ModuleErrorBoundary>
+            <BrandKitCard project={project} onOpen={() => openEdit("brand")} />
           </ModuleErrorBoundary>
         </Reveal>
       ) : null}

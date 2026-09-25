@@ -2,7 +2,8 @@ import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { anyApi } from "convex/server";
 import { v } from "convex/values";
 import { orgMutation, orgQuery, projectAccessFor, requireUser } from "./guards";
-import { businessProfileFields } from "./schema";
+import { brandProfileFields, businessProfileFields } from "./schema";
+import { boundBrandProfile, brandProfileProblems, describeVoice } from "./lib/brandProfile";
 import type { Doc } from "./_generated/dataModel";
 import { getOrCreatePersonalOrganization } from "./organizations";
 
@@ -324,6 +325,67 @@ export const saveBusinessProfile = orgMutation({
   },
 });
 
+const brandProfileArgs = v.object(brandProfileFields);
+
+/** Server-only writer for the AI brand draft (ai.generateBrandProfile, after
+ *  the caller's access was verified; re-verified here). A kit the owner has
+ *  confirmed is only replaced on an explicit owner request. */
+export const storeBrandProfileDraft = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    userId: v.id("users"),
+    profile: brandProfileArgs,
+    replaceConfirmed: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { projectId, userId, profile, replaceConfirmed }) => {
+    if (!(await projectAccessFor(ctx, projectId, userId))) throw new Error("Not found");
+    const project = await ctx.db.get(projectId);
+    if (!project) throw new Error("Not found");
+    if (project.brandProfile?.status === "confirmed" && !replaceConfirmed) {
+      return { stored: false as const };
+    }
+    await ctx.db.patch(projectId, {
+      brandProfile: { ...boundBrandProfile(profile), status: "ai_draft", updatedAt: Date.now() },
+    });
+    return { stored: true as const };
+  },
+});
+
+/** The stored brand kit for an already-authorized action (brand voice
+ *  check). Access is re-verified; absent or foreign projects read as null. */
+export const brandProfileForAction = internalQuery({
+  args: { projectId: v.id("projects"), userId: v.id("users") },
+  handler: async (ctx, { projectId, userId }) => {
+    if (!(await projectAccessFor(ctx, projectId, userId))) return null;
+    const project = await ctx.db.get(projectId);
+    return project ? { brandProfile: project.brandProfile ?? null } : null;
+  },
+});
+
+/** The owner edits and (optionally) confirms the brand kit. */
+export const saveBrandProfile = orgMutation({
+  args: {
+    id: v.id("projects"),
+    profile: brandProfileArgs,
+    confirm: v.boolean(),
+  },
+  handler: async (ctx, { id, profile, confirm }, access) => {
+    const { project } = await access.requireProject(id);
+    const bounded = boundBrandProfile(profile);
+    const problems = brandProfileProblems(bounded);
+    if (confirm && problems.length) throw new Error(problems.join(" "));
+    const now = Date.now();
+    await ctx.db.patch(id, {
+      brandProfile: {
+        ...bounded,
+        status: confirm ? "confirmed" : project.brandProfile?.status ?? "ai_draft",
+        updatedAt: now,
+        confirmedAt: confirm ? now : project.brandProfile?.confirmedAt,
+      },
+    });
+  },
+});
+
 type ProjectFieldInput = {
   name?: string;
   businessName?: string;
@@ -457,6 +519,33 @@ export const exportPack = orgQuery({
       }
     }
 
+    const brand = project.brandProfile;
+    if (brand) {
+      md.push(`\n## Brand kit · ${brand.status === "confirmed" ? "confirmed" : "AI draft"}`);
+      if (brand.positioning) md.push(`**Positioning:** ${brand.positioning}`);
+      if (brand.promise) md.push(`**Brand promise:** ${brand.promise}`);
+      if (brand.tagline) md.push(`**Tagline:** ${brand.tagline}`);
+      if (brand.elevatorPitch) md.push(`\n${brand.elevatorPitch}`);
+      for (const pillar of brand.pillars) {
+        md.push(`\n### ${pillar.title}\n${pillar.message}`);
+        if (pillar.proofPoints.length) md.push(pillar.proofPoints.map((point) => `- ${point}`).join("\n"));
+      }
+      md.push(`\n### Voice\n${describeVoice(brand.voice)}`);
+      if (brand.personality.length) md.push(`**Personality:** ${brand.personality.join(", ")}`);
+      if (brand.writeLike.length) md.push(`**Write like this:** ${brand.writeLike.join("; ")}`);
+      if (brand.neverLike.length) md.push(`**Never like this:** ${brand.neverLike.join("; ")}`);
+      if (brand.preferredWords.length) md.push(`**Preferred words:** ${brand.preferredWords.join(", ")}`);
+      if (brand.avoidWords.length) md.push(`**Words to avoid:** ${brand.avoidWords.join(", ")}`);
+      const colors = Object.entries(brand.colors).filter(([, hex]) => hex);
+      if (colors.length || brand.headingFont || brand.bodyFont) {
+        md.push(`\n### Visual identity`);
+        if (colors.length) md.push(colors.map(([role, hex]) => `- ${role}: ${hex}`).join("\n"));
+        if (brand.headingFont) md.push(`**Heading font:** ${brand.headingFont}`);
+        if (brand.bodyFont) md.push(`**Body font:** ${brand.bodyFont}`);
+        if (brand.imageryStyle.length) md.push(`**Imagery:** ${brand.imageryStyle.join("; ")}`);
+      }
+    }
+
     if (personas.length) {
       md.push(`\n## Personas`);
       for (const p of personas) {
@@ -475,6 +564,8 @@ export const exportPack = orgQuery({
         md.push(`\n### ${c.name} (${c.status})`);
         md.push(`> ${c.message}`);
         if (c.audience) md.push(`**Audience:** ${c.audience}`);
+        if (c.proofPoints?.length) md.push(`**Proof:** ${c.proofPoints.join("; ")}`);
+        if (c.callToAction) md.push(`**Call to action:** ${c.callToAction}`);
         if (c.channels?.length) md.push(`**Channels:** ${c.channels.join(", ")}`);
         if (c.rationale) md.push(`\n${c.rationale}`);
       }
