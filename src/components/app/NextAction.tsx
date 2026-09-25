@@ -56,7 +56,7 @@ export function NextAction({ model, projectId }: { model: NextActionModel; proje
   return (
     <section
       aria-labelledby="next-action-title"
-      className="relative grid gap-6 overflow-hidden rounded-xl border bg-surface-gradient p-5 shadow-lift md:grid-cols-[minmax(0,1.15fr)_minmax(16rem,0.85fr)] md:p-7"
+      className="relative grid grid-cols-1 gap-6 overflow-hidden rounded-xl border bg-surface-gradient p-5 shadow-lift md:grid-cols-[minmax(0,1.15fr)_minmax(16rem,0.85fr)] md:p-7"
     >
       <div className="flex min-w-0 flex-col">
         <p className="inline-flex w-fit items-center gap-1.5 rounded-full border border-terminal-green/30 bg-terminal-green-soft px-2.5 py-1 font-mono text-caption font-medium text-terminal-green-ink">
@@ -100,7 +100,7 @@ export function NextAction({ model, projectId }: { model: NextActionModel; proje
       </div>
 
       <div className="rounded-lg border bg-card p-4">
-        <div className="flex items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
           <h3 className="font-mono text-small font-semibold">Setup checklist</h3>
           <p className="font-mono text-caption text-muted-foreground">
             {savedCount} of {model.steps.length} with saved work
