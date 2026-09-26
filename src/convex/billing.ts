@@ -631,14 +631,22 @@ export const startCatalogCheckout = orgAction({
 
     const customerId = await ensureCustomer(ctx, args.organizationId, scope.userId);
     const planKey = planRow?.key ?? DEFAULT_PLAN;
-    const trialDays = planRow?.trialDays;
+    // KIT-F1 (F1 decided: the Starter trial requires a card): one trial per
+    // account. The marker is written only by the verified webhook.
+    const trialUsed: boolean = planRow?.trialDays
+      ? await ctx.runQuery(internal.billing.trialAlreadyUsed, {
+          organizationId: args.organizationId,
+          userId: scope.userId,
+        })
+      : false;
+    const trialDays = trialUsed ? undefined : planRow?.trialDays;
     const metadata = {
       [MOSAI_ORG_METADATA_KEY]: args.organizationId,
       [MOSAI_PLAN_METADATA_KEY]: planKey,
     };
     const session = await stripeRequest<{ id: string; url: string | null }>("/checkout/sessions", {
       method: "POST",
-      idempotencyKey: `mosai-catalog-checkout-${args.organizationId}-${lines.map((line) => line.priceId).sort().join("+")}-${dayBucket()}`,
+      idempotencyKey: `mosai-catalog-checkout-${args.organizationId}-${lines.map((line) => line.priceId).sort().join("+")}-${trialDays ? "trial" : "no-trial"}-${dayBucket()}`,
       params: {
         mode: "subscription",
         customer: customerId,
@@ -901,6 +909,22 @@ export const customerForOrganization = internalQuery({
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .first();
     return row?.customerId ?? null;
+  },
+});
+
+/** KIT-F1: whether this account already had its one trial (the marker the
+ *  verified webhook sets on the organization owner, or on the person
+ *  checking out). Server-only; never readable or writable from a client. */
+export const trialAlreadyUsed = internalQuery({
+  args: { organizationId: v.id("organizations"), userId: v.id("users") },
+  handler: async (ctx, { organizationId, userId }): Promise<boolean> => {
+    const organization = await ctx.db.get(organizationId);
+    const ids = [userId, ...(organization ? [organization.ownerId] : [])];
+    for (const id of ids) {
+      const user = await ctx.db.get(id);
+      if (user?.trialStartedAt !== undefined) return true;
+    }
+    return false;
   },
 });
 

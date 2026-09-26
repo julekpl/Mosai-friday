@@ -75,7 +75,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function lockedReason(module: "build" | "promote" | "grow", verb: string): string {
   return module === "grow"
     ? `${verb} needs the Scale plan or the Grow add-on`
-    : `${verb} needs the Starter plan`;
+    : `${verb} needs Starter`;
 }
 
 function reasons(snapshot: OutcomeSnapshot): Pick<NextActionModel, "why" | "deeper"> {

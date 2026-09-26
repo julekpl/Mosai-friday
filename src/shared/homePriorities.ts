@@ -33,6 +33,10 @@
  * yet") drops them; an unanswered one (`undefined`, older projects) keeps
  * them.
  *
+ * KIT-F1: a free owner whose kit parts wait for Starter gets one "Try
+ * Starter" item (or "Get Starter" once the account's one trial is used) in
+ * the "needs you" slot instead of a kit that silently waits.
+ *
  * Truth rules (AGENTS.md §5): nothing here upgrades a draft to "live"; a
  * website only drops off the "ready" list once the caller reports it is
  * confirmed live by a real deployment receipt. No numeric score is exposed;
@@ -75,7 +79,21 @@ export type HomePriorityItem = {
   state: HomePriorityState;
 };
 
-export type HomeKitPartInput = { status: StarterKitPartStatus };
+export type HomeKitPartInput = {
+  status: StarterKitPartStatus;
+  /** Waiting for a plan that includes it (`needs_plan`), not failed. */
+  locked?: boolean;
+};
+
+/** KIT-F1: the organization's plan, as the server resolved it. */
+export type HomePlanInput = {
+  free: boolean;
+  /** The account has never had its one trial (webhook-set marker). */
+  trialAvailable: boolean;
+};
+
+/** Plan options live at the workspace-level billing route. */
+export const PLANS_ROUTE = "/app/billing";
 
 export type HomePrioritiesKitInput = {
   status: StarterKitStatus;
@@ -105,6 +123,8 @@ export type HomePrioritiesInput = {
   primaryGoal?: PrimaryGoal;
   /** Where the owner posts. `undefined` = never answered. */
   postingChannels?: readonly PostingChannel[];
+  /** `undefined` = unknown; no plan item is shown. */
+  plan?: HomePlanInput;
 };
 
 const MAX_ITEMS = 3;
@@ -184,6 +204,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
           : STUCK_PART_STATUSES.includes(kit.parts[name].status),
       )
     : undefined;
+  const lockedParts = kit ? KIT_PART_ORDER.filter((name) => kit.parts[name].locked === true) : [];
   if (stuckPart) {
     items.push({
       id: `needs-you-${stuckPart}`,
@@ -196,6 +217,23 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
         : "Something went wrong while MOSAI worked on it. Your answers are kept.",
       action: { kind: "intent", label: "Try again", intent: "retry_kit_part", part: stuckPart },
       state: "needs_input",
+    });
+  } else if (kit && input.plan?.free && lockedParts.length > 0) {
+    // KIT-F1: a free owner's kit parts wait for Starter. Never a dead end:
+    // one item says what is locked and where to get it (the trial needs a
+    // card; checkout offers it once per account).
+    const nouns = lockedParts.map((name) => PART_NOUN[name]);
+    const list = nouns.length > 1 ? `${nouns.slice(0, -1).join(", ")} and ${nouns[nouns.length - 1]}` : nouns[0];
+    const trial = input.plan.trialAvailable;
+    items.push({
+      id: "next-try-starter",
+      kind: "next",
+      title: trial ? "Try Starter" : "Get Starter",
+      reason: `Your ${list} ${lockedParts.length > 1 || lockedParts[0] === "posts" ? "need" : "needs"} Starter.${
+        trial ? " The free trial asks for a card." : ""
+      }`,
+      action: { kind: "link", label: trial ? "Try Starter" : "See plans", to: PLANS_ROUTE },
+      state: "ready",
     });
   } else if (kit && kit.status === "waiting_for_user") {
     items.push({

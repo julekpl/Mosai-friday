@@ -29,7 +29,7 @@ next step. Anything less means we fix the first run before building more on it.
 |---|---|
 | A test deployment with U2, U3, U4, U5, U5b and U6 merged | The first run must be real, not a prototype |
 | `PEXELS_API_KEY` set on that deployment, **or** a note that stock photos are off | Otherwise posts show "0 of 7 have pictures"; decide which you are testing |
-| Test accounts on a plan that includes Build and Promote (the 14-day Starter trial, per the owner's Q2 decision) | Otherwise the website and posts cards show "Needs the Starter plan", which is a different test |
+| Test accounts on a plan that includes Build and Promote: the 14-day Starter trial, which requires a card (owner decision F1, closed 25 Sep 2026). Checkout offers the trial once per account, so use a fresh test account per session, or one already on Starter | Otherwise the website and posts cards show "Needs the Starter plan" and Home shows "Try Starter" (or "Get Starter" once the trial was used), which is a different test |
 | Written consent to record the screen and voice | Recording is required to count hesitations |
 | A €/£/$ thank-you as agreed by the owner | Recruitment |
 | This script printed, plus a timer | |

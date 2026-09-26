@@ -141,6 +141,10 @@ const schema = defineSchema(
         ),
       ),
       stripeCustomerId: v.optional(v.string()),
+      // KIT-F1: when this account's first Starter trial began. Written only
+      // by the verified Stripe webhook when a subscription enters
+      // `trialing`; checkout offers no second trial once it is set.
+      trialStartedAt: v.optional(v.number()),
       deletionRequestedAt: v.optional(v.number()),
       deletionBlockedReason: v.optional(v.string()),
       // Platform operator flag (T2.4 admin). Set by the allow-list resolution

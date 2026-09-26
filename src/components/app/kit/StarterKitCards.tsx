@@ -94,7 +94,7 @@ export function StarterKitCards({
   };
 
   const onRetry = () => void retry();
-  const hasBuild = !modulesLoading && modules.includes("build");
+  const hasBuild = modulesLoading ? undefined : modules.includes("build");
 
   return (
     <section aria-labelledby="starter-kit-title" className="grid gap-4">

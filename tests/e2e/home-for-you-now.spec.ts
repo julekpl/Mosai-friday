@@ -202,3 +202,57 @@ test.describe("a kit part that failed", () => {
     await expect(retry).toBeDisabled();
   });
 });
+
+test.describe("KIT-F1: a free owner", () => {
+  const CORE = ["understand", "journeys", "create"];
+  test.use({
+    backendData: backendData({
+      "entitlements:matrix": {
+        plan: "free",
+        role: "owner",
+        country: "Default",
+        addons: [],
+        modules: MODULES.map((module) => ({ module, label: module, state: CORE.includes(module) ? "included" : "locked" })),
+      },
+      "billing:currentPlan": { plan: "free", modules: CORE },
+      "starterKit:get": {
+        _id: "e2e_kit_free",
+        _creationTime: FIXED,
+        projectId: PROJECT_ID,
+        requestedBy: "e2e_user_1",
+        idempotencyKey: PROJECT_ID,
+        status: "waiting_for_user",
+        parts: {
+          plan: part({ status: "succeeded" }),
+          site: part({ status: "succeeded" }),
+          posts: part({ status: "queued", errorCode: "needs_plan", message: "Needs the Starter plan" }),
+        },
+        attempts: 1,
+        budgetMicrousd: 400_000,
+        spentMicrousd: 0,
+        budgetCurrency: "USD",
+        createdAt: FIXED,
+        updatedAt: FIXED,
+      },
+      "home:priorities": [
+        {
+          id: "next-try-starter",
+          kind: "next",
+          title: "Try Starter",
+          reason: "Your posts need Starter. The free trial asks for a card.",
+          action: { kind: "link", label: "Try Starter", to: "/app/billing" },
+          state: "ready",
+        },
+      ],
+    }),
+  });
+
+  test("sees Try Starter instead of a dead end, and a locked publish that says so", async ({ page }) => {
+    await openHome(page);
+    const item = page.getByTestId("for-you-now").locator("[data-item-id='next-try-starter']");
+    await expect(item.getByRole("link", { name: "Try Starter" })).toHaveAttribute("href", "/app/billing");
+    const publish = page.getByRole("link", { name: "Publishing needs Starter" });
+    await expect(publish).toBeVisible();
+    await expect(publish).toHaveAttribute("href", "/app/billing");
+  });
+});
