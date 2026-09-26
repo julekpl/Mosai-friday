@@ -1,17 +1,26 @@
 import { useQuery } from "convex/react";
 import { Link } from "react-router";
+import { LockKeyhole } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import type { StarterKitPart } from "@/shared/starterKit";
 import { KitPartCard } from "@/components/app/kit/KitPartCard";
-import { DRAFT_SITE_LINE, PARTIAL_FIX_LABEL, liveSiteAddress } from "@/components/app/kit/kit-model";
+import {
+  DRAFT_SITE_LINE,
+  PARTIAL_FIX_LABEL,
+  PUBLISH_LOCKED_LABEL,
+  liveSiteAddress,
+} from "@/components/app/kit/kit-model";
+import { PLANS_ROUTE } from "@/shared/homePriorities";
 
 /**
  * The website card. The address appears only when `siteHosting.status` says
  * `live`; until then it is a draft. Publishing is never done here: "Publish"
- * opens the build, where the receipt-backed publish flow lives.
+ * opens the build, where the receipt-backed publish flow lives. Without
+ * Build on the plan the button says "Publishing needs Starter" and opens the
+ * plans (KIT-F1), never a blank or dead button.
  */
 export function WebsiteCard({
   projectId,
@@ -24,8 +33,9 @@ export function WebsiteCard({
   projectId: Id<"projects">;
   part: StarterKitPart;
   buildId: Id<"builds"> | undefined;
-  /** The plan includes Build; otherwise the hosting query is skipped. */
-  hasBuild: boolean;
+  /** The plan includes Build; otherwise the hosting query is skipped.
+   *  `undefined` while the plan is loading (no publish button yet). */
+  hasBuild: boolean | undefined;
   onRetry: () => void;
   retrying: boolean;
 }) {
@@ -65,9 +75,16 @@ export function WebsiteCard({
           <Button asChild className="min-h-11">
             <Link to={buildHref}>Look at it</Link>
           </Button>
-          {address ? null : (
+          {address || hasBuild === undefined ? null : hasBuild ? (
             <Button asChild variant="outline" className="min-h-11">
               <Link to={buildHref}>Publish</Link>
+            </Button>
+          ) : (
+            <Button asChild variant="outline" className="min-h-11">
+              <Link to={PLANS_ROUTE}>
+                <LockKeyhole aria-hidden="true" className="size-4" />
+                {PUBLISH_LOCKED_LABEL}
+              </Link>
             </Button>
           )}
         </>

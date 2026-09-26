@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import type { StarterKitPartName } from "@/shared/starterKit";
+import { isStaleKit } from "@/shared/starterKitJob";
 import { KIT_PART_ORDER, kitAnnouncement } from "@/components/app/kit/kit-model";
 import { PlanCard } from "@/components/app/kit/PlanCard";
 import { WebsiteCard } from "@/components/app/kit/WebsiteCard";
@@ -14,7 +15,8 @@ import { PostsCard } from "@/components/app/kit/PostsCard";
 /**
  * "Your starter kit" on Home (docs/ux/first-run-blueprint.md §2–§3, §7):
  * the plan, website and posts cards fill in as the server job finishes each
- * part. Renders nothing when there is no kit or the owner hid it.
+ * part. Renders nothing when there is no kit, the owner hid it, or it is
+ * still drafting (Home's "For you now" item covers that).
  */
 export function StarterKitCards({
   projectId,
@@ -34,6 +36,8 @@ export function StarterKitCards({
   const dismiss = useMutation(api.starterKit.dismiss);
   const [retrying, setRetrying] = useState(false);
   const [hiding, setHiding] = useState(false);
+  // Read once per visit: a kit untouched for a while is stale, not drafting.
+  const [openedAt] = useState(() => Date.now());
 
   // Announce each part once per page load, when it finishes. Derived while
   // rendering (React's "adjust state when a prop changes" pattern), so no
@@ -57,6 +61,11 @@ export function StarterKitCards({
   }
 
   if (!kit || !visible) return null;
+  // HM-2: while the kit is drafting, Home's "For you now" list shows it as
+  // one progress item (its detail view is the kit loader); the cards
+  // appear once there is something to look at, retry or resume.
+  // A stale kit (its run died) keeps its cards, so "Try again" stays reachable.
+  if ((kit.status === "queued" || kit.status === "running") && !isStaleKit(kit, openedAt)) return null;
 
   const retry = async () => {
     setRetrying(true);
@@ -85,7 +94,7 @@ export function StarterKitCards({
   };
 
   const onRetry = () => void retry();
-  const hasBuild = !modulesLoading && modules.includes("build");
+  const hasBuild = modulesLoading ? undefined : modules.includes("build");
 
   return (
     <section aria-labelledby="starter-kit-title" className="grid gap-4">

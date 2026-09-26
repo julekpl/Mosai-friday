@@ -11,6 +11,9 @@
 import { NEEDS_PLAN_CODE, NEEDS_PLAN_MESSAGE } from "@/shared/starterKitJob";
 import type { StarterKitPart, StarterKitPartName } from "@/shared/starterKit";
 
+/** KIT-F1: a publish action the plan does not include (plan §2 row 6a). */
+export const PUBLISH_LOCKED_LABEL = "Publishing needs Starter";
+
 /** The five card states of blueprint §3 (`locked` is derived, never stored). */
 export type KitCardState = "working" | "succeeded" | "partially_succeeded" | "failed" | "locked";
 

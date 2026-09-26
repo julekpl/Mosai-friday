@@ -188,6 +188,22 @@ async function syncEntitlement(
   return { plan, planStatus };
 }
 
+/** KIT-F1: the account's one trial. Set once, from this verified webhook
+ *  path only, on the organization owner when a subscription is trialing;
+ *  `billing.startCatalogCheckout` then offers no second trial. */
+async function markTrialStarted(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  now: number,
+): Promise<void> {
+  const organization = await ctx.db.get(organizationId);
+  if (!organization) return;
+  const owner = await ctx.db.get(organization.ownerId);
+  if (owner && owner.trialStartedAt === undefined) {
+    await ctx.db.patch(owner._id, { trialStartedAt: now });
+  }
+}
+
 interface ApplyOutcome {
   status: "processed" | "ignored" | "failed";
   note?: string;
@@ -312,6 +328,8 @@ async function upsertSubscription(
       createdAt: now,
     });
   }
+
+  if (status === "trialing") await markTrialStarted(ctx, organizationId, now);
 
   await syncEntitlement(ctx, organizationId);
   return { status: "processed", note: `subscription ${status}` };

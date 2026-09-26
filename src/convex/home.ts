@@ -1,12 +1,15 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { orgQuery, projectCapability } from "./guards";
+import { orgQuery, projectCapability, projectTenant } from "./guards";
 import type { CapabilityKey } from "./lib/capabilities";
 import { selectConfirmedRelease } from "./lib/deliveryGate";
+import { isNeedsPlan, isStaleKit } from "../shared/starterKitJob";
 import { summarizeSinceLastVisit, type SinceDeployment } from "../shared/sinceLastVisit";
 import {
   rankHomePriorities,
+  type HomeKitPartInput,
+  type HomePlanInput,
   type HomePriorityItem,
   type HomePrioritiesKitInput,
   type HomeWebsiteState,
@@ -136,14 +139,33 @@ function contactableFrom(project: Doc<"projects">): boolean {
   );
 }
 
-function toKitInput(kit: Doc<"starterKits"> | null): HomePrioritiesKitInput | null {
+function partInput(part: Doc<"starterKits">["parts"]["plan"]): HomeKitPartInput {
+  return { status: part.status, locked: isNeedsPlan(part) };
+}
+
+/** KIT-F1: free or paid, and whether the account's one trial is still
+ *  available (the marker only the verified billing webhook writes). */
+async function planInput(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+  userId: Id<"users">,
+): Promise<HomePlanInput | undefined> {
+  const tenant = await projectTenant(ctx, project, userId);
+  if (!tenant) return undefined;
+  const organization = project.organizationId ? await ctx.db.get(project.organizationId) : null;
+  const owner = await ctx.db.get(organization?.ownerId ?? project.ownerId);
+  return { free: tenant.plan === "free", trialAvailable: owner?.trialStartedAt === undefined };
+}
+
+function toKitInput(kit: Doc<"starterKits"> | null, now: number): HomePrioritiesKitInput | null {
   if (!kit) return null;
   return {
     status: kit.status,
+    stale: isStaleKit(kit, now),
     parts: {
-      plan: { status: kit.parts.plan.status },
-      site: { status: kit.parts.site.status },
-      posts: { status: kit.parts.posts.status },
+      plan: partInput(kit.parts.plan),
+      site: partInput(kit.parts.site),
+      posts: partInput(kit.parts.posts),
     },
   };
 }
@@ -155,11 +177,12 @@ export const priorities = orgQuery({
     if (!scope) return [];
     const { userId, project } = scope;
 
-    const [kitRow, buildIncluded, promoteIncluded, visit] = await Promise.all([
+    const [kitRow, buildIncluded, promoteIncluded, visit, plan] = await Promise.all([
       kitForProject(ctx, projectId),
       included(ctx, project, userId, "build.view"),
       included(ctx, project, userId, "promote.view"),
       ownVisit(ctx, userId, projectId),
+      planInput(ctx, project, userId),
     ]);
 
     const { drafted, missingPictures } = promoteIncluded
@@ -182,13 +205,18 @@ export const priorities = orgQuery({
     }
 
     return rankHomePriorities({
-      kit: toKitInput(kitRow),
+      projectId,
+      kit: toKitInput(kitRow, Date.now()),
       build: { included: buildIncluded, website },
       promote: { included: promoteIncluded },
       profile: { complete: profileComplete(project) },
       contactable: contactableFrom(project),
       posts: { drafted, missingPictures },
       since,
+      // HM-2: goal- and channel-aware ranking, from "Your answers".
+      primaryGoal: project.primaryGoal,
+      postingChannels: project.postingChannels,
+      plan,
     });
   },
 });

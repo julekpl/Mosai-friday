@@ -119,7 +119,7 @@ describe("Home next step — locked steps", () => {
   it("website: shows the step locked with a plain reason and links to plans", () => {
     const model = getNextActionModel(snap({ modules: without("build"), website: undefined }));
     expect(model).toMatchObject({ key: "website", locked: true, status: { status: "locked" } });
-    expect(model.description).toMatch(/^Publishing needs the Starter plan/);
+    expect(model.description).toMatch(/^Publishing needs Starter\./);
     expect(model.action).toEqual({ label: "See plans", target: "billing", emphasis: "primary" });
     expect(model.checklist[0].state).toBe("locked");
   });
@@ -127,7 +127,7 @@ describe("Home next step — locked steps", () => {
   it("posts: shows the step locked instead of skipping ahead", () => {
     const model = getNextActionModel(snap({ modules: without("promote"), posts: undefined }));
     expect(model).toMatchObject({ key: "posts", locked: true });
-    expect(model.description).toMatch(/^Posting needs the Starter plan/);
+    expect(model.description).toMatch(/^Posting needs Starter\./);
     expect(model.action.target).toBe("billing");
   });
 

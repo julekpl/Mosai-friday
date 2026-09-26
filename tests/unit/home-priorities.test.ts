@@ -4,6 +4,12 @@ import {
   rankHomePriorities,
   type HomePrioritiesInput,
 } from "@/shared/homePriorities";
+import {
+  FOR_YOU_NOW_EMPTY,
+  forYouNowAnnouncement,
+  forYouNowTone,
+  sinceSubline,
+} from "@/components/app/next-action-model";
 import { STARTER_KIT_PART_STATUSES, STARTER_KIT_STATUSES } from "@/shared/starterKit";
 import { newBackend, seedUser } from "./helpers";
 
@@ -11,6 +17,7 @@ import { newBackend, seedUser } from "./helpers";
 // (docs/integration/2026-09-25/MVP-BLUEPRINT-PLAN.md §2 row 6, §5).
 
 const BASE: HomePrioritiesInput = {
+  projectId: "p1",
   kit: null,
   build: { included: false, website: "none" },
   promote: { included: false },
@@ -21,7 +28,7 @@ const BASE: HomePrioritiesInput = {
 };
 
 describe("rankHomePriorities (pure)", () => {
-  it("an empty project (no kit, nothing saved) asks to finish details", () => {
+  it("an empty project (no kit, nothing saved) asks to check \"Your answers\"", () => {
     const items = rankHomePriorities({
       ...BASE,
       profile: { complete: false },
@@ -30,8 +37,14 @@ describe("rankHomePriorities (pure)", () => {
     expect(items.map((i) => i.kind)).toEqual(["needs_you", "next", "next"]);
     expect(items[0]).toMatchObject({
       id: "needs-you-profile",
-      title: "Finish your business details",
+      title: "Check your answers",
       state: "needs_input",
+    });
+    // #27's "Your answers" section lives on Edit project's first tab.
+    expect(items[0].action).toEqual({
+      kind: "link",
+      label: "Open your answers",
+      to: "/app/p1?edit=understanding",
     });
     expect(items[1].id).toBe("next-start-kit");
     expect(items[2].id).toBe("next-contact");
@@ -235,6 +248,7 @@ describe("rankHomePriorities (pure)", () => {
 
   it("never returns more than 3 items", () => {
     const items = rankHomePriorities({
+      projectId: "p1",
       kit: {
         status: "partially_succeeded",
         parts: {
@@ -451,5 +465,143 @@ describe("rankHomePriorities actions never link Home to itself", () => {
     expect(waiting[0].action).toMatchObject({ kind: "intent", intent: "open_kit" });
 
     expect(rankHomePriorities(BASE)[0].action).toMatchObject({ kind: "intent", intent: "start_kit" });
+  });
+});
+
+// HM-2: goal- and channel-aware ranking, real routes, stale kits.
+const FINISHED_KIT: HomePrioritiesInput["kit"] = {
+  status: "succeeded",
+  parts: { plan: { status: "succeeded" }, site: { status: "succeeded" }, posts: { status: "succeeded" } },
+};
+const READY: HomePrioritiesInput = {
+  ...BASE,
+  kit: FINISHED_KIT,
+  build: { included: true, website: "draft" },
+  promote: { included: true },
+  posts: { drafted: 7, missingPictures: 0 },
+};
+
+describe("rankHomePriorities is goal and channel aware (HM-2)", () => {
+  it("does not rank \"Use this week's posts\" when the owner posts nowhere", () => {
+    for (const postingChannels of [[], ["none"]] as const) {
+      const ids = rankHomePriorities({ ...READY, postingChannels }).map((i) => i.id);
+      expect(ids).toEqual(["ready-site"]);
+    }
+    // Missing pictures are not nagged about either.
+    const pictures = rankHomePriorities({
+      ...READY,
+      postingChannels: [],
+      posts: { drafted: 7, missingPictures: 3 },
+    });
+    expect(pictures.map((i) => i.id)).not.toContain("needs-you-pictures");
+  });
+
+  it("keeps posts when channels were never answered, and names the channels when they were", () => {
+    expect(rankHomePriorities(READY).map((i) => i.id)).toEqual(["ready-site", "ready-posts"]);
+    const posts = rankHomePriorities({ ...READY, postingChannels: ["instagram", "facebook"] }).find(
+      (i) => i.id === "ready-posts",
+    );
+    expect(posts?.reason).toBe("7 posts are ready to use for Instagram, Facebook.");
+  });
+
+  it("puts posts first for awareness and repeat customers, the website first otherwise", () => {
+    for (const primaryGoal of ["awareness", "repeat_customers"] as const) {
+      const ids = rankHomePriorities({ ...READY, primaryGoal, postingChannels: ["instagram"] }).map((i) => i.id);
+      expect(ids).toEqual(["ready-posts", "ready-site"]);
+    }
+    for (const primaryGoal of ["bookings", "sales", "online_orders", "visits", "reviews"] as const) {
+      const ids = rankHomePriorities({ ...READY, primaryGoal, postingChannels: ["instagram"] }).map((i) => i.id);
+      expect(ids).toEqual(["ready-site", "ready-posts"]);
+    }
+  });
+
+  it("names the owner's goal in the website's \"Why this?\" line", () => {
+    const [site] = rankHomePriorities({ ...READY, primaryGoal: "bookings" });
+    expect(site.reason).toBe("You want more bookings, and your website draft is ready to look over.");
+  });
+
+  it("links to real routes under the project, never a bare module path", () => {
+    const items = rankHomePriorities({ ...READY, contactable: false });
+    expect(items.map((i) => i.action)).toEqual([
+      { kind: "link", label: "Look over your website", to: "/app/p1/build" },
+      { kind: "link", label: "Review your posts", to: "/app/p1/promote" },
+      { kind: "link", label: "Add contact details", to: "/app/p1?edit=details" },
+    ]);
+  });
+
+  it("a stale kit is not \"building\": its first unfinished part asks to try again", () => {
+    const items = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "running",
+        stale: true,
+        parts: { plan: { status: "succeeded" }, site: { status: "running" }, posts: { status: "queued" } },
+      },
+    });
+    expect(items[0]).toMatchObject({
+      id: "needs-you-site",
+      kind: "needs_you",
+      title: "Your website is not finished yet",
+      action: { kind: "intent", intent: "retry_kit_part", part: "site" },
+    });
+    expect(items.map((i) => i.state)).not.toContain("working");
+  });
+});
+
+describe("For you now presentation model (HM-2)", () => {
+  it("draws a working item as working and other items by kind", () => {
+    expect(forYouNowTone({ kind: "next", state: "working" })).toBe("working");
+    expect(forYouNowTone({ kind: "needs_you", state: "needs_input" })).toBe("needs_you");
+    expect(forYouNowTone({ kind: "ready", state: "ready" })).toBe("ready");
+  });
+
+  it("announces the top item, or the empty state", () => {
+    expect(forYouNowAnnouncement([{ title: "Look over your website" }, { title: "x" }])).toBe(
+      "For you now: Look over your website.",
+    );
+    expect(forYouNowAnnouncement([])).toBe(`${FOR_YOU_NOW_EMPTY}.`);
+    expect(FOR_YOU_NOW_EMPTY).toBe("Nothing needs you right now");
+  });
+
+  it("turns the since-last-visit summary into one subline", () => {
+    const tuesday = new Date(2026, 8, 22, 10).getTime();
+    const friday = new Date(2026, 8, 25, 9).getTime();
+    expect(sinceSubline({ since: tuesday, posted: 2, websiteWentLive: true }, friday)).toBe(
+      "Since Tuesday: 2 posts went out; your website is live",
+    );
+    expect(sinceSubline({ since: friday - 60_000, newContacts: 1 }, friday)).toBe("Since earlier today: 1 new contact");
+    expect(sinceSubline({ since: friday - 30 * 86_400_000, posted: 1 }, friday)).toBe(
+      "Since your last visit: 1 post went out",
+    );
+    expect(sinceSubline({ since: tuesday }, friday)).toBeNull();
+    expect(sinceSubline(null, friday)).toBeNull();
+  });
+});
+
+describe("home.priorities reads the owner's answers (convex-test)", () => {
+  it("drops ready posts for an owner who posts nowhere yet", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, { plan: "scale", email: "ch@example.com" });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "Bakery" });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 2; i += 1) {
+        await ctx.db.insert("posts", {
+          projectId,
+          channel: "instagram",
+          body: `Post ${i}`,
+          status: "draft",
+          mediaUrl: "https://images.example/p.jpg",
+          createdAt: now,
+        });
+      }
+    });
+    const before = await owner.as.query(api.home.priorities, { projectId });
+    expect(before.map((i) => i.id)).toContain("ready-posts");
+    expect(before.find((i) => i.id === "ready-posts")?.action).toMatchObject({ to: `/app/${projectId}/promote` });
+
+    await t.run((ctx) => ctx.db.patch(projectId, { postingChannels: ["none"], primaryGoal: "awareness" }));
+    const after = await owner.as.query(api.home.priorities, { projectId });
+    expect(after.map((i) => i.id)).not.toContain("ready-posts");
   });
 });
