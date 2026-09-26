@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { BrandKitForm } from "@/components/app/BrandKitForm";
 import { ChipInput } from "@/components/app/ChipInput";
+import { FirstRunAnswersForm } from "@/components/app/FirstRunAnswersForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,7 +148,8 @@ export function ProjectSettingsSheet({
                 <TabsTrigger value="brand">Brand</TabsTrigger>
                 <TabsTrigger value="details">Details</TabsTrigger>
               </TabsList>
-              <TabsContent value="understanding" className="mt-5">
+              <TabsContent value="understanding" className="mt-5 grid gap-6">
+                <FirstRunAnswersForm project={project} />
                 <UnderstandingForm project={project} />
               </TabsContent>
               <TabsContent value="customers" className="mt-5">
