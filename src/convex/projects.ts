@@ -11,6 +11,11 @@ import {
 } from "./guards";
 import { brandProfileFields, businessProfileFields } from "./schema";
 import { boundBrandProfile, brandProfileProblems, describeVoice } from "./lib/brandProfile";
+import {
+  isBusinessProfileField,
+  mergeBusinessProfileDraft,
+  ownerEditedFields,
+} from "./lib/businessProfile";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { getOrCreatePersonalOrganization, seedRoles } from "./organizations";
@@ -584,36 +589,65 @@ export const setAiModel = orgMutation({
 
 const businessProfileArgs = v.object(businessProfileFields);
 
+const evidenceRefArgs = v.object({
+  type: v.string(),
+  id: v.string(),
+  version: v.optional(v.string()),
+  label: v.optional(v.string()),
+});
+
 /** Server-only writer for the AI draft (called by ai.generateBusinessProfile
- *  after the caller's access was verified; re-verified here). A profile the
- *  owner already confirmed is never overwritten by a new AI draft unless
- *  `replaceConfirmed` is set by an explicit owner request. */
+ *  after the caller's access was verified; re-verified here). Every field
+ *  goes through `decideWrite` (KIT-2, shared/contracts/provenance.ts): a
+ *  field the owner confirmed or locked is never replaced; the draft's value
+ *  for it is reported back as a suggestion instead. `replaceConfirmed` is the
+ *  owner's explicit redraft request; it releases only fields confirmed by
+ *  confirming the whole profile, never a field the owner typed or confirmed
+ *  on its own. */
 export const storeBusinessProfileDraft = internalMutation({
   args: {
     projectId: v.id("projects"),
     userId: v.id("users"),
     profile: businessProfileArgs,
     replaceConfirmed: v.optional(v.boolean()),
+    sourceRefs: v.optional(v.array(evidenceRefArgs)),
   },
-  handler: async (ctx, { projectId, userId, profile, replaceConfirmed }) => {
+  handler: async (ctx, { projectId, userId, profile, replaceConfirmed, sourceRefs }) => {
     if (!(await projectAccessFor(ctx, projectId, userId))) throw new Error("Not found");
     const project = await ctx.db.get(projectId);
     if (!project) throw new Error("Not found");
-    if (project.businessProfile?.status === "confirmed" && !replaceConfirmed) {
-      return { stored: false as const };
-    }
+    const merge = mergeBusinessProfileDraft({
+      stored: project.businessProfile,
+      authority: project.profileAuthority,
+      draft: boundBusinessProfile(profile),
+      incoming: "inferred",
+      ownerRequestedRedraft: replaceConfirmed === true,
+      sourceRefs: sourceRefs?.slice(0, 8),
+    });
+    // Counts only (never values): the KIT-2 metric is "suggestions produced
+    // versus overwrites of confirmed fields", and the latter must stay 0.
+    console.info("kit2.profile_draft", {
+      written: merge.written.length,
+      suggested: merge.suggested.length,
+      kept: merge.kept.length,
+    });
+    const result = { suggested: merge.suggested, kept: merge.kept };
+    if (!merge.written.length) return { stored: false as const, ...result };
     await ctx.db.patch(projectId, {
       businessProfile: {
-        ...boundBusinessProfile(profile),
+        ...merge.profile,
         status: "ai_draft",
         updatedAt: Date.now(),
       },
+      profileAuthority: merge.authority,
     });
-    return { stored: true as const };
+    return { stored: true as const, ...result };
   },
 });
 
-/** The owner edits and confirms the business understanding. */
+/** The owner edits and confirms the business understanding. Every field the
+ *  owner changed becomes `user_confirmed` (they typed it), so no later AI
+ *  draft replaces it. */
 export const saveBusinessProfile = orgMutation({
   args: {
     id: v.id("projects"),
@@ -627,6 +661,11 @@ export const saveBusinessProfile = orgMutation({
       throw new Error("Add a short summary, at least one offering and at least one customer group.");
     }
     const now = Date.now();
+    const authority = { ...(project.profileAuthority ?? {}) };
+    for (const field of ownerEditedFields(project.businessProfile, bounded)) {
+      const locked = authority[field]?.authority === "user_locked";
+      authority[field] = { authority: locked ? "user_locked" : "user_confirmed", confirmedAt: now };
+    }
     await ctx.db.patch(id, {
       businessProfile: {
         ...bounded,
@@ -634,7 +673,51 @@ export const saveBusinessProfile = orgMutation({
         updatedAt: now,
         confirmedAt: confirm ? now : project.businessProfile?.confirmedAt,
       },
+      profileAuthority: authority,
     });
+  },
+});
+
+/** Only the person who owns the business may confirm or lock what MOSAI
+ *  believes about it: the project owner, or an owner/admin of its
+ *  organization. A read-only member cannot. */
+async function requireProfileOwner(ctx: MutationCtx, project: Doc<"projects">, userId: Id<"users">) {
+  if (project.ownerId === userId) return;
+  if (project.organizationId) {
+    const membership = await membershipFor(ctx, project.organizationId, userId);
+    if (membership?.status === "active" && (membership.role === "owner" || membership.role === "admin")) return;
+  }
+  throw new Error("Only the business owner can confirm these details.");
+}
+
+/** The owner confirms (or locks) individual profile fields as they stand
+ *  (KIT-2, HM-3). The values are not changed, only their authority, so no
+ *  AI draft will replace them. */
+export const confirmProfileFields = orgMutation({
+  args: {
+    id: v.id("projects"),
+    fields: v.array(v.string()),
+    lock: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { id, fields, lock }, access) => {
+    const { userId, project } = await access.requireProject(id);
+    await requireProfileOwner(ctx, project, userId);
+    if (!project.businessProfile) throw new Error("There is nothing to confirm yet.");
+    if (!fields.length || !fields.every(isBusinessProfileField)) {
+      throw new Error("Pick at least one known detail to confirm.");
+    }
+    const now = Date.now();
+    const authority = { ...(project.profileAuthority ?? {}) };
+    const confirmed = [...new Set(fields.filter(isBusinessProfileField))];
+    for (const field of confirmed) {
+      const wasLocked = authority[field]?.authority === "user_locked";
+      authority[field] = {
+        authority: lock || wasLocked ? "user_locked" : "user_confirmed",
+        confirmedAt: now,
+      };
+    }
+    await ctx.db.patch(id, { profileAuthority: authority });
+    return { confirmed };
   },
 });
 

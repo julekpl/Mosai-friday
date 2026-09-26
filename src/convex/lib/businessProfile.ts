@@ -16,6 +16,13 @@
  */
 
 import { firstRunAnswerLines, type FirstRunAnswers } from "../../shared/starterKit";
+import {
+  decideWrite,
+  isOwnerAuthority,
+  type Authority,
+  type EvidenceRef,
+  type FieldAuthority,
+} from "../../shared/contracts/provenance";
 
 export const BUSINESS_MODELS = ["b2b", "b2c", "b2b2c", "nonprofit", "public_sector", "mixed"] as const;
 export type BusinessModel = (typeof BUSINESS_MODELS)[number];
@@ -38,6 +45,134 @@ export type StoredBusinessProfile = BusinessProfile & {
   updatedAt: number;
   confirmedAt?: number;
 };
+
+/* ── Field-level provenance (KIT-2) ───────────────────────────────────── */
+
+export const BUSINESS_PROFILE_FIELDS = [
+  "summary",
+  "businessModel",
+  "offerings",
+  "customerSegments",
+  "notTheAudience",
+  "customerProblems",
+  "primaryGoals",
+  "market",
+  "differentiators",
+  "contentThemes",
+] as const satisfies readonly (keyof BusinessProfile)[];
+export type BusinessProfileField = (typeof BUSINESS_PROFILE_FIELDS)[number];
+
+export function isBusinessProfileField(value: string): value is BusinessProfileField {
+  return (BUSINESS_PROFILE_FIELDS as readonly string[]).includes(value);
+}
+
+/**
+ * The owner's first-run answers (`projects.primaryGoal`, `otherGoals`,
+ * `customerGroups`, `postingChannels`, `firstRunNotes`) are written only by
+ * the owner (`projects.create`, `projects.saveFirstRunAnswers`); no AI or
+ * enrichment path writes them. They carry owner authority by construction
+ * and outrank any AI draft (the brief puts them first, BRIEF-1).
+ */
+export const FIRST_RUN_ANSWER_AUTHORITY: Authority = "user_confirmed";
+
+/** `projects.profileAuthority`: field name -> who said it is true. */
+export type ProfileAuthorityMap = Record<string, FieldAuthority>;
+
+/**
+ * The authority a stored field holds. An owner entry (typed, confirmed or
+ * locked on its own) wins; otherwise a profile the owner confirmed as a whole
+ * counts as `user_confirmed`, and an AI draft keeps its machine authority
+ * (`inferred` when unknown). No profile yet = nothing to protect.
+ */
+export function fieldAuthority(
+  stored: StoredBusinessProfile | undefined,
+  map: ProfileAuthorityMap | undefined,
+  field: BusinessProfileField,
+): Authority | undefined {
+  const entry = map?.[field]?.authority;
+  if (isOwnerAuthority(entry)) return entry;
+  if (!stored) return entry;
+  if (stored.status === "confirmed") return "user_confirmed";
+  return entry ?? "inferred";
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+export type ProfileMergeResult = {
+  /** The profile to store (stored values kept where the draft lost). */
+  profile: BusinessProfile;
+  /** The updated authority map. */
+  authority: ProfileAuthorityMap;
+  /** Fields the incoming draft replaced. */
+  written: BusinessProfileField[];
+  /** Fields kept because the owner confirmed them while the draft differs:
+   *  the draft value is a suggestion for the owner, never an overwrite. */
+  suggested: BusinessProfileField[];
+  /** Fields kept because the owner locked them. */
+  kept: BusinessProfileField[];
+};
+
+/**
+ * Merge a machine-made draft into the stored profile, field by field, through
+ * `decideWrite` (shared/contracts/provenance.ts). A field the owner confirmed
+ * or locked is never replaced.
+ *
+ * `ownerRequestedRedraft` is the owner's explicit "replace my confirmed
+ * summary" request (a confirm dialog in project settings). It releases only
+ * the fields that were confirmed by confirming the profile as a whole; a
+ * field the owner typed, confirmed on its own or locked carries its own
+ * entry in the map and is still kept.
+ */
+export function mergeBusinessProfileDraft(input: {
+  stored: StoredBusinessProfile | undefined;
+  authority: ProfileAuthorityMap | undefined;
+  draft: BusinessProfile;
+  incoming: Authority;
+  ownerRequestedRedraft?: boolean;
+  sourceRefs?: EvidenceRef[];
+}): ProfileMergeResult {
+  const { stored, draft, incoming } = input;
+  const map: ProfileAuthorityMap = { ...(input.authority ?? {}) };
+  const profile: BusinessProfile = { ...draft };
+  const written: BusinessProfileField[] = [];
+  const suggested: BusinessProfileField[] = [];
+  const kept: BusinessProfileField[] = [];
+  for (const field of BUSINESS_PROFILE_FIELDS) {
+    let existing = fieldAuthority(stored, map, field);
+    const entry = map[field]?.authority;
+    if (input.ownerRequestedRedraft && existing === "user_confirmed" && !isOwnerAuthority(entry)) {
+      existing = entry ?? "inferred";
+    }
+    const decision = decideWrite(existing, incoming);
+    if (decision === "write") {
+      written.push(field);
+      map[field] = {
+        authority: incoming,
+        ...(input.sourceRefs?.length ? { sourceRefs: input.sourceRefs } : {}),
+      };
+      continue;
+    }
+    // Keep the stored value; a differing draft value is only a suggestion.
+    (profile as Record<BusinessProfileField, unknown>)[field] = stored?.[field];
+    if (decision === "keep") kept.push(field);
+    else if (!sameValue(stored?.[field], draft[field])) suggested.push(field);
+  }
+  return { profile, authority: map, written, suggested, kept };
+}
+
+/**
+ * The fields an owner save changed compared with what was stored. Each one
+ * becomes `user_confirmed`: the owner typed it.
+ */
+export function ownerEditedFields(
+  stored: BusinessProfile | undefined,
+  next: BusinessProfile,
+): BusinessProfileField[] {
+  if (!stored) return [...BUSINESS_PROFILE_FIELDS];
+  return BUSINESS_PROFILE_FIELDS.filter((field) => !sameValue(stored[field], next[field]));
+}
 
 /** The fields of a project that feed the brief (subset of `Doc<"projects">`). */
 export type BusinessBriefSource = {

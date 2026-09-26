@@ -570,7 +570,7 @@ export const generateBusinessProfile = action({
   handler: async (
     ctx,
     { projectId, replaceConfirmed },
-  ): Promise<{ profile: BusinessProfile; stored: boolean }> => {
+  ): Promise<{ profile: BusinessProfile; stored: boolean; suggested: string[] }> => {
     const userId = await requireActionUser(ctx);
     const project = await actionContextPack(ctx, { projectId, userId, brandUse: "research" });
     await consumeAiQuotaForAction(ctx, userId);
@@ -585,13 +585,23 @@ export const generateBusinessProfile = action({
       },
     );
     const profile = parseBusinessProfile(text);
-    const result: { stored: boolean } = await ctx.runMutation(internal.projects.storeBusinessProfileDraft, {
-      projectId,
-      userId,
-      profile,
-      replaceConfirmed,
-    });
-    return { profile, stored: result.stored };
+    // Fields the owner confirmed are kept (KIT-2); the draft's differing
+    // values come back as `suggested`, never as a silent overwrite.
+    const result: { stored: boolean; suggested: string[] } = await ctx.runMutation(
+      internal.projects.storeBusinessProfileDraft,
+      {
+        projectId,
+        userId,
+        profile,
+        replaceConfirmed,
+        sourceRefs: project.evidence.slice(0, 8).map((item) => ({
+          type: item.source.slice(0, 60),
+          id: item.ref.slice(0, 200),
+          version: item.version,
+        })),
+      },
+    );
+    return { profile, stored: result.stored, suggested: result.suggested };
   },
 });
 
