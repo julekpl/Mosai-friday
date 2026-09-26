@@ -108,8 +108,8 @@ CLDR in AI context.
 
 | ID | Question | Decision |
 |---|---|---|
-| O1 | SerpApi quota and ceiling | **Stay on the free tier.** Set `SERPAPI_MONTHLY_CEILING` to about 80% of the quota shown in the SerpApi dashboard before #28 reaches production (100 vs 250 is still unverified). Per-user cap stays 10/day. Google Places is the exit path if the free tier or legal risk becomes a problem. |
+| O1 | SerpApi quota and ceiling | **Stay on the free tier (250 searches/month; 80 used on 26 Sep).** The ceiling, the per-person daily cap and the Pexels ceiling are now **editable in admin > Limits** (admin value > env var > default). Set the monthly ceiling to about 200 and use "Match the SerpApi dashboard" to enter the searches already used this month, since MOSAI only counts its own calls. Raise the ceiling in admin when the plan is upgraded. Google Places remains the exit path. |
 | O2 | Starter kit AI budget and default model | **Keep** the $0.40 per-kit ceiling and `gpt-4o-mini` as default; confirm the default in the production admin. |
-| O3 | Platform daily cap on trial kit AI spend | **$1 per day.** At about $0.015 per kit this is roughly 65 kits per day across the platform; beyond that, trial kits show the "resting" state until the next day. Revisit if signups exceed that. |
+| O3 | Platform daily cap on trial kit AI spend | **$1 per day by default, editable in admin > Limits** (also env `MOSAI_AI_TRIAL_DAILY_CAP_MICROUSD`). It covers all AI spend by organizations whose plan status is `trialing` (about 65 kits per day at about $0.015 each); beyond it, trial AI features refuse with nothing generated or charged until midnight UTC. The overall platform AI day cap ($10 default) is editable in the same tab; env `MOSAI_AI_DAILY_CAP_MICROUSD=0` still stops all AI regardless. |
 | O4 | First-run step tracking | **Yes.** Two additive fields in MOSAI's own database, no third party. This supersedes the plan's "no new tracking" line for this purpose only. |
 | O5 | `.env.keys` rotation | **Deferred** until closer to launch; tracked as D-01 in `docs/implementation/DEFERRED-WORK-BACKLOG.md`. It remains a release blocker. |

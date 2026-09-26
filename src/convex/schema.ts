@@ -1702,11 +1702,23 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
-    // App-wide admin settings (single row). Holds the OpenRouter model the
-    // admin selected for the Ads Copilot.
+    // App-wide admin settings, one row per key. Key "ads" holds the
+    // OpenRouter model the admin selected for the Ads Copilot; key "limits"
+    // holds the operator-editable spending limits (lib/platformLimits.ts).
+    // A missing limit falls back to the environment variable, then default.
     appSettings: defineTable({
       key: v.string(),
       copilotModel: v.optional(v.string()),
+      limits: v.optional(
+        v.object({
+          serpapiMonthlyCeiling: v.optional(v.number()),
+          serpapiUserDailyCap: v.optional(v.number()),
+          pexelsMonthlyCeiling: v.optional(v.number()),
+          aiPlatformDailyMicrousd: v.optional(v.number()),
+          aiTrialDailyMicrousd: v.optional(v.number()),
+        }),
+      ),
+      updatedBy: v.optional(v.id("users")),
       updatedAt: v.number(),
     }).index("by_key", ["key"]),
 
@@ -2203,6 +2215,9 @@ const schema = defineSchema(
       // so rows written before the budget existed stay valid.
       reservedMicrousd: v.optional(v.number()),
       chargedMicrousd: v.optional(v.number()),
+      // True when the run was also reserved against the platform trial day
+      // cap, so finishAiRun settles that rollup too.
+      trialBudget: v.optional(v.boolean()),
     })
       .index("by_user_created", ["userId", "startedAt"])
       .index("by_project", ["projectId"])
@@ -2214,7 +2229,14 @@ const schema = defineSchema(
     // (guards.startAiRun / finishAiRun) so the budget check reads two rows
     // instead of scanning runs.
     aiSpendRollups: defineTable({
-      scope: v.union(v.literal("organization"), v.literal("user"), v.literal("platform")),
+      // "trial": one platform row per UTC day holding all AI spend by
+      // organizations whose plan is trialing (owner decision O3, 26 Sep).
+      scope: v.union(
+        v.literal("organization"),
+        v.literal("user"),
+        v.literal("platform"),
+        v.literal("trial"),
+      ),
       organizationId: v.optional(v.id("organizations")),
       userId: v.optional(v.id("users")),
       period: v.string(), // "2026-09" (organization/user) or "2026-09-24" (platform)

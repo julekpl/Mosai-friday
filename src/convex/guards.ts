@@ -49,13 +49,13 @@ import {
   fitsBudget,
   monthPeriod,
   monthlyBudgetMicrousd,
-  platformDailyCapMicrousd,
   resolveModelPrice,
   worstCaseCostMicrousd,
   type AiBudgetScope,
   type AiBudgetUsage,
   type ModelPrice,
 } from "./lib/aiBudget";
+import { limitFor } from "./lib/platformLimits";
 import {
   contextEvidence,
   providerMetricsText,
@@ -1782,7 +1782,14 @@ const aiRunUsageArgs = {
 /** Who a run's cost belongs to. `organization` is the normal case; `user` is
  *  the fallback for a caller with no organization at all (free budget). */
 export type AiBudgetTenant =
-  | { scope: "organization"; organizationId: Id<"organizations">; plan: Plan }
+  | {
+      scope: "organization";
+      organizationId: Id<"organizations">;
+      plan: Plan;
+      /** The owner's mirrored plan status is `trialing`: spend also counts
+       *  against the platform trial day cap (owner decision O3). */
+      trialing?: boolean;
+    }
   | { scope: "user"; userId: Id<"users">; plan: null };
 
 async function personalOrganizationFor(
@@ -1817,7 +1824,9 @@ export async function aiBudgetTenant(
   const plan = ownerId
     ? (await entitlementFor(ctx, ownerId, organization._id)).plan
     : DEFAULT_PLAN;
-  return { scope: "organization", organizationId: organization._id, plan };
+  const owner = ownerId ? await ctx.db.get(ownerId) : null;
+  const trialing = owner?.planStatus === "trialing";
+  return { scope: "organization", organizationId: organization._id, plan, trialing };
 }
 
 async function tenantRollup(
@@ -1842,10 +1851,11 @@ async function tenantRollup(
 async function platformRollup(
   ctx: QueryCtx | MutationCtx,
   period: string,
+  scope: "platform" | "trial" = "platform",
 ): Promise<Doc<"aiSpendRollups"> | null> {
   return await ctx.db
     .query("aiSpendRollups")
-    .withIndex("by_scope_period", (q) => q.eq("scope", "platform").eq("period", period))
+    .withIndex("by_scope_period", (q) => q.eq("scope", scope).eq("period", period))
     .first();
 }
 
@@ -1899,9 +1909,11 @@ async function modelPriceFor(
   return resolveModelPrice(modelId, row);
 }
 
-function platformCap(): number {
-  // Read server-side only; the value is never logged or returned.
-  return platformDailyCapMicrousd(process.env.MOSAI_AI_DAILY_CAP_MICROUSD);
+/** Platform-wide daily AI cap: admin > Limits, else the deployment env var,
+ *  else the default; env `MOSAI_AI_DAILY_CAP_MICROUSD=0` always stops AI.
+ *  Read server-side only; the value is never logged. */
+async function platformCap(ctx: QueryCtx | MutationCtx): Promise<number> {
+  return await limitFor(ctx, "aiPlatformDailyMicrousd");
 }
 
 /** Read-only usage for an already-authorized tenant. */
@@ -1927,7 +1939,7 @@ export async function readAiBudgetUsage(
     resetsAt: month.resetsAt,
     state: spent + reserved >= budget ? "locked" : "available",
     platformPaused:
-      (platform?.spentMicrousd ?? 0) + (platform?.reservedMicrousd ?? 0) >= platformCap(),
+      (platform?.spentMicrousd ?? 0) + (platform?.reservedMicrousd ?? 0) >= (await platformCap(ctx)),
   };
 }
 
@@ -1968,10 +1980,23 @@ export const startAiRun = internalMutation({
       spentMicrousd: platform?.spentMicrousd ?? 0,
       reservedMicrousd: platform?.reservedMicrousd ?? 0,
       requestMicrousd: reservedMicrousd,
-      limitMicrousd: platformCap(),
+      limitMicrousd: await platformCap(ctx),
     });
     if (!platformFits) {
       throw new ConvexError(aiBudgetRefusalMessage("platform", day.resetsAt));
+    }
+    const trialBudget = tenant.scope === "organization" && tenant.trialing === true;
+    const trial = trialBudget ? await platformRollup(ctx, day.key, "trial") : null;
+    if (trialBudget) {
+      const trialFits = fitsBudget({
+        spentMicrousd: trial?.spentMicrousd ?? 0,
+        reservedMicrousd: trial?.reservedMicrousd ?? 0,
+        requestMicrousd: reservedMicrousd,
+        limitMicrousd: await limitFor(ctx, "aiTrialDailyMicrousd"),
+      });
+      if (!trialFits) {
+        throw new ConvexError(aiBudgetRefusalMessage("trial", day.resetsAt));
+      }
     }
     const rollup = await tenantRollup(ctx, tenant, month.key);
     const tenantFits = fitsBudget({
@@ -1987,6 +2012,7 @@ export const startAiRun = internalMutation({
     const hold = { spent: 0, reserved: reservedMicrousd, runs: 1 };
     await bumpRollup(ctx, rollup, { ...tenantKey(tenant), period: month.key }, hold);
     await bumpRollup(ctx, platform, { scope: "platform", period: day.key }, hold);
+    if (trialBudget) await bumpRollup(ctx, trial, { scope: "trial", period: day.key }, hold);
     return await ctx.db.insert("aiRuns", {
       ...args,
       organizationId:
@@ -2001,6 +2027,7 @@ export const startAiRun = internalMutation({
       errorCategory: null,
       startedAt: now,
       reservedMicrousd,
+      ...(trialBudget ? { trialBudget: true } : {}),
     });
   },
 });
@@ -2059,6 +2086,14 @@ export const finishAiRun = internalMutation({
       { scope: "platform", period: day.key },
       settle,
     );
+    if (run.trialBudget) {
+      await bumpRollup(
+        ctx,
+        await platformRollup(ctx, day.key, "trial"),
+        { scope: "trial", period: day.key },
+        settle,
+      );
+    }
   },
 });
 

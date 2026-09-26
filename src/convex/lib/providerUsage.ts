@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { ActionCtx } from "../_generated/server";
+import type { ActionCtx, MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { LOOKUP_RESTING_CODE } from "../../lib/lookupErrors";
+import { limitFor, type LimitKey } from "./platformLimits";
 
 export { LOOKUP_RESTING_CODE };
 
@@ -23,21 +24,16 @@ export { LOOKUP_RESTING_CODE };
 
 export type ProviderKind = "serpapi" | "pexels";
 
-const DEFAULT_CEILINGS: Record<ProviderKind, number> = {
-  serpapi: 200,
-  pexels: 15_000,
+// Ceilings resolve admin > Limits, else env (`SERPAPI_MONTHLY_CEILING`,
+// `PEXELS_MONTHLY_CEILING`), else the defaults 200 / 15,000
+// (lib/platformLimits.ts).
+const CEILING_KEY: Record<ProviderKind, LimitKey> = {
+  serpapi: "serpapiMonthlyCeiling",
+  pexels: "pexelsMonthlyCeiling",
 };
 
-const CEILING_ENV_VAR: Record<ProviderKind, string> = {
-  serpapi: "SERPAPI_MONTHLY_CEILING",
-  pexels: "PEXELS_MONTHLY_CEILING",
-};
-
-function ceilingFor(kind: ProviderKind): number {
-  const raw = process.env[CEILING_ENV_VAR[kind]];
-  if (!raw) return DEFAULT_CEILINGS[kind];
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_CEILINGS[kind];
+async function ceilingFor(ctx: MutationCtx, kind: ProviderKind): Promise<number> {
+  return await limitFor(ctx, CEILING_KEY[kind]);
 }
 
 /** UTC calendar month, e.g. "2026-09". */
@@ -55,7 +51,7 @@ export const reserveProviderCall = internalMutation({
   args: { kind: v.union(v.literal("serpapi"), v.literal("pexels")) },
   handler: async (ctx, { kind }): Promise<{ ok: boolean }> => {
     const period = currentUtcPeriod();
-    const ceiling = ceilingFor(kind);
+    const ceiling = await ceilingFor(ctx, kind);
     const row = await ctx.db
       .query("providerUsageRollups")
       .withIndex("by_kind_period", (q) => q.eq("kind", kind).eq("period", period))
@@ -85,7 +81,7 @@ export async function reserveProviderCallForAction(
  *
  * Every SerpApi caller (business search, research, YouTube transcripts)
  * spends against two budgets: the platform monthly ceiling above, and a
- * per-user daily cap (default 10, env `SERPAPI_USER_DAILY_CAP`) that stops
+ * per-user daily cap (default 10; admin > Limits, else env `SERPAPI_USER_DAILY_CAP`) that stops
  * one account draining the whole month through the existing 60-per-10-minute
  * `google_maps` window (`guards.consumeLookupQuota`, unchanged and separate).
  *
@@ -96,12 +92,6 @@ export async function reserveProviderCallForAction(
 const SERPAPI_DAILY_KIND = "serpapi_daily";
 const SERPAPI_DAILY_WINDOW_MS = 24 * 60 * 60_000;
 
-function serpApiDailyCap(): number {
-  const raw = process.env.SERPAPI_USER_DAILY_CAP;
-  if (!raw) return 10;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10;
-}
 
 export type SerpApiReserveResult =
   | { ok: true }
@@ -112,7 +102,7 @@ export const reserveSerpApiCall = internalMutation({
   handler: async (ctx, { userId }): Promise<SerpApiReserveResult> => {
     const now = Date.now();
 
-    const dailyCap = serpApiDailyCap();
+    const dailyCap = await limitFor(ctx, "serpapiUserDailyCap");
     const dailyWindowStart = Math.floor(now / SERPAPI_DAILY_WINDOW_MS) * SERPAPI_DAILY_WINDOW_MS;
     const dailyBucket = await ctx.db
       .query("lookupRateLimits")
@@ -123,7 +113,7 @@ export const reserveSerpApiCall = internalMutation({
     if (dailyBucket && dailyBucket.count >= dailyCap) return { ok: false, reason: "daily_cap" };
 
     const period = currentUtcPeriod(now);
-    const ceiling = ceilingFor("serpapi");
+    const ceiling = await ceilingFor(ctx, "serpapi");
     const platformRow = await ctx.db
       .query("providerUsageRollups")
       .withIndex("by_kind_period", (q) => q.eq("kind", "serpapi").eq("period", period))

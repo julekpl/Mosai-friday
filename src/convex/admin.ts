@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -12,6 +12,19 @@ import { isPlan, PLANS, modulesForPlan } from "./lib/capabilities";
 import { platformAdminEmails } from "./lib/platformAdmin";
 import { checkoutConfigured, planCatalog } from "./lib/billingCatalog";
 import { stripeMode, stripeWebhookSecret } from "./lib/stripe";
+import { dayPeriod } from "./lib/aiBudget";
+import { currentUtcPeriod } from "./lib/providerUsage";
+import {
+  LIMIT_KEYS,
+  LIMIT_SPECS,
+  LIMITS_SETTINGS_KEY,
+  isValidLimitValue,
+  readStoredLimits,
+  resolveLimit,
+  type LimitKey,
+  type LimitSource,
+  type StoredLimits,
+} from "./lib/platformLimits";
 
 const ADMIN_OVERVIEW_SAMPLE_LIMIT = 5_000;
 
@@ -412,5 +425,147 @@ export const operatorAllowList = query({
   handler: async (ctx) => {
     await requirePlatformAdmin(ctx);
     return { emails: platformAdminEmails() };
+  },
+});
+
+/* ── Limits (owner ask, 26 Sep 2026) ─────────────────────────────────────
+ *
+ * The operator changes spending limits here instead of redeploying with new
+ * environment variables. `lib/platformLimits.ts` resolves every limit as
+ * admin value > environment > default, and the enforcement points
+ * (`lib/providerUsage.ts`, `guards.startAiRun`) read it on every call. Every
+ * change is written to the admin audit log. */
+
+type LimitView = {
+  key: LimitKey;
+  value: number;
+  source: LimitSource;
+  defaultValue: number;
+  max: number;
+  adminValue: number | null;
+};
+
+async function usageCount(ctx: QueryCtx | MutationCtx, kind: "serpapi" | "pexels", period: string) {
+  const row = await ctx.db
+    .query("providerUsageRollups")
+    .withIndex("by_kind_period", (q) => q.eq("kind", kind).eq("period", period))
+    .unique();
+  return row?.count ?? 0;
+}
+
+async function aiDaySpend(ctx: QueryCtx | MutationCtx, scope: "platform" | "trial", period: string) {
+  const row = await ctx.db
+    .query("aiSpendRollups")
+    .withIndex("by_scope_period", (q) => q.eq("scope", scope).eq("period", period))
+    .first();
+  return (row?.spentMicrousd ?? 0) + (row?.reservedMicrousd ?? 0);
+}
+
+export const limits = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePlatformAdmin(ctx);
+    const stored = await readStoredLimits(ctx);
+    const views: LimitView[] = LIMIT_KEYS.map((key) => ({
+      key,
+      ...resolveLimit(key, stored[key]),
+      defaultValue: LIMIT_SPECS[key].defaultValue,
+      max: LIMIT_SPECS[key].max,
+      adminValue: stored[key] ?? null,
+    }));
+    const now = Date.now();
+    const month = currentUtcPeriod(now);
+    const day = dayPeriod(now);
+    return {
+      limits: views,
+      month,
+      day: day.key,
+      dayResetsAt: day.resetsAt,
+      usage: {
+        serpapiThisMonth: await usageCount(ctx, "serpapi", month),
+        pexelsThisMonth: await usageCount(ctx, "pexels", month),
+        aiPlatformTodayMicrousd: await aiDaySpend(ctx, "platform", day.key),
+        aiTrialTodayMicrousd: await aiDaySpend(ctx, "trial", day.key),
+      },
+    };
+  },
+});
+
+const limitChange = v.optional(v.union(v.number(), v.null()));
+
+/** Save or clear admin limits. A number sets the limit; `null` removes the
+ *  admin value so the limit falls back to the environment/default; an
+ *  omitted key is left unchanged. */
+export const setLimits = mutation({
+  args: {
+    changes: v.object({
+      serpapiMonthlyCeiling: limitChange,
+      serpapiUserDailyCap: limitChange,
+      pexelsMonthlyCeiling: limitChange,
+      aiPlatformDailyMicrousd: limitChange,
+      aiTrialDailyMicrousd: limitChange,
+    }),
+  },
+  handler: async (ctx, { changes }) => {
+    const actorId = await requirePlatformAdmin(ctx);
+    const row = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", LIMITS_SETTINGS_KEY))
+      .unique();
+    const next: StoredLimits = { ...(row?.limits ?? {}) };
+    const changed: string[] = [];
+    for (const key of LIMIT_KEYS) {
+      const value = changes[key];
+      if (value === undefined) continue;
+      if (value === null) {
+        delete next[key];
+        changed.push(`${key}=cleared`);
+        continue;
+      }
+      if (!isValidLimitValue(key, value)) {
+        throw new Error(`Enter a whole number from 0 to ${LIMIT_SPECS[key].max.toLocaleString("en-US")}.`);
+      }
+      next[key] = value;
+      changed.push(`${key}=${value}`);
+    }
+    if (changed.length === 0) return;
+    const now = Date.now();
+    if (row) {
+      await ctx.db.patch(row._id, { limits: next, updatedBy: actorId, updatedAt: now });
+    } else {
+      await ctx.db.insert("appSettings", {
+        key: LIMITS_SETTINGS_KEY,
+        limits: next,
+        updatedBy: actorId,
+        updatedAt: now,
+      });
+    }
+    await audit(ctx, actorId, "limits.update", "appSettings", LIMITS_SETTINGS_KEY, changed.join("; "));
+  },
+});
+
+/** Set this month's lookup counter to match the provider's own dashboard
+ *  (e.g. searches used before MOSAI started counting, or by another
+ *  deployment sharing the same key). Only the current UTC month. */
+export const setProviderUsageCount = mutation({
+  args: {
+    kind: v.union(v.literal("serpapi"), v.literal("pexels")),
+    count: v.number(),
+  },
+  handler: async (ctx, { kind, count }) => {
+    const actorId = await requirePlatformAdmin(ctx);
+    if (!Number.isInteger(count) || count < 0 || count > 10_000_000) {
+      throw new Error("Enter a whole number of calls, 0 or more.");
+    }
+    const period = currentUtcPeriod();
+    const row = await ctx.db
+      .query("providerUsageRollups")
+      .withIndex("by_kind_period", (q) => q.eq("kind", kind).eq("period", period))
+      .unique();
+    const previous = row?.count ?? 0;
+    const now = Date.now();
+    if (row) await ctx.db.patch(row._id, { count, updatedAt: now });
+    else await ctx.db.insert("providerUsageRollups", { kind, period, count, updatedAt: now });
+    await audit(ctx, actorId, "provider_usage.set", "providerUsageRollups", `${kind}:${period}`, `${previous} -> ${count}`);
   },
 });

@@ -592,6 +592,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/sourceText": "internal",
   "lib/googleMaps": "internal",
   "lib/providerUsage": "internal", // LQ-1: platform SerpApi/Pexels ceiling, shared across modules
+  "lib/platformLimits": "internal", // operator-editable spending limits (admin > Limits)
   "lib/brandDesign": "internal",
   "lib/brandProfile": "internal",
   "lib/businessProfile": "internal",

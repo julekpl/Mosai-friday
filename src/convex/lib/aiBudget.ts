@@ -175,7 +175,7 @@ export function chargedCostMicrousd(input: {
   return Math.max(0, input.reservedMicrousd);
 }
 
-export type AiBudgetScope = "organization" | "user" | "platform";
+export type AiBudgetScope = "organization" | "user" | "platform" | "trial";
 
 export type BudgetDecision =
   | { ok: true }
@@ -202,6 +202,9 @@ export function aiBudgetRefusalMessage(scope: AiBudgetScope, resetsAt: number): 
     year: "numeric",
     timeZone: "UTC",
   });
+  if (scope === "trial") {
+    return `${AI_BUDGET_REACHED_PREFIX} for trial accounts today — AI features for trials resume on ${when} (UTC). Nothing was generated or charged.`;
+  }
   if (scope === "platform") {
     return `${AI_BUDGET_REACHED_PREFIX} for today across MOSAI — AI features are paused until ${when} (UTC). Nothing was generated or charged.`;
   }

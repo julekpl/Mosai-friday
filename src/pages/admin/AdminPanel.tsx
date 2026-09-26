@@ -34,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AiModelsTab } from "./AiModelsTab";
+import { LimitsTab } from "./LimitsTab";
 import { OrganizationAddonsDialog, PlansTab } from "./PlansTab";
 
 const PLAN_IDS = ["free", "starter", "growth", "scale"] as const;
@@ -148,6 +149,7 @@ export default function AdminPanel() {
           <TabsTrigger value="audit">Audit</TabsTrigger>
           <TabsTrigger value="plans">Plans & add-ons</TabsTrigger>
           <TabsTrigger value="ai-models">AI models</TabsTrigger>
+          <TabsTrigger value="limits">Limits</TabsTrigger>
         </TabsList>
 
         <TabsContent value="plans" className="mt-4">
@@ -156,6 +158,10 @@ export default function AdminPanel() {
 
         <TabsContent value="ai-models" className="mt-4">
           <AiModelsTab />
+        </TabsContent>
+
+        <TabsContent value="limits" className="mt-4">
+          <LimitsTab />
         </TabsContent>
 
         <TabsContent value="billing" className="mt-4 space-y-4">
