@@ -1,6 +1,7 @@
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tileShellClass } from "@/components/app/wizard/TileShell";
 
 export type ChoiceTile<T extends string> = {
   value: T;
@@ -43,11 +44,7 @@ export function ChoiceTiles<T extends string>({
           <RadioGroupPrimitive.Item
             key={option.value}
             value={option.value}
-            className={cn(
-              "flex min-h-11 w-full items-start gap-3 rounded-lg border bg-card p-4 text-left transition-colors ease-terminal",
-              "hover:border-terminal-green/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              selected && "border-terminal-green bg-terminal-green-soft",
-            )}
+            className={tileShellClass({ selected, focus: "self", className: "items-start gap-3 p-4 text-left" })}
           >
             <span
               aria-hidden="true"

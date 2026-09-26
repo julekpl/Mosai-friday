@@ -402,7 +402,7 @@ test("skipping the goals uses the default for the main type", async ({ page }) =
 test("while the site is still being read, the summary says so and invents nothing", async ({ page }) => {
   await toNameStep(page);
   await page.getByLabel("Business name").fill("Northside Coffee");
-  await page.getByLabel(/Where can we read about it\?/).fill("northside.test");
+  await page.getByLabel(/Where can we read about it\?|Your website or Google listing/).fill("northside.test");
   await page.getByRole("button", { name: "Continue" }).click();
   for (let i = 0; i < 3; i += 1) await page.getByRole("button", { name: "Skip for now" }).click();
 
@@ -421,7 +421,7 @@ test.describe("when the site can't be read", () => {
   test("the summary says so plainly", async ({ page }) => {
     await toNameStep(page);
     await page.getByLabel("Business name").fill("Northside Coffee");
-    await page.getByLabel(/Where can we read about it\?/).fill("northside.test");
+    await page.getByLabel(/Where can we read about it\?|Your website or Google listing/).fill("northside.test");
     await page.getByRole("button", { name: "Continue" }).click();
     for (let i = 0; i < 3; i += 1) await page.getByRole("button", { name: "Skip for now" }).click();
 

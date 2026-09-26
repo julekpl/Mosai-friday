@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { tileShellClass } from "@/components/app/wizard/TileShell";
 import type { ChoiceTile } from "@/components/app/wizard/ChoiceTiles";
 import { mainChangeMessage, makeMain, toggleSelection } from "@/components/app/wizard/selection";
 
@@ -63,11 +64,7 @@ export function MultiChoiceTiles<T extends string>({
           return (
             <div
               key={option.value}
-              className={cn(
-                "flex min-h-11 w-full items-stretch rounded-lg border bg-card transition-colors ease-terminal",
-                "hover:border-terminal-green/50 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-ring has-[input:focus-visible]:ring-offset-2",
-                selected && "border-terminal-green bg-terminal-green-soft",
-              )}
+              className={tileShellClass({ selected, focus: "input", className: "items-stretch" })}
             >
               <label htmlFor={inputId} className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-3 p-4">
                 <span className="relative mt-0.5 grid size-5 shrink-0 place-items-center">

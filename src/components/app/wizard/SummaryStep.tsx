@@ -128,7 +128,7 @@ function Findings({ findings }: { findings: SourceFindingsStatus }) {
         })}
         {typeof details.rating === "number" && (
           <div className="grid gap-0.5 sm:grid-cols-3 sm:gap-3">
-            <dt>Rating</dt>
+            <dt>Google rating</dt>
             <dd className="text-foreground sm:col-span-2">
               {details.rating}
               {typeof details.reviews === "number" ? ` from ${details.reviews} reviews` : ""}
