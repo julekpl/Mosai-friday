@@ -431,3 +431,36 @@ test.describe("when the site can't be read", () => {
     await expectAxeClean(page);
   });
 });
+
+test.describe("when business search is resting (regression for 251fec3)", () => {
+  // The picked suggestion has no phone or website, so the wizard still asks
+  // for the listing details (LQ-1b), and that call is refused at the SerpApi
+  // limit with the LOOKUP_RESTING ConvexError.
+  test.use({
+    backendData: {
+      ...baseData,
+      "action:scraping:suggestGoogleBusiness": [
+        { placeId: "p_resting", title: "Northside Coffee", address: "1 High St, Bristol" },
+      ],
+      "action:scraping:lookupGoogleBusiness": {
+        error: "Business search is resting for now, type your details instead.",
+        errorData: { code: "lookup_resting", message: "Business search is resting for now, type your details instead." },
+      },
+    },
+  });
+
+  test("the summary says it is resting and shows no listing error", async ({ page }) => {
+    await toNameStep(page);
+    await page.getByLabel("Business name").fill("Northside Coffee");
+    await page.getByLabel(/Your website or Google listing/).fill("Northside Coffee Bristol");
+    await page.getByRole("button", { name: "Search Google for my listing" }).click();
+    await page.getByRole("option", { name: /Northside Coffee/ }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    for (let i = 0; i < 3; i += 1) await page.getByRole("button", { name: "Skip for now" }).click();
+
+    const found = page.getByRole("region", { name: "From your website or listing" });
+    await expect(found).toContainText("Business search is resting");
+    await expect(page.getByText("We couldn’t load your Google listing")).toHaveCount(0);
+    await expect(found).not.toContainText("We couldn’t read your Google listing");
+  });
+});

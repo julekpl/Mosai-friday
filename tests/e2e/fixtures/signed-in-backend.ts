@@ -123,7 +123,8 @@ export async function installSignedInBackend(
       }
       // Actions stay unanswered (in flight) unless `data` names an answer
       // under "action:<path>": `{ error: "…" }` fails the call with that
-      // message, anything else succeeds with it as the (plain JSON) result.
+      // message (add `errorData` to make it a `ConvexError` with that data),
+      // anything else succeeds with it as the (plain JSON) result.
       if (message.type === "Action") {
         const path = (message.udfPath ?? "").replace(/\.js$/, "");
         const key = `action:${path}`;
@@ -133,6 +134,10 @@ export async function installSignedInBackend(
           answer && typeof answer === "object" && "error" in answer
             ? String((answer as { error: unknown }).error)
             : null;
+        const errorData =
+          error !== null && answer && typeof answer === "object" && "errorData" in answer
+            ? (answer as { errorData: unknown }).errorData
+            : undefined;
         ws.send(
           JSON.stringify({
             type: "ActionResponse",
@@ -140,6 +145,7 @@ export async function installSignedInBackend(
             success: error === null,
             logLines: [],
             result: error ?? answer,
+            ...(errorData !== undefined ? { errorData } : {}),
           }),
         );
         return;
