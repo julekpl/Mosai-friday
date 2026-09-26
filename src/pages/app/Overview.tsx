@@ -39,10 +39,8 @@ import {
   type ProjectSettingsTab,
 } from "@/components/app/ProjectSettings";
 import { ModuleGrid, type ModuleCardId } from "@/components/app/ModuleGrid";
-import { SinceYouWereAway } from "@/components/app/SinceYouWereAway";
-import { ThisWeekNextStep } from "@/components/app/ThisWeekNextStep";
+import { HomeForYouNow } from "@/components/app/HomeForYouNow";
 import { StarterKitCards } from "@/components/app/kit/StarterKitCards";
-import { KitBootloader } from "@/components/app/kit/KitBootloader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -177,7 +175,7 @@ function WelcomeHeader({
       ) : (
         <>
           <h1 className="mt-1 max-w-3xl break-words font-mono text-h1 sm:text-display">{project?.name ?? "Project"}</h1>
-          <p className="mt-3 max-w-2xl break-words font-mono text-small text-muted-foreground">
+          <p className="mt-3 hidden max-w-2xl break-words font-mono text-small text-muted-foreground sm:block">
             {project?.description ??
               "One shared picture of your business — audiences, content and connections — that every module builds on."}
           </p>
@@ -218,7 +216,9 @@ function WelcomeHeader({
         </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* HM-2: on phones the description and counts step aside so the top
+          "For you now" item is on the first screen. */}
+      <dl className="mt-6 hidden grid-cols-2 gap-3 sm:grid md:grid-cols-4">
         <HeaderStat label="Audience profiles" value={stats.personas} />
         <HeaderStat label="Content pieces" value={stats.content} />
         <HeaderStat label="Attached files" value={stats.files} />
@@ -907,7 +907,13 @@ export default function Overview({
         initialTab={editTab}
       />
 
-      {/* U4 slot: the starter kit cards go here, above "This week". */}
+      {/* HM-2: one server-ranked "For you now" list (max 3). The kit loader
+          opens from its progress item; "since you were away" is its subline. */}
+      <ModuleErrorBoundary>
+        <HomeForYouNow projectId={projectId} />
+      </ModuleErrorBoundary>
+
+      {/* The starter kit's cards, once there is something to look at. */}
       <ModuleErrorBoundary>
         <StarterKitCards
           projectId={projectId}
@@ -916,29 +922,6 @@ export default function Overview({
           onFixFacts={() => openEdit("understanding")}
         />
       </ModuleErrorBoundary>
-
-      {/* U2e: full-screen "Mosaic assembles" loader while a fresh kit is drafted. */}
-      <ModuleErrorBoundary>
-        <KitBootloader projectId={projectId} />
-      </ModuleErrorBoundary>
-
-      <ModuleErrorBoundary>
-        <SinceYouWereAway projectId={projectId} />
-      </ModuleErrorBoundary>
-
-      <Reveal>
-        <ModuleErrorBoundary>
-          <ThisWeekNextStep
-            projectId={projectId}
-            project={project}
-            modules={modules}
-            modulesLoading={modulesLoading}
-            personaCount={personas?.length}
-            journeyCount={journeys?.length}
-            contentCount={content?.length}
-          />
-        </ModuleErrorBoundary>
-      </Reveal>
 
       <Reveal>
         <section id="modules" aria-labelledby="modules-title">

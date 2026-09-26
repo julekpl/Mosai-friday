@@ -4,6 +4,7 @@ import type { QueryCtx } from "./_generated/server";
 import { orgQuery, projectCapability } from "./guards";
 import type { CapabilityKey } from "./lib/capabilities";
 import { selectConfirmedRelease } from "./lib/deliveryGate";
+import { isStaleKit } from "../shared/starterKitJob";
 import { summarizeSinceLastVisit, type SinceDeployment } from "../shared/sinceLastVisit";
 import {
   rankHomePriorities,
@@ -136,10 +137,11 @@ function contactableFrom(project: Doc<"projects">): boolean {
   );
 }
 
-function toKitInput(kit: Doc<"starterKits"> | null): HomePrioritiesKitInput | null {
+function toKitInput(kit: Doc<"starterKits"> | null, now: number): HomePrioritiesKitInput | null {
   if (!kit) return null;
   return {
     status: kit.status,
+    stale: isStaleKit(kit, now),
     parts: {
       plan: { status: kit.parts.plan.status },
       site: { status: kit.parts.site.status },
@@ -182,13 +184,17 @@ export const priorities = orgQuery({
     }
 
     return rankHomePriorities({
-      kit: toKitInput(kitRow),
+      projectId,
+      kit: toKitInput(kitRow, Date.now()),
       build: { included: buildIncluded, website },
       promote: { included: promoteIncluded },
       profile: { complete: profileComplete(project) },
       contactable: contactableFrom(project),
       posts: { drafted, missingPictures },
       since,
+      // HM-2: goal- and channel-aware ranking, from "Your answers".
+      primaryGoal: project.primaryGoal,
+      postingChannels: project.postingChannels,
     });
   },
 });

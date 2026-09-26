@@ -1,176 +1,183 @@
-import {
-  ArrowRight,
-  Check,
-  CircleDashed,
-  Globe,
-  LockKeyhole,
-  Megaphone,
-  Phone,
-  Sparkles,
-  TrendingUp,
-} from "lucide-react";
+import { AlertCircle, ArrowRight, Check, Loader2, Sparkles, type LucideIcon } from "lucide-react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/app/module-kit";
-import type {
-  ActionTarget,
-  ChecklistItem,
-  NextActionModel,
-  OutcomeKey,
+import {
+  FOR_YOU_NOW_EMPTY,
+  forYouNowAnnouncement,
+  forYouNowTone,
+  type ForYouNowTone,
 } from "@/components/app/next-action-model";
+import type { HomePriorityAction, HomePriorityItem } from "@/shared/homePriorities";
 import { cn } from "@/lib/utils";
 
-/** Presentation per outcome. Ink tones are the AA-safe `*-ink` tokens. */
-const OUTCOME = {
-  website: { icon: Globe, soft: "bg-tile-sky-soft", ink: "text-tile-sky-ink" },
-  posts: { icon: Megaphone, soft: "bg-tile-coral-soft", ink: "text-tile-coral-ink" },
-  contact: { icon: Phone, soft: "bg-tile-teal-soft", ink: "text-tile-teal-ink" },
-  results: { icon: TrendingUp, soft: "bg-tile-lime-soft", ink: "text-tile-lime-ink" },
-  done: { icon: Check, soft: "bg-terminal-green-soft", ink: "text-terminal-green-ink" },
-} as const satisfies Record<OutcomeKey, unknown>;
-
-/** Plan options live at the workspace-level billing route. */
-const PLAN_ROUTE = "/app/billing";
-
-function routeFor(target: ActionTarget | "understand" | "journeys", projectId: string): string {
-  return target === "billing" ? PLAN_ROUTE : `/app/${projectId}/${target}`;
-}
-
-const CHECKLIST_SR: Record<ChecklistItem["state"], string> = {
-  next: " — your next step",
-  to_do: " — to do",
-  has_record: " — saved",
-  locked: " — not on your plan",
+/** Presentation per tone. Ink tones are the AA-safe `*-ink` tokens. */
+const TONE: Record<ForYouNowTone, { icon: LucideIcon; soft: string; ink: string; label: string }> = {
+  needs_you: { icon: AlertCircle, soft: "bg-terminal-amber-soft", ink: "text-terminal-amber-ink", label: "Needs you" },
+  ready: { icon: Check, soft: "bg-terminal-green-soft", ink: "text-terminal-green-ink", label: "Ready for you" },
+  next: { icon: ArrowRight, soft: "bg-tile-sky-soft", ink: "text-tile-sky-ink", label: "Next" },
+  working: { icon: Loader2, soft: "bg-tile-violet-soft", ink: "text-tile-violet-ink", label: "Working" },
 };
 
-/**
- * The single "This week" next step on the project home.
- *
- * One action per state. The checklist marks an outcome only from what the
- * server stored (hosting status, post receipts, saved contact details, the
- * Google connection); it never says "complete" or "verified".
- */
-export function NextAction({ model, projectId }: { model: NextActionModel; projectId: string }) {
-  const outcome = OUTCOME[model.key];
-  const Icon = model.locked ? LockKeyhole : outcome.icon;
-  const quiet = model.action.emphasis === "quiet";
+export type IntentAction = Extract<HomePriorityAction, { kind: "intent" }>;
 
+/**
+ * "Why this?": the one reason pattern on Home (HM-2). The same list the
+ * "This week" card used for "Why this step", now under every item.
+ */
+export function WhyThis({ lines, className }: { lines: readonly string[]; className?: string }) {
+  if (!lines.length) return null;
+  return (
+    <ul aria-label="Why this?" className={cn("grid gap-1 font-mono text-caption text-muted-foreground", className)}>
+      {lines.map((line) => (
+        <li key={line}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
+function ItemAction({
+  item,
+  primary,
+  busy,
+  onIntent,
+}: {
+  item: HomePriorityItem;
+  primary: boolean;
+  busy: boolean;
+  onIntent: (action: IntentAction) => void;
+}) {
+  const { action } = item;
+  const className = "group min-h-11 w-full sm:w-auto";
+  const variant = primary ? "default" : "outline";
+  const arrow = (
+    <ArrowRight
+      aria-hidden="true"
+      className="size-4 transition-transform duration-200 ease-terminal motion-safe:group-hover:translate-x-0.5"
+    />
+  );
+  if (action.kind === "link") {
+    return (
+      <Button asChild variant={variant} className={className}>
+        <Link to={action.to}>
+          {action.label}
+          {arrow}
+        </Link>
+      </Button>
+    );
+  }
+  return (
+    <Button
+      type="button"
+      variant={variant}
+      className={className}
+      disabled={busy}
+      aria-busy={busy || undefined}
+      onClick={() => onIntent(action)}
+      data-intent={action.intent}
+    >
+      {busy ? <Loader2 aria-hidden="true" className="size-4 motion-safe:animate-spin" /> : null}
+      {action.label}
+      {busy ? null : arrow}
+    </Button>
+  );
+}
+
+/**
+ * "For you now" (HM-1/HM-2): the one list on Home. At most three items,
+ * ranked on the server (`home.priorities`); this component only draws them.
+ * One polite live region names the top item when it changes. On a return
+ * visit the "since you were away" line sits under the top item.
+ */
+export function ForYouNow({
+  items,
+  subline,
+  busyItemId,
+  onIntent,
+}: {
+  /** `undefined` while loading. */
+  items: readonly HomePriorityItem[] | undefined;
+  subline: string | null;
+  busyItemId: string | null;
+  onIntent: (item: HomePriorityItem, action: IntentAction) => void;
+}) {
   return (
     <section
-      aria-labelledby="next-action-title"
-      className="relative grid grid-cols-1 gap-6 overflow-hidden rounded-xl border bg-surface-gradient p-5 shadow-lift md:grid-cols-[minmax(0,1.15fr)_minmax(16rem,0.85fr)] md:p-7"
+      aria-labelledby="for-you-now-title"
+      data-testid="for-you-now"
+      className="rounded-xl border bg-surface-gradient p-4 shadow-lift sm:p-6"
     >
-      <div className="flex min-w-0 flex-col">
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full border border-terminal-green/30 bg-terminal-green-soft px-2.5 py-1 font-mono text-caption font-medium text-terminal-green-ink">
-          <Sparkles aria-hidden="true" className="size-3.5" />
-          This week
-        </p>
-        <div className="mt-4 flex items-start gap-4">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "grid size-12 shrink-0 place-items-center rounded-lg",
-              model.locked ? "bg-terminal-amber-soft text-terminal-amber-ink" : [outcome.soft, outcome.ink],
-            )}
-          >
-            <Icon className="size-6" />
-          </span>
-          <div className="min-w-0">
-            <h2 id="next-action-title" className="break-words font-mono text-h2">
-              {model.title}
-            </h2>
-            {model.status ? (
-              <StatusBadge className="mt-2" status={model.status.status} detail={model.status.detail} />
-            ) : null}
-            <p className="mt-2 max-w-prose font-mono text-small text-muted-foreground">{model.description}</p>
-            {model.why.length > 0 ? (
-              <ul aria-label="Why this step" className="mt-3 grid gap-1 font-mono text-caption text-muted-foreground">
-                {model.why.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        </div>
-        <div className="mt-6 flex flex-wrap items-center gap-3 md:mt-auto md:pt-6">
-          <Button
-            asChild
-            size="lg"
-            variant={quiet ? "ghost" : model.locked ? "outline" : "default"}
-            className="group min-h-11 w-full sm:w-auto"
-          >
-            <Link to={routeFor(model.action.target, projectId)}>
-              {model.locked ? <LockKeyhole aria-hidden="true" className="size-4" /> : null}
-              {model.action.label}
-              <ArrowRight
-                aria-hidden="true"
-                className="size-4 transition-transform duration-200 ease-terminal group-hover:translate-x-0.5"
-              />
-            </Link>
-          </Button>
-        </div>
-        {model.deeper.length > 0 ? (
-          <nav aria-label="Go deeper" className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="font-mono text-caption text-muted-foreground">Go deeper:</span>
-            {model.deeper.map((link) => (
-              <Link
-                key={link.target}
-                to={routeFor(link.target, projectId)}
-                className="focus-ring inline-flex min-h-11 items-center rounded-sm font-mono text-caption text-foreground underline underline-offset-4"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        ) : null}
-      </div>
+      <h2
+        id="for-you-now-title"
+        className="inline-flex w-fit items-center gap-1.5 rounded-full border border-terminal-green/30 bg-terminal-green-soft px-2.5 py-1 font-mono text-caption font-medium text-terminal-green-ink"
+      >
+        <Sparkles aria-hidden="true" className="size-3.5" />
+        For you now
+      </h2>
 
-      <div className="rounded-lg border bg-card p-4">
-        <h3 className="font-mono text-small font-semibold">Your week at a glance</h3>
-        <ol className="mt-3 grid gap-2">
-          {model.checklist.map((item, index) => {
-            const isNext = item.state === "next";
+      <p className="sr-only" role="status" aria-live="polite" data-testid="for-you-now-announcer">
+        {items === undefined ? "" : forYouNowAnnouncement(items)}
+      </p>
+
+      {items === undefined ? (
+        <div aria-hidden="true" className="mt-4 grid gap-3">
+          <span className="h-7 w-3/4 animate-pulse rounded-md bg-muted" />
+          <span className="h-4 w-full animate-pulse rounded-sm bg-muted" />
+          <span className="h-11 w-40 animate-pulse rounded-md bg-muted" />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="mt-4 grid gap-1">
+          <p className="font-mono text-h3">{FOR_YOU_NOW_EMPTY}</p>
+          <p className="font-mono text-caption text-muted-foreground">
+            Your tools are below whenever you want them.
+          </p>
+          {subline ? <p className="font-mono text-caption text-muted-foreground">{subline}</p> : null}
+        </div>
+      ) : (
+        <ol className="mt-4 grid gap-3">
+          {items.map((item, index) => {
+            const tone = TONE[forYouNowTone(item)];
+            const Icon = tone.icon;
+            const top = index === 0;
             return (
               <li
-                key={item.key}
-                aria-current={isNext ? "step" : undefined}
+                key={item.id}
+                data-item-id={item.id}
+                data-item-kind={item.kind}
                 className={cn(
-                  "flex min-w-0 items-start gap-3 rounded-md border px-3 py-2.5",
-                  isNext ? "border-terminal-green/40 bg-terminal-green-soft" : "bg-background",
+                  "flex min-w-0 gap-3 rounded-lg border p-4 sm:items-start",
+                  top ? "bg-card shadow-soft" : "bg-background",
                 )}
               >
                 <span
                   aria-hidden="true"
-                  className={cn(
-                    "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border font-mono text-caption font-semibold",
-                    item.state === "has_record" && "border-terminal-green/50 bg-card text-terminal-green-ink",
-                    item.state === "locked" && "border-terminal-amber/50 bg-card text-terminal-amber-ink",
-                    (item.state === "to_do" || isNext) && "border-dashed bg-card text-muted-foreground",
-                  )}
+                  className={cn("hidden size-10 shrink-0 place-items-center rounded-lg sm:grid", tone.soft, tone.ink)}
                 >
-                  {item.state === "has_record" ? (
-                    <Check className="size-3.5" />
-                  ) : item.state === "locked" ? (
-                    <LockKeyhole className="size-3" />
-                  ) : isNext ? (
-                    index + 1
-                  ) : (
-                    <CircleDashed className="size-3.5" />
-                  )}
+                  <Icon className={cn("size-5", item.state === "working" && "motion-safe:animate-spin")} />
                 </span>
-                <span className="min-w-0">
-                  <span className="block font-mono text-small font-medium">
-                    {item.label}
-                    <span className="sr-only">{CHECKLIST_SR[item.state]}</span>
-                  </span>
-                  <span className="block break-words font-mono text-caption text-muted-foreground">{item.detail}</span>
-                </span>
+                <div className="grid min-w-0 flex-1 gap-2">
+                  <p className="font-mono text-caption text-muted-foreground">{tone.label}</p>
+                  <h3 className={cn("break-words font-mono", top ? "text-h2" : "text-h3")}>{item.title}</h3>
+                  {top && subline ? (
+                    <p className="font-mono text-caption text-foreground" data-testid="since-subline">
+                      {subline}
+                    </p>
+                  ) : null}
+                  <WhyThis lines={[item.reason]} />
+                  <div className="pt-1">
+                    <ItemAction
+                      item={item}
+                      primary={top}
+                      busy={busyItemId === item.id}
+                      onIntent={(action) => onIntent(item, action)}
+                    />
+                  </div>
+                </div>
               </li>
             );
           })}
         </ol>
-      </div>
+      )}
     </section>
   );
 }

@@ -14,7 +14,15 @@
  * an unknown Google connection is "not connected". Audience profiles,
  * customer maps and content counts are reasons and "go deeper" links only,
  * never the step itself.
+ *
+ * HM-2: Home now shows one server-ranked "For you now" list
+ * (`home.priorities`); the helpers at the end of this file are its
+ * presentation model. The outcome model above stays the source of the
+ * shared wording (`lockedReason`) and its tests.
  */
+
+import type { HomePriorityItem } from "@/shared/homePriorities";
+import { sinceLines, type SinceLastVisitSummary } from "@/shared/sinceLastVisit";
 
 export type WebsiteState = "none" | "draft" | "live";
 
@@ -325,4 +333,49 @@ export function isContactable(
   return sources.some(
     (details) => !!details && (filled(details.phone) || filled(details.email) || filled(details.address)),
   );
+}
+
+/* ── HM-2: "For you now", the one list on Home ───────────────────────────── */
+
+/** The look of one list item: the server's kind, or "working" while the kit
+ *  drafts. Presentation only; the order and the words come from the server
+ *  (`home.priorities`). */
+export type ForYouNowTone = "needs_you" | "ready" | "next" | "working";
+
+export function forYouNowTone(item: Pick<HomePriorityItem, "kind" | "state">): ForYouNowTone {
+  return item.state === "working" ? "working" : item.kind;
+}
+
+export const FOR_YOU_NOW_EMPTY = "Nothing needs you right now";
+
+/** What the list's one polite live region says: the top item, or empty. */
+export function forYouNowAnnouncement(items: readonly Pick<HomePriorityItem, "title">[]): string {
+  const top = items[0];
+  return top ? `For you now: ${top.title}.` : `${FOR_YOU_NOW_EMPTY}.`;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The "since you were away" data as one subline under the top item
+ * ("Since Tuesday: 2 posts went out; your website is live"). Only the
+ * receipt-backed lines of `sinceLines`; null when nothing changed.
+ */
+export function sinceSubline(
+  summary: SinceLastVisitSummary | null | undefined,
+  now: number,
+  locale = "en",
+): string | null {
+  if (!summary) return null;
+  const lines = sinceLines(summary);
+  if (!lines.length) return null;
+  const then = new Date(summary.since);
+  const sameDay = new Date(now).toDateString() === then.toDateString();
+  const when = sameDay
+    ? "Since earlier today"
+    : now - summary.since < 6 * DAY_MS
+      ? `Since ${then.toLocaleDateString(locale, { weekday: "long" })}`
+      : "Since your last visit";
+  const body = lines.map((line) => line.charAt(0).toLowerCase() + line.slice(1)).join("; ");
+  return `${when}: ${body}`;
 }

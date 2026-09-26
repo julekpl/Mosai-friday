@@ -3,7 +3,9 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures/signed-in-backend";
 
 /**
- * U2e — "Mosaic assembles": the full-screen kit loader on Home.
+ * U2e — "Mosaic assembles": the full-screen kit loader on Home. Since HM-2
+ * it opens only from the "Building your starter kit" item of "For you now"
+ * (`show_kit_progress`), never on its own.
  *
  * Runs against the signed-in test backend double with synthetic kit data (no
  * network, no provider). The double answers each query once, so these specs
@@ -47,7 +49,16 @@ const RUNNING_PARTS = {
   posts: part({ status: "queued" }),
 };
 
-function backendData(starterKit: unknown) {
+const KIT_WORKING_ITEM = {
+  id: "kit-working",
+  kind: "next",
+  title: "Building your starter kit",
+  reason: "MOSAI is drafting your plan, website and posts from what you told us.",
+  action: { kind: "intent", label: "Watch it build", intent: "show_kit_progress" },
+  state: "working",
+};
+
+function backendData(starterKit: unknown, priorities: unknown[] = [KIT_WORKING_ITEM]) {
   const project = {
     _id: PROJECT_ID,
     _creationTime: FIXED,
@@ -80,6 +91,7 @@ function backendData(starterKit: unknown) {
     "siteHosting:status": { slug: null, path: null, state: "not_deployed", lastDeployedAt: null, error: null },
     "starterKit:get": starterKit,
     "starterKit:content": { plan: null, posts: [], website: null },
+    "home:priorities": priorities,
   };
 }
 
@@ -97,6 +109,12 @@ async function openHome(page: Page) {
   await page.goto(`/app/${PROJECT_ID}`);
 }
 
+/** Home, then the progress view from the list's kit item. */
+async function openProgress(page: Page) {
+  await openHome(page);
+  await page.getByTestId("for-you-now").getByRole("button", { name: "Watch it build" }).click();
+}
+
 async function currentTip(page: Page) {
   return page.getByTestId("kit-explainer").getAttribute("data-explainer-id");
 }
@@ -104,8 +122,20 @@ async function currentTip(page: Page) {
 test.describe("while the kit is being drafted", () => {
   withFreshRunningKit();
 
-  test("shows the loader with the job's real steps, and Go to my kit closes it for good", async ({ page }) => {
+  test("never opens on its own: the kit item opens it", async ({ page }) => {
     await openHome(page);
+    const item = page.getByTestId("for-you-now").locator("[data-item-id='kit-working']");
+    await expect(item.getByRole("heading", { name: "Building your starter kit" })).toBeVisible();
+    await expect(page.getByTestId("kit-bootloader")).toHaveCount(0);
+    // Kit running collapses to one item; the kit cards wait until it is done.
+    await expect(page.getByTestId("for-you-now").locator("[data-item-id]")).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "Your starter kit", exact: true })).toHaveCount(0);
+    await item.getByRole("button", { name: "Watch it build" }).click();
+    await expect(page.getByRole("dialog", { name: "Making your starter kit" })).toBeVisible();
+  });
+
+  test("shows the loader with the job's real steps, and Go to my kit returns to Home", async ({ page }) => {
+    await openProgress(page);
     const loader = page.getByRole("dialog", { name: "Making your starter kit" });
     await expect(loader).toBeVisible();
 
@@ -129,19 +159,18 @@ test.describe("while the kit is being drafted", () => {
 
     await loader.getByRole("button", { name: "Go to my kit" }).click();
     await expect(page.getByTestId("kit-bootloader")).toHaveCount(0);
-    const heading = page.getByRole("heading", { name: "Your starter kit" });
-    await expect(heading).toBeVisible();
-    await expect(heading).toBeFocused();
+    // Still drafting, so no cards yet: focus returns to the item's button.
+    await expect(page.getByRole("button", { name: "Watch it build" })).toBeFocused();
 
-    // Remembered for this viewer and this kit.
+    // Nothing reopens it on reload.
     await page.reload();
-    await expect(heading).toBeVisible();
+    await expect(page.getByRole("button", { name: "Watch it build" })).toBeVisible();
     await expect(page.getByTestId("kit-bootloader")).toHaveCount(0);
   });
 
   test("tips rotate on their own, and Pause stops them", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await openHome(page);
+    await openProgress(page);
     const tips = page.getByTestId("kit-explainers");
     await expect(tips).toHaveAttribute("data-rotating", "true");
     const first = await currentTip(page);
@@ -158,7 +187,7 @@ test.describe("while the kit is being drafted", () => {
 
   test("under reduced motion: no auto-rotation, no animation, manual next", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await openHome(page);
+    await openProgress(page);
     const tips = page.getByTestId("kit-explainers");
     await expect(tips).toHaveAttribute("data-rotating", "false");
     await expect(tips.getByRole("button", { name: "Pause tips" })).toHaveCount(0);
@@ -179,7 +208,7 @@ test.describe("while the kit is being drafted", () => {
   test("fits 320px and passes axe", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await openHome(page);
+    await openProgress(page);
     await expect(page.getByTestId("kit-bootloader")).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -202,8 +231,9 @@ test.describe("while the kit is being drafted", () => {
 
 test.describe("kits the loader leaves alone", () => {
   test.describe("a stale running kit", () => {
-    // Last touched long ago: no run is working on it, so no loader.
-    test.use({ backendData: backendData(kit(RUNNING_PARTS, { updatedAt: FIXED })) });
+    // Last touched long ago: no run is working on it, so no loader, and
+    // the cards stay reachable.
+    test.use({ backendData: backendData(kit(RUNNING_PARTS, { updatedAt: FIXED }), []) });
 
     test("shows only the kit cards", async ({ page }) => {
       await openHome(page);
@@ -226,6 +256,7 @@ test.describe("kits the loader leaves alone", () => {
               },
               { status: "failed", updatedAt: Date.now() },
             ),
+            [],
           ),
         );
       },

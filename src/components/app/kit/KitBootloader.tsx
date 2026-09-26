@@ -28,9 +28,6 @@ import {
   checklistRows,
   isKitSettled,
   mosaicTiles,
-  readDismissed,
-  shouldShowBootloader,
-  writeDismissed,
   type BootPartState,
   type ChecklistRow,
   type TileState,
@@ -38,41 +35,27 @@ import {
 import { EXPLAINERS, EXPLAINER_ROTATE_MS, nextExplainer } from "@/components/app/kit/explainers";
 
 /**
- * "Mosaic assembles": the full-screen loader on Home while a fresh starter
- * kit is being drafted (queued or running). Every tile and line comes from
+ * "Mosaic assembles": the full-screen view of the starter kit's progress.
+ * HM-2: it is no longer an automatic overlay competing with Home's list; it
+ * opens only from the "Building your starter kit" item (`show_kit_progress`)
+ * and stays open (showing "ready") until the owner leaves, so the screen
+ * never jumps away on its own. Every tile and line comes from
  * `starterKit.get`; the rotating cards below are general product info and
- * say so. "Go to my kit" is always there, and closing is remembered per kit
- * for this viewer only.
+ * say so. "Go to my kit" is always there.
  */
-export function KitBootloader({ projectId }: { projectId: Id<"projects"> }) {
-  const kit = useQuery(api.starterKit.get, { projectId });
-  // Read once: the loader opens only for a kit updated in the last minutes.
-  const [now] = useState(() => Date.now());
-  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
-  const [openFor, setOpenFor] = useState<string | null>(null);
-
+export function KitBootloader({
+  projectId,
+  open,
+  onClose,
+}: {
+  projectId: Id<"projects">;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const kit = useQuery(api.starterKit.get, open ? { projectId } : "skip");
   // Loading (undefined) and no kit (null) render nothing.
-  if (!kit) return null;
-
-  const dismissed = closed.has(kit._id) || readDismissed(browserStorage, kit._id);
-  // Open once for a running kit, then stay open (showing "ready") until the
-  // owner leaves: the screen never jumps away on its own.
-  if (openFor !== kit._id && !dismissed && shouldShowBootloader(kit, { now, dismissed })) {
-    setOpenFor(kit._id);
-  }
-  const open = openFor === kit._id && !dismissed && kit.dismissedAt === undefined;
-  if (!open) return null;
-
-  const close = () => {
-    writeDismissed(browserStorage, kit._id);
-    setClosed((current) => new Set([...current, kit._id]));
-  };
-
-  return <BootloaderScreen kit={kit} onClose={close} />;
-}
-
-function browserStorage(): Storage | null {
-  return typeof window === "undefined" ? null : window.localStorage;
+  if (!open || !kit) return null;
+  return <BootloaderScreen kit={kit} onClose={onClose} />;
 }
 
 /* ── Reduced motion, following the setting live ─────────────────────── */
@@ -98,6 +81,10 @@ function usePrefersReducedMotion(): boolean {
 
 function BootloaderScreen({ kit, onClose }: { kit: Doc<"starterKits">; onClose: () => void }) {
   const reduced = usePrefersReducedMotion();
+  // The control that opened this view, to return focus to on close.
+  const [opener] = useState<HTMLElement | null>(() =>
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const rows = checklistRows(kit.parts);
   const settled = isKitSettled(kit.parts);
   const heading = bootHeading(kit.parts);
@@ -124,12 +111,16 @@ function BootloaderScreen({ kit, onClose }: { kit: Doc<"starterKits">; onClose: 
           data-kit-settled={settled ? "true" : "false"}
           className="fixed inset-0 z-50 overflow-y-auto bg-background outline-none"
           onCloseAutoFocus={(event) => {
-            // Land on the kit the owner asked to go to.
+            // Land on the kit the owner asked to go to; while it is still
+            // drafting (no cards yet), back on the button that opened this.
             const target = document.getElementById("starter-kit-title");
-            if (!target) return;
             event.preventDefault();
-            target.setAttribute("tabindex", "-1");
-            target.focus();
+            if (target) {
+              target.setAttribute("tabindex", "-1");
+              target.focus();
+            } else if (opener?.isConnected) {
+              opener.focus();
+            }
           }}
         >
           <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6 sm:gap-8 sm:px-6 sm:py-10">
