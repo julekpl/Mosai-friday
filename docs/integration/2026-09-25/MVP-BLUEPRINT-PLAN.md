@@ -336,3 +336,28 @@ authoritative versions (re-supplied 25 Sep and confirmed byte-identical).
 - **D10 closed:** the owner merges every PR personally. Agents open PRs and drive them
   to green; they never merge to `main`.
 - **D8 approved:** Home shows one "For you now" list, at most 3 items (HM-2).
+
+## 11. Owner decision 26 Sep 2026: six-screen first run adopted (supersedes the screen caps)
+
+The owner chose Direction B from `DIRECTION-COMPARISON.md`: PRs #25 (richer first-run
+answers), #26 ("Mosaic assembles" kit loader on Home) and #27 (six-screen first run with
+multi-select answers, and "Your answers" in Edit project) define the first run.
+
+Changes to this plan:
+- **Screen caps withdrawn.** The first run is six screens for owners and agencies,
+  ending on "Here's what we found" and "Make my starter kit". Section 2 rows for the
+  wizard and blueprint caps (3 owner / 4 agency / 2 discovery) no longer apply.
+- **Goals.** The goal list is the one shipped by #25/#27 (several goals, multi-select),
+  not "the four shipped goals plus Not sure yet".
+- **Discovery (OD-1/OD-2, still conditional on U12).** If built, discovery pre-fills
+  the six-screen answers and the "Here's what we found" step; it never adds a screen.
+- **Home (HM-2).** While the kit runs, Home shows #26's loader; after it finishes,
+  Home shows one "For you now" list, max 3 items (D8 stands). HM-1's "working" item
+  covers any Home surface that is not the full loader.
+- **Merge order.** #25, then #26 and #27; then #28 (LQ-1) resolves its small
+  `wizard/types.ts` conflict with #27 on its own branch; then HM-2. Schema changes
+  still land one at a time.
+- **U12.** The five-owner sessions test the six-screen flow; add the metrics from
+  `DIRECTION-COMPARISON.md` section 5 (completion rate, time to kit start, whether
+  owners notice better posts) and a blind before/after kit comparison on five sample
+  businesses.
