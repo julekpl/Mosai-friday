@@ -173,6 +173,43 @@ export const dismiss = orgMutation({
   },
 });
 
+/**
+ * MD-0: the owner picks a picture for one kit post. The client sends only
+ * ids; the address and the credit are resolved here from the file row, so a
+ * client-supplied URL can never land on a post. The file and the post must
+ * both belong to this project, and the post must be one of the kit's posts.
+ */
+export const setPostPicture = orgMutation({
+  args: { projectId: v.id("projects"), postId: v.id("posts"), projectFileId: v.id("projectFiles") },
+  handler: async (ctx, { projectId, postId, projectFileId }, access): Promise<{ mediaUrl: string }> => {
+    await access.requireProject(projectId);
+    const kit = await kitForProject(ctx, projectId);
+    if (!kit) throw new Error("Not found");
+    const post = await ctx.db.get(postId);
+    if (!post || post.projectId !== projectId || !outputIds(kit.parts.posts.outputs, "posts").includes(postId)) {
+      throw new Error("Not found");
+    }
+    const file = await ctx.db.get(projectFileId);
+    if (!file || file.projectId !== projectId) throw new Error("Not found");
+    const isImage = file.kind === "image" || (file.mimeType ?? "").toLowerCase().startsWith("image/");
+    if (!isImage) throw new Error("That file is not a picture.");
+    const mediaUrl = await ctx.storage.getUrl(file.storageId);
+    if (!mediaUrl) throw new Error("That picture is no longer stored.");
+
+    await ctx.db.patch(postId, { mediaUrl });
+    // The kit screen reads credits from files the kit references, so a
+    // picked stock picture keeps its photographer credit.
+    const outputs = kit.parts.posts.outputs;
+    if (!outputIds(outputs, "projectFiles").includes(projectFileId)) {
+      await ctx.db.patch(kit._id, {
+        parts: { ...kit.parts, posts: { ...kit.parts.posts, outputs: [...outputs, { type: "projectFiles", id: projectFileId }] } },
+        updatedAt: Date.now(),
+      });
+    }
+    return { mediaUrl };
+  },
+});
+
 /* ── The kit screen's one read (U5b) ───────────────────────────────────── */
 
 type KitContentPost = {

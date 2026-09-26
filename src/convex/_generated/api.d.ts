@@ -75,6 +75,7 @@ import type * as lib_dataLifecycle from "../lib/dataLifecycle.js";
 import type * as lib_dataRegistry from "../lib/dataRegistry.js";
 import type * as lib_deliveryGate from "../lib/deliveryGate.js";
 import type * as lib_googleMaps from "../lib/googleMaps.js";
+import type * as lib_media from "../lib/media.js";
 import type * as lib_modelGateway from "../lib/modelGateway.js";
 import type * as lib_oauthBaseUrl from "../lib/oauthBaseUrl.js";
 import type * as lib_pexels from "../lib/pexels.js";
@@ -201,6 +202,7 @@ declare const fullApi: ApiFromModules<{
   "lib/dataRegistry": typeof lib_dataRegistry;
   "lib/deliveryGate": typeof lib_deliveryGate;
   "lib/googleMaps": typeof lib_googleMaps;
+  "lib/media": typeof lib_media;
   "lib/modelGateway": typeof lib_modelGateway;
   "lib/oauthBaseUrl": typeof lib_oauthBaseUrl;
   "lib/pexels": typeof lib_pexels;

@@ -1,5 +1,6 @@
 import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
+import { mediaFieldsFor } from "./lib/media";
 
 /** Metadata list of files attached to a project. */
 export const list = orgQuery({
@@ -11,6 +12,42 @@ export const list = orgQuery({
       .query("projectFiles")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
+  },
+});
+
+/** MD-0: the project's pictures for the picture picker, each with a read
+ *  address resolved on the server and the stock credit where there is one. */
+export const pictures = orgQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
+    const rows = await ctx.db
+      .query("projectFiles")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .order("desc")
+      .collect();
+    const out: Array<{
+      _id: (typeof rows)[number]["_id"];
+      name: string;
+      source: "upload" | "owner_site" | "stock";
+      url: string;
+      photographer?: string;
+    }> = [];
+    for (const row of rows) {
+      const isImage = row.kind === "image" || (row.mimeType ?? "").toLowerCase().startsWith("image/");
+      if (!isImage) continue;
+      const url = await ctx.storage.getUrl(row.storageId);
+      if (!url) continue;
+      out.push({
+        _id: row._id,
+        name: row.name,
+        source: row.source ?? "upload",
+        url,
+        ...(row.attribution ? { photographer: row.attribution.photographer } : {}),
+      });
+    }
+    return out;
   },
 });
 
@@ -41,6 +78,8 @@ export const attach = orgMutation({
     return await ctx.db.insert("projectFiles", {
       projectId,
       ...rest,
+      // MD-1: derived here from the stored type, never a client claim.
+      ...mediaFieldsFor(rest.mimeType, "owner_supplied"),
       uploadedBy: userId,
       createdAt: Date.now(),
     });

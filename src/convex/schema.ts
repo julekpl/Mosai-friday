@@ -681,6 +681,10 @@ const schema = defineSchema(
       source: v.optional(
         v.union(v.literal("mosai_native"), v.literal("external")),
       ),
+      // MD-1: the project file this picture came from, when it came from one.
+      // Writer: none yet (the Sell picker, MD-0b, is deferred). A reader must
+      // check the file belongs to the same project before using it.
+      projectFileId: v.optional(v.id("projectFiles")),
       createdAt: v.number(),
     }).index("by_product", ["productId"]),
 
@@ -1120,6 +1124,30 @@ const schema = defineSchema(
           photographerUrl: v.string(),
           pageUrl: v.string(),
         }),
+      ),
+      // MD-1 media fields (additive, all optional; older rows have none).
+      // Writer: files.attach and stockStore.insertImportedFile, derived on the server
+      // from the stored MIME type, never from a client claim.
+      kind: v.optional(v.union(v.literal("image"), v.literal("video"), v.literal("document"), v.literal("other"))),
+      // What the picture shows. Writer: none yet (reserved for the picker's
+      // tagging step); readers must treat a missing role as unknown.
+      role: v.optional(
+        v.union(v.literal("logo"), v.literal("product"), v.literal("place"), v.literal("team"), v.literal("other")),
+      ),
+      // Pixel size. Writer: the MD-2a server decoder only (never the client).
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+      // Writer: the MD-2a server decoder. "unreadable" means it did not decode
+      // (too large, HEIC, broken); the file stays usable.
+      processingStatus: v.optional(v.union(v.literal("pending"), v.literal("ready"), v.literal("unreadable"))),
+      // Outcome flags only, no numeric score (collision C15). Writer: MD-2a.
+      qualityFlags: v.optional(v.array(v.union(v.literal("dark"), v.literal("blurry"), v.literal("small")))),
+      // Where the image honestly comes from. Writer: files.attach
+      // ("owner_supplied") and stockStore.insertImportedFile ("owner_supplied" for
+      // owner_site, "licensed_stock" for stock). "ai_generated" has no writer
+      // yet. No "camera" value: a captured file cannot be told apart.
+      authenticity: v.optional(
+        v.union(v.literal("owner_supplied"), v.literal("licensed_stock"), v.literal("ai_generated")),
       ),
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
