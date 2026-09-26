@@ -32,6 +32,8 @@ export type QueryData = Record<string, unknown>;
 type SyncMessage = {
   type?: string;
   baseVersion?: number;
+  requestId?: number;
+  udfPath?: string;
   newVersion?: number;
   modifications?: Array<{ type?: string; queryId?: number; udfPath?: string }>;
 };
@@ -116,6 +118,29 @@ export async function installSignedInBackend(
         transition(
           { querySet: version.querySet, identity: (message.baseVersion ?? 0) + 1 },
           [],
+        );
+        return;
+      }
+      // Actions stay unanswered (in flight) unless `data` names an answer
+      // under "action:<path>": `{ error: "…" }` fails the call with that
+      // message, anything else succeeds with it as the (plain JSON) result.
+      if (message.type === "Action") {
+        const path = (message.udfPath ?? "").replace(/\.js$/, "");
+        const key = `action:${path}`;
+        if (!(key in data)) return;
+        const answer = data[key];
+        const error =
+          answer && typeof answer === "object" && "error" in answer
+            ? String((answer as { error: unknown }).error)
+            : null;
+        ws.send(
+          JSON.stringify({
+            type: "ActionResponse",
+            requestId: message.requestId,
+            success: error === null,
+            logLines: [],
+            result: error ?? answer,
+          }),
         );
         return;
       }
