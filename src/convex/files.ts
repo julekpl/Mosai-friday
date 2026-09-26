@@ -1,5 +1,6 @@
 import { orgMutation, orgQuery } from "./guards";
 import { v } from "convex/values";
+import { mediaFieldsFor } from "./lib/media";
 
 /** Metadata list of files attached to a project. */
 export const list = orgQuery({
@@ -41,6 +42,8 @@ export const attach = orgMutation({
     return await ctx.db.insert("projectFiles", {
       projectId,
       ...rest,
+      // MD-1: derived here from the stored type, never a client claim.
+      ...mediaFieldsFor(rest.mimeType, "owner_supplied"),
       uploadedBy: userId,
       createdAt: Date.now(),
     });

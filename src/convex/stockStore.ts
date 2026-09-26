@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { mediaFieldsFor } from "./lib/media";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { projectAccessFor } from "./guards";
@@ -114,6 +115,8 @@ export const insertImportedFile = internalMutation({
     return await ctx.db.insert("projectFiles", {
       projectId,
       ...file,
+      // MD-1: derived on the server from what was downloaded.
+      ...mediaFieldsFor(file.mimeType, file.source === "stock" ? "licensed_stock" : "owner_supplied"),
       uploadedBy: userId,
       createdAt: Date.now(),
     });
