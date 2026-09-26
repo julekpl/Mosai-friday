@@ -15,6 +15,42 @@ export const list = orgQuery({
   },
 });
 
+/** MD-0: the project's pictures for the picture picker, each with a read
+ *  address resolved on the server and the stock credit where there is one. */
+export const pictures = orgQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }, access) => {
+    const scope = await access.ownedProject(projectId);
+    if (!scope) return [];
+    const rows = await ctx.db
+      .query("projectFiles")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .order("desc")
+      .collect();
+    const out: Array<{
+      _id: (typeof rows)[number]["_id"];
+      name: string;
+      source: "upload" | "owner_site" | "stock";
+      url: string;
+      photographer?: string;
+    }> = [];
+    for (const row of rows) {
+      const isImage = row.kind === "image" || (row.mimeType ?? "").toLowerCase().startsWith("image/");
+      if (!isImage) continue;
+      const url = await ctx.storage.getUrl(row.storageId);
+      if (!url) continue;
+      out.push({
+        _id: row._id,
+        name: row.name,
+        source: row.source ?? "upload",
+        url,
+        ...(row.attribution ? { photographer: row.attribution.photographer } : {}),
+      });
+    }
+    return out;
+  },
+});
+
 /** Short-lived upload URL the client PUTs the raw file bytes to. Minting one
  *  lets the caller write a blob to storage, so it is scoped to a project the
  *  caller can access: an unauthenticated or foreign caller is refused before

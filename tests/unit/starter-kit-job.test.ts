@@ -405,12 +405,13 @@ describe("starterKit job", () => {
     expect((await kitOf(t, kitId)).dismissedAt).toBeDefined();
   });
 
-  it("the generated cross-tenant suite covers starterKit start, get and dismiss", () => {
+  it("the generated cross-tenant suite covers starterKit start, get, dismiss and setPostPicture", () => {
     const entries = buildFunctionRegistry().filter((entry) => entry.module === "starterKit");
     expect(entries.map((entry) => `${entry.exported}:${entry.tenantScoped}`).sort()).toEqual([
       "content:true",
       "dismiss:true",
       "get:true",
+      "setPostPicture:true",
       "start:true",
     ]);
   });

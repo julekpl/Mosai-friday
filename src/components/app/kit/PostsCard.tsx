@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
-import { Copy, Download } from "lucide-react";
+import { useMutation } from "convex/react";
+import { Copy, Download, ImagePlus } from "lucide-react";
+
+import { api } from "@/convex/_generated/api";
+import { MediaPicker } from "@/components/media/MediaPicker";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import type { StarterKitContent } from "@/convex/starterKit";
@@ -13,19 +17,38 @@ type KitPost = StarterKitContent["posts"][number];
 
 const PEXELS_URL = "https://www.pexels.com";
 
-function PostItem({ post, onCopy }: { post: KitPost; onCopy: (text: string) => void }) {
+function PostItem({
+  projectId,
+  post,
+  onCopy,
+  onPicked,
+}: {
+  projectId: Id<"projects">;
+  post: KitPost;
+  onCopy: (text: string) => void;
+  onPicked: (message: string) => void;
+}) {
   const channel = channelLabel(post.channel);
   const picture = httpsUrl(post.mediaUrl);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerButton = useRef<HTMLButtonElement>(null);
+  const setPostPicture = useMutation(api.starterKit.setPostPicture);
+  const pick = async (projectFileId: Id<"projectFiles">) => {
+    // Only ids leave the browser; the server resolves the address.
+    await setPostPicture({ projectId, postId: post._id, projectFileId });
+    onPicked(`Picture updated for your ${channel} post.`);
+  };
   const photographerUrl = httpsUrl(post.attribution?.photographerUrl);
   return (
     <li className="grid min-w-0 gap-2 rounded-lg border bg-background p-3">
       <p className="text-small font-semibold">{channel}</p>
       {picture ? (
         <img
+          key={picture}
           src={picture}
           alt={`Picture for your ${channel} post`}
           loading="lazy"
-          className="aspect-video w-full rounded-md bg-muted object-cover"
+          className="aspect-video w-full rounded-md bg-muted object-cover motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-500"
         />
       ) : null}
       {post.attribution ? (
@@ -51,6 +74,16 @@ function PostItem({ post, onCopy }: { post: KitPost; onCopy: (text: string) => v
           <Copy className="size-4" aria-hidden="true" />
           Copy text
         </Button>
+        <Button
+          ref={pickerButton}
+          variant="outline"
+          className="min-h-11"
+          onClick={() => setPickerOpen(true)}
+          aria-label={`${picture ? "Change picture" : "Add a picture"} for your ${channel} post`}
+        >
+          <ImagePlus className="size-4" aria-hidden="true" />
+          {picture ? "Change picture" : "Add a picture"}
+        </Button>
         {picture ? (
           <Button asChild variant="outline" className="min-h-11">
             <a href={picture} download aria-label={`Download picture for your ${channel} post`}>
@@ -60,6 +93,14 @@ function PostItem({ post, onCopy }: { post: KitPost; onCopy: (text: string) => v
           </Button>
         ) : null}
       </div>
+      <MediaPicker
+        projectId={projectId}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onPick={pick}
+        returnFocusRef={pickerButton}
+        title={`Picture for your ${channel} post`}
+      />
     </li>
   );
 }
@@ -111,7 +152,16 @@ export function PostsCard({
           {shown.length ? (
             <ul className="grid gap-3" aria-label="Your post drafts">
               {shown.map((post) => (
-                <PostItem key={post._id} post={post} onCopy={(text) => void copy(text)} />
+                <PostItem
+                  key={post._id}
+                  projectId={projectId}
+                  post={post}
+                  onCopy={(text) => void copy(text)}
+                  onPicked={(message) => {
+                    setCopyStatus("");
+                    setCopyStatus(message);
+                  }}
+                />
               ))}
             </ul>
           ) : (
