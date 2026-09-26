@@ -1,5 +1,7 @@
 # Blueprint: the first run ("starter kit")
 
+> Superseded (26 Sep 2026): the question and screen caps here are replaced by the owner's six-screen first-run decision (`docs/integration/2026-09-25/MVP-BLUEPRINT-PLAN.md` section 11).
+
 **Date:** 25 Sep 2026 · **Status:** proposal; §9 lists the owner decisions it
 depends on · **Strategy:** [`usability-strategy.md`](usability-strategy.md) ·
 **Tickets:** [`usability-backlog.md`](usability-backlog.md)
