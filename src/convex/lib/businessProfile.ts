@@ -15,7 +15,14 @@
  * treat it as a best guess. Pure module: no Convex imports, unit-testable.
  */
 
-import { firstRunAnswerLines, type FirstRunAnswers } from "../../shared/starterKit";
+import {
+  firstRunChannelItems,
+  firstRunCustomerItems,
+  firstRunGoalItems,
+  firstRunKindLine,
+  firstRunNotesLine,
+  type FirstRunAnswers,
+} from "../../shared/starterKit";
 import {
   decideWrite,
   isOwnerAuthority,
@@ -183,10 +190,82 @@ export type BusinessBriefSource = {
   productsServices?: string[];
   goals?: string[];
   targetAudience?: string[];
+  channels?: string[];
   customerPains?: string[];
   serviceArea?: string;
   businessProfile?: StoredBusinessProfile;
+  profileAuthority?: ProfileAuthorityMap;
 } & FirstRunAnswers;
+
+/*
+ * One source of truth per concept (BRIEF-1). Goals, customers and channels
+ * are stored in several places for historical reasons; the brief states each
+ * concept on ONE line, reading the copies in this order of authority:
+ *
+ * | Concept   | 1. Owner's first-run answers            | 2. Owner-typed project field | 3. Business profile      |
+ * |-----------|------------------------------------------|------------------------------|--------------------------|
+ * | Goals     | primaryGoal, otherGoals, notes.goal      | projects.goals               | profile.primaryGoals     |
+ * | Customers | customerGroups, notes.customers          | projects.targetAudience      | profile.customerSegments |
+ * | Channels  | postingChannels, notes.channel           | projects.channels            | (none)                   |
+ *
+ * Tiers 1 and 2 are the owner's own answers (FIRST_RUN_ANSWER_AUTHORITY). A
+ * profile field counts next when the owner confirmed it (fieldAuthority), and
+ * only when neither exists does the brief fall back to the AI draft, labelled
+ * as unconfirmed. Writers keep writing their own field; readers that need
+ * "the goal" or "the customers" go through `briefConcepts` below.
+ */
+export type BriefConcept = { owner: string[]; confirmed: string[]; draft: string[] };
+
+function dedupeTiers(tiers: BriefConcept): BriefConcept {
+  const seen = new Set<string>();
+  const keep = (items: string[]) =>
+    items.filter((item) => {
+      const key = item.trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return { owner: keep(tiers.owner), confirmed: keep(tiers.confirmed), draft: keep(tiers.draft) };
+}
+
+/** Goals, customers and channels, each split by who said it. */
+export function briefConcepts(source: BusinessBriefSource): {
+  goals: BriefConcept;
+  customers: BriefConcept;
+  channels: BriefConcept;
+} {
+  const profile = source.businessProfile;
+  const byAuthority = (field: BusinessProfileField, items: string[] | undefined) =>
+    isOwnerAuthority(fieldAuthority(profile, source.profileAuthority, field))
+      ? { confirmed: items ?? [], draft: [] }
+      : { confirmed: [], draft: items ?? [] };
+  return {
+    goals: dedupeTiers({
+      owner: [...firstRunGoalItems(source), ...(source.goals ?? [])],
+      ...byAuthority("primaryGoals", profile?.primaryGoals),
+    }),
+    customers: dedupeTiers({
+      owner: [...firstRunCustomerItems(source), ...(source.targetAudience ?? [])],
+      ...byAuthority("customerSegments", profile?.customerSegments),
+    }),
+    channels: dedupeTiers({
+      owner: [...firstRunChannelItems(source), ...(source.channels ?? [])],
+      confirmed: [],
+      draft: [],
+    }),
+  };
+}
+
+/** One line per concept: the owner's answer first, then what the owner
+ *  confirmed; the AI draft only when neither exists. "" when all are empty. */
+function conceptLine(label: string, concept: BriefConcept): string {
+  const parts: string[] = [];
+  if (concept.owner.length) parts.push(`${concept.owner.join("; ")} (the owner's answer)`);
+  if (concept.confirmed.length) parts.push(`${concept.confirmed.join("; ")} (confirmed by the owner)`);
+  if (parts.length) return `${label}: ${parts.join("; also ")}`;
+  if (concept.draft.length) return `${label}: ${concept.draft.join("; ")} (AI draft, not confirmed by the owner)`;
+  return "";
+}
 
 /** Always excluded from "the audience" unless the owner lists them as a segment. */
 export const DEFAULT_NOT_THE_AUDIENCE = [
@@ -276,10 +355,7 @@ function list(items: string[] | undefined): string {
 export function businessBriefLines(source: BusinessBriefSource): string[] {
   const profile = source.businessProfile;
   const name = source.businessName?.trim() || source.name;
-  const segments = [
-    ...(profile?.customerSegments ?? []),
-    ...(source.targetAudience ?? []),
-  ];
+  const concepts = briefConcepts(source);
   const notAudience = [...(profile?.notTheAudience ?? []), ...DEFAULT_NOT_THE_AUDIENCE];
   const lines = [
     `Business: ${name}`,
@@ -292,20 +368,22 @@ export function businessBriefLines(source: BusinessBriefSource): string[] {
     list(profile?.offerings.length ? profile.offerings : source.productsServices)
       ? `What customers pay for: ${list(profile?.offerings.length ? profile.offerings : source.productsServices)}`
       : "",
-    segments.length ? `Customers (the audience): ${[...new Set(segments)].join("; ")}` : "Customers (the audience): not stated — infer the people or organisations who would pay for the offerings above",
+    conceptLine("Customers (the audience)", concepts.customers) ||
+      "Customers (the audience): not stated — infer the people or organisations who would pay for the offerings above",
     `Not the audience: ${[...new Set(notAudience)].join("; ")}`,
     list([...(profile?.customerProblems ?? []), ...(source.customerPains ?? [])])
       ? `Customer problems this business solves: ${list([...new Set([...(profile?.customerProblems ?? []), ...(source.customerPains ?? [])])])}`
       : "",
-    list([...(profile?.primaryGoals ?? []), ...(source.goals ?? [])])
-      ? `Business goals: ${list([...new Set([...(profile?.primaryGoals ?? []), ...(source.goals ?? [])])])}`
-      : "",
+    conceptLine("Business goals", concepts.goals),
+    conceptLine("Where the owner already posts", concepts.channels),
     profile?.market || source.serviceArea ? `Market served: ${profile?.market ?? source.serviceArea}` : "",
     list(profile?.differentiators) ? `Why customers choose it: ${list(profile?.differentiators)}` : "",
     list(profile?.contentThemes) ? `Subject-matter themes customers care about: ${list(profile?.contentThemes)}` : "",
-    // The owner's first-run answers (U2c): type(s), goals, channels, customers
-    // and their own words, quoted as data.
-    ...firstRunAnswerLines(source),
+    // The rest of the owner's first-run answers (U2c): kind of business and
+    // their remaining own words, quoted as data. Goals, customers and
+    // channels are already on their one line each above (BRIEF-1).
+    firstRunKindLine(source),
+    firstRunNotesLine(source),
   ];
   return lines.filter(Boolean);
 }
