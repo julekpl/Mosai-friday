@@ -11,7 +11,7 @@ import { newBackend, seedUser } from "./helpers";
 
 const BASE: HomePrioritiesInput = {
   kit: null,
-  build: { included: false, live: false },
+  build: { included: false, website: "none" },
   promote: { included: false },
   profile: { complete: true },
   contactable: true,
@@ -23,20 +23,42 @@ describe("rankHomePriorities (pure)", () => {
   it("an empty project (no kit, nothing saved) asks to finish details", () => {
     const items = rankHomePriorities({
       ...BASE,
-      profile: { complete: false, missingReason: "We don't know what you offer yet." },
+      profile: { complete: false },
       contactable: false,
     });
-    expect(items.map((i) => i.kind)).toEqual(["needs_you", "next"]);
+    expect(items.map((i) => i.kind)).toEqual(["needs_you", "next", "next"]);
     expect(items[0]).toMatchObject({
       id: "needs-you-profile",
       title: "Finish your business details",
-      reason: "We don't know what you offer yet.",
       state: "needs_input",
     });
-    expect(items[1].id).toBe("next-contact");
+    expect(items[1].id).toBe("next-start-kit");
+    expect(items[2].id).toBe("next-contact");
   });
 
-  it("collapses a running kit into one working item, ignoring everything else", () => {
+  it("no kit, but a complete profile: still never empty (Start your kit)", () => {
+    const items = rankHomePriorities({
+      ...BASE,
+      profile: { complete: true },
+      contactable: true,
+    });
+    expect(items).toEqual([
+      expect.objectContaining({ id: "next-start-kit", kind: "next", state: "ready" }),
+    ]);
+  });
+
+  it("an older project with a draft site and posts, but no kit, never mentions the kit", () => {
+    const items = rankHomePriorities({
+      ...BASE,
+      build: { included: true, website: "draft" },
+      promote: { included: true },
+      posts: { drafted: 4, missingPictures: 0 },
+    });
+    expect(items.map((i) => i.id)).toEqual(["ready-site", "ready-posts"]);
+    expect(items.map((i) => i.id)).not.toContain("next-start-kit");
+  });
+
+  it("collapses an actively drafting kit into one working item, ignoring everything else", () => {
     const items = rankHomePriorities({
       ...BASE,
       kit: {
@@ -54,36 +76,54 @@ describe("rankHomePriorities (pure)", () => {
     expect(items[0]).toMatchObject({ kind: "next", state: "working", id: "kit-working" });
   });
 
-  it("a queued or waiting_for_user kit also collapses (not just running)", () => {
-    for (const status of ["queued", "waiting_for_user"] as const) {
-      const items = rankHomePriorities({
-        ...BASE,
-        kit: {
-          status,
-          parts: {
-            plan: { status: "queued" },
-            site: { status: "queued" },
-            posts: { status: "queued" },
-          },
-        },
-      });
-      expect(items).toHaveLength(1);
-      expect(items[0].state).toBe("working");
-    }
-  });
-
-  it("a finished kit with posts missing pictures asks for pictures first", () => {
+  it("a queued kit also collapses (not just running)", () => {
     const items = rankHomePriorities({
       ...BASE,
       kit: {
-        status: "partially_succeeded",
+        status: "queued",
+        parts: {
+          plan: { status: "queued" },
+          site: { status: "queued" },
+          posts: { status: "queued" },
+        },
+      },
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("working");
+  });
+
+  it("waiting_for_user is a needs_you item, not a silent working one", () => {
+    const items = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "waiting_for_user",
+        parts: {
+          plan: { status: "succeeded" },
+          site: { status: "queued" },
+          posts: { status: "queued" },
+        },
+      },
+    });
+    expect(items[0]).toMatchObject({
+      id: "needs-you-kit",
+      kind: "needs_you",
+      state: "needs_input",
+    });
+    expect(items[0].state).not.toBe("working");
+  });
+
+  it("posts missing pictures asks for pictures, even when the posts part succeeded", () => {
+    const items = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "succeeded",
         parts: {
           plan: { status: "succeeded" },
           site: { status: "succeeded" },
-          posts: { status: "partially_succeeded" },
+          posts: { status: "succeeded" },
         },
       },
-      build: { included: true, live: false },
+      build: { included: true, website: "draft" },
       promote: { included: true },
       posts: { drafted: 7, missingPictures: 3 },
     });
@@ -108,7 +148,7 @@ describe("rankHomePriorities (pure)", () => {
           posts: { status: "partially_succeeded" },
         },
       },
-      build: { included: true, live: false },
+      build: { included: true, website: "none" },
       promote: { included: true },
       profile: { complete: false },
       posts: { drafted: 7, missingPictures: 2 },
@@ -127,12 +167,30 @@ describe("rankHomePriorities (pure)", () => {
           posts: { status: "succeeded" },
         },
       },
-      build: { included: true, live: false },
+      build: { included: true, website: "draft" },
       promote: { included: true },
       posts: { drafted: 7, missingPictures: 0 },
     });
     expect(items.map((i) => i.id)).toEqual(["ready-site", "ready-posts"]);
     expect(items.every((i) => i.reason.length > 0)).toBe(true);
+  });
+
+  it("a kit that finished without a website asks to make one", () => {
+    const items = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "succeeded",
+        parts: {
+          plan: { status: "succeeded" },
+          site: { status: "succeeded" },
+          posts: { status: "succeeded" },
+        },
+      },
+      build: { included: true, website: "none" },
+      promote: { included: true },
+      posts: { drafted: 7, missingPictures: 0 },
+    });
+    expect(items.map((i) => i.id)).toEqual(["next-website", "ready-posts"]);
   });
 
   it("a website confirmed live drops off the ready list", () => {
@@ -146,11 +204,12 @@ describe("rankHomePriorities (pure)", () => {
           posts: { status: "succeeded" },
         },
       },
-      build: { included: true, live: true },
+      build: { included: true, website: "live" },
       promote: { included: true },
       posts: { drafted: 7, missingPictures: 0 },
     });
     expect(items.map((i) => i.id)).not.toContain("ready-site");
+    expect(items.map((i) => i.id)).not.toContain("next-website");
   });
 
   it("returning after absence: recent posts are named in the reason", () => {
@@ -164,7 +223,7 @@ describe("rankHomePriorities (pure)", () => {
           posts: { status: "succeeded" },
         },
       },
-      build: { included: true, live: true },
+      build: { included: true, website: "live" },
       promote: { included: true },
       posts: { drafted: 5, missingPictures: 0 },
       since: { since: 1_000, posted: 2 },
@@ -183,7 +242,7 @@ describe("rankHomePriorities (pure)", () => {
           posts: { status: "partially_succeeded" },
         },
       },
-      build: { included: true, live: false },
+      build: { included: true, website: "draft" },
       promote: { included: true },
       profile: { complete: false },
       contactable: false,
@@ -204,7 +263,7 @@ describe("rankHomePriorities (pure)", () => {
           posts: { status: "succeeded" },
         },
       },
-      build: { included: true, live: false },
+      build: { included: true, website: "draft" },
       promote: { included: true },
       posts: { drafted: 3, missingPictures: 0 },
     };
@@ -225,13 +284,12 @@ describe("rankHomePriorities (pure)", () => {
 });
 
 describe("home.priorities (convex-test)", () => {
-  it("a brand new project with nothing saved asks to finish details", async () => {
+  it("a brand new project with nothing saved is never empty (Start your kit)", async () => {
     const t = newBackend();
     const owner = await seedUser(t, { plan: "scale", email: "o@example.com" });
     const projectId = await owner.as.mutation(api.projects.create, { name: "Bakery" });
     const items = await owner.as.query(api.home.priorities, { projectId });
     expect(items.length).toBeGreaterThan(0);
-    expect(items[0].kind).toBe("needs_you");
     expect(items.every((i) => i.reason.length > 0)).toBe(true);
     expect(items.length).toBeLessThanOrEqual(3);
   });
@@ -266,12 +324,62 @@ describe("home.priorities (convex-test)", () => {
     ]);
   });
 
-  it("a foreign org cannot read another tenant's priorities", async () => {
+  it("a kit waiting_for_user is a needs_you item", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, { plan: "scale", email: "o3@example.com" });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "Bakery" });
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("starterKits", {
+        projectId,
+        requestedBy: owner.userId,
+        idempotencyKey: String(projectId),
+        status: "waiting_for_user",
+        parts: {
+          plan: { status: "succeeded", outputs: [], attempts: 1, updatedAt: now },
+          site: { status: "queued", outputs: [], attempts: 0, updatedAt: now },
+          posts: { status: "queued", outputs: [], attempts: 0, updatedAt: now },
+        },
+        attempts: 1,
+        budgetMicrousd: 400_000,
+        spentMicrousd: 0,
+        budgetCurrency: "USD",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const items = await owner.as.query(api.home.priorities, { projectId });
+    expect(items[0]).toMatchObject({ id: "needs-you-kit", kind: "needs_you", state: "needs_input" });
+  });
+
+  it("an older project with a draft site but no kit shows the site, not a kit prompt", async () => {
+    const t = newBackend();
+    const owner = await seedUser(t, { plan: "scale", email: "o4@example.com" });
+    const projectId = await owner.as.mutation(api.projects.create, { name: "Bakery" });
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("builds", {
+        projectId,
+        name: "Website",
+        kind: "website",
+        status: "draft",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const items = await owner.as.query(api.home.priorities, { projectId });
+    expect(items.map((i) => i.id)).toContain("ready-site");
+    expect(items.map((i) => i.id)).not.toContain("next-start-kit");
+  });
+
+  it("a foreign org cannot read another tenant's priorities; the owner's own call still works", async () => {
     const t = newBackend();
     const alice = await seedUser(t, { plan: "scale", email: "a@example.com" });
     const bob = await seedUser(t, { plan: "scale", email: "b@example.com" });
     await bob.as.mutation(api.projects.create, { name: "Bob's" });
     const projectId = await alice.as.mutation(api.projects.create, { name: "Alice's" });
     expect(await bob.as.query(api.home.priorities, { projectId })).toEqual([]);
+    const aliceItems = await alice.as.query(api.home.priorities, { projectId });
+    expect(aliceItems.length).toBeGreaterThan(0);
   });
 });

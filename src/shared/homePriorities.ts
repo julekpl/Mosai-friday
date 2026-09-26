@@ -1,22 +1,29 @@
 /**
  * Home "For you now" (HM-1; docs/integration/2026-09-25/MVP-BLUEPRINT-PLAN.md
  * §2 row 6, §5). A pure ranking of at most 3 items from plain, already
- * server-verified inputs: starter kit status, business-profile completeness,
- * posts drafted/missing pictures, whether the website is confirmed live, and
- * the "since you were away" summary (`shared/sinceLastVisit.ts`).
+ * server-verified inputs: starter kit status (or its absence), the website's
+ * state (`components/app/next-action-model.ts`'s `WebsiteState`, kept as its
+ * own copy so the backend never imports from the UI layer, AGENTS.md §10),
+ * business-profile completeness, posts drafted/missing pictures, and the
+ * "since you were away" summary (`shared/sinceLastVisit.ts`).
  *
- * Priority ladder (kept in the same order as
- * `components/app/next-action-model.ts`'s outcome ladder — website, then
- * posts, then "a way to reach you" — so the two surfaces never disagree
- * about what matters most):
+ * Priority ladder (kept in the same order as `next-action-model.ts`'s
+ * outcome ladder — website, then posts, then "a way to reach you" — so the
+ * two surfaces never disagree about what matters most). This ladder holds
+ * whether or not a starter kit ever ran: a project can reach a draft website
+ * or draft posts without one (Build/Promote used directly), and a project
+ * with no kit and nothing else to show gets one "Start your kit" item
+ * instead of an empty list:
  *
- *   1. Kit still running        -> one "working" item, nothing else.
- *   2. Needs you (at most one)  -> a stuck kit part, missing post pictures,
- *                                   or an incomplete business profile.
- *   3. Ready for you            -> a finished website draft, then finished
- *                                   posts, each worth a look.
- *   4. Next                     -> the next thing beyond the kit's output
- *                                   (currently: add a way to be reached).
+ *   1. Kit actively drafting     -> one "working" item, nothing else.
+ *   2. Needs you (at most one)   -> a stuck kit part, a kit waiting on the
+ *                                    owner, missing post pictures, or an
+ *                                    incomplete business profile.
+ *   3. Website                   -> ready to look over (draft), or the next
+ *                                    step to get one (kit ran but has none).
+ *   4. Posts                     -> ready to use.
+ *   5. No kit and nothing above  -> "Start your kit".
+ *   6. A way to reach you        -> when none is saved.
  *
  * Truth rules (AGENTS.md §5): nothing here upgrades a draft to "live"; a
  * website only drops off the "ready" list once the caller reports it is
@@ -50,17 +57,16 @@ export type HomePrioritiesKitInput = {
   parts: { plan: HomeKitPartInput; site: HomeKitPartInput; posts: HomeKitPartInput };
 };
 
+/** Mirrors `next-action-model.ts`'s `WebsiteState`: "live" only from a
+ *  confirmed hosting receipt, everything else a draft or nothing yet. */
+export type HomeWebsiteState = "none" | "draft" | "live";
+
 export type HomePrioritiesInput = {
   /** `null` when the project has no starter kit yet. */
   kit: HomePrioritiesKitInput | null;
-  /** Build (website) module: whether it's on the plan and confirmed live. */
-  build: { included: boolean; live: boolean };
+  build: { included: boolean; website: HomeWebsiteState };
   promote: { included: boolean };
-  profile: {
-    complete: boolean;
-    /** One plain sentence naming the gap, when `complete` is false. */
-    missingReason?: string;
-  };
+  profile: { complete: boolean };
   /** A phone, email or address saved on the project. */
   contactable: boolean;
   posts: { drafted: number; missingPictures: number };
@@ -68,11 +74,9 @@ export type HomePrioritiesInput = {
 };
 
 const MAX_ITEMS = 3;
-const RUNNING_KIT_STATUSES: readonly StarterKitStatus[] = [
-  "queued",
-  "running",
-  "waiting_for_user",
-];
+/** A kit still actively drafting. `waiting_for_user` is not here: the owner
+ *  must act, so it is a "needs you" item, not a silent progress bar. */
+const ACTIVE_KIT_STATUSES: readonly StarterKitStatus[] = ["queued", "running"];
 const STUCK_PART_STATUSES: readonly StarterKitPartStatus[] = ["failed", "canceled"];
 
 const PART_NOUN: Record<"plan" | "site" | "posts", string> = {
@@ -100,8 +104,8 @@ function sincePostsNote(since: SinceLastVisitSummary | null): string | undefined
 export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem[] {
   const { kit, build, promote, profile, contactable, posts, since } = input;
 
-  // 1. Kit still running: one progress item, nothing else (plan §2 row 5).
-  if (kit && RUNNING_KIT_STATUSES.includes(kit.status)) {
+  // 1. Kit actively drafting: one progress item, nothing else (plan §2 row 5).
+  if (kit && ACTIVE_KIT_STATUSES.includes(kit.status)) {
     return [
       {
         id: "kit-working",
@@ -129,11 +133,16 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       action: { label: "Try again", to: PART_ROUTE[stuckPart] },
       state: "needs_input",
     });
-  } else if (
-    kit &&
-    kit.parts.posts.status === "partially_succeeded" &&
-    posts.missingPictures > 0
-  ) {
+  } else if (kit && kit.status === "waiting_for_user") {
+    items.push({
+      id: "needs-you-kit",
+      kind: "needs_you",
+      title: "Your starter kit needs something from you",
+      reason: "MOSAI needs one more thing from you before it can keep drafting.",
+      action: { label: "Open your kit", to: "/app" },
+      state: "needs_input",
+    });
+  } else if (promote.included && posts.missingPictures > 0) {
     items.push({
       id: "needs-you-pictures",
       kind: "needs_you",
@@ -147,19 +156,16 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       id: "needs-you-profile",
       kind: "needs_you",
       title: "Finish your business details",
-      reason: profile.missingReason ?? "A few details are missing, so drafts may be off.",
+      reason: "A few details are missing, so drafts may be off.",
       action: { label: "Finish your details", to: "/app?edit=understanding" },
       state: "needs_input",
     });
   }
 
-  // 3. Ready for you: finished kit output still worth a look, website first.
-  const siteReady =
-    !!kit &&
-    build.included &&
-    !build.live &&
-    (kit.parts.site.status === "succeeded" || kit.parts.site.status === "partially_succeeded");
-  if (siteReady) {
+  // 3. Website: ready to look over, or the next step to get one. Holds with
+  //    or without a kit — Build works on its own too.
+  const websiteReady = build.included && build.website === "draft";
+  if (websiteReady) {
     items.push({
       id: "ready-site",
       kind: "ready",
@@ -168,14 +174,21 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       action: { label: "Look over your website", to: "/app/build" },
       state: "ready",
     });
+  } else if (build.included && build.website === "none" && kit) {
+    // A kit ran (or is finishing) but produced no website — a real gap, not
+    // just "hasn't started yet" (that case is `kit === null`, handled below).
+    items.push({
+      id: "next-website",
+      kind: "next",
+      title: "Make your website",
+      reason: "Start from your business details. It stays a draft until you publish it.",
+      action: { label: "Make your website", to: "/app/build" },
+      state: "ready",
+    });
   }
 
-  const postsReady =
-    !!kit &&
-    promote.included &&
-    posts.drafted > 0 &&
-    posts.missingPictures === 0 &&
-    (kit.parts.posts.status === "succeeded" || kit.parts.posts.status === "partially_succeeded");
+  // 4. Posts: ready to use. Holds with or without a kit.
+  const postsReady = promote.included && posts.drafted > 0 && posts.missingPictures === 0;
   if (postsReady) {
     const sinceNote = sincePostsNote(since);
     items.push({
@@ -190,7 +203,21 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
     });
   }
 
-  // 4. Next: the one thing left once the kit's own output is handled.
+  // 5. No kit yet, and nothing above already gives the owner something to
+  //    look over: starting the kit is the single most useful next step, so a
+  //    brand-new (or kit-less) project never lands on an empty list.
+  if (!kit && !websiteReady && !postsReady) {
+    items.push({
+      id: "next-start-kit",
+      kind: "next",
+      title: "Start your kit",
+      reason: "MOSAI drafts a plan, a website and posts from your business details in one go.",
+      action: { label: "Start your kit", to: "/app" },
+      state: "ready",
+    });
+  }
+
+  // 6. A way to reach you.
   if (!contactable) {
     items.push({
       id: "next-contact",

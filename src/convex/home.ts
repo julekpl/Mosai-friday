@@ -9,16 +9,21 @@ import {
   rankHomePriorities,
   type HomePriorityItem,
   type HomePrioritiesKitInput,
+  type HomeWebsiteState,
 } from "../shared/homePriorities";
 
 /**
  * HM-1 — `home.priorities`: the server-ranked "For you now" list (at most 3
  * items; docs/integration/2026-09-25/MVP-BLUEPRINT-PLAN.md §2 row 6, §5).
- * Reads only shipped tables (starter kit, business profile, posts,
+ * Reads only shipped tables (starter kit, builds, business profile, posts,
  * `projectVisits`, the confirmed-release gate already used by
  * `visits.sinceLastVisit`) — no new tables, nothing from the deferred agent
  * capability-run machinery.
  */
+
+/** Bounds the posts read: a kit drafts 7; anything beyond a generous margin
+ *  of manual drafts still only needs "some are ready", not an exact count. */
+const POSTS_SCAN_LIMIT = 100;
 
 async function kitForProject(
   ctx: Pick<QueryCtx, "db">,
@@ -69,15 +74,45 @@ async function confirmedLiveDeployment(
   return deployment.state === "succeeded" ? [deployment] : [];
 }
 
-/** Posts drafted by the kit (or otherwise) that still need a picture. */
-function postPictureCounts(
-  posts: readonly { status: string; mediaUrl?: string }[],
-): { drafted: number; missingPictures: number } {
-  const drafts = posts.filter((post) => post.status === "draft");
+/** "live" only from a confirmed deployment; "draft" from any website build
+ *  row; "none" otherwise. Holds with or without a starter kit. */
+async function websiteStateFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  live: boolean,
+): Promise<HomeWebsiteState> {
+  if (live) return "live";
+  const build = await ctx.db
+    .query("builds")
+    .withIndex("by_project_kind", (q) => q.eq("projectId", projectId).eq("kind", "website"))
+    .first();
+  return build ? "draft" : "none";
+}
+
+/** Draft posts (bounded scan): how many, and how many still need a picture. */
+async function draftPostCounts(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<{ drafted: number; missingPictures: number }> {
+  const drafts = await ctx.db
+    .query("posts")
+    .withIndex("by_project_status", (q) => q.eq("projectId", projectId).eq("status", "draft"))
+    .take(POSTS_SCAN_LIMIT);
   return {
     drafted: drafts.length,
     missingPictures: drafts.filter((post) => !post.mediaUrl).length,
   };
+}
+
+/** Published posts (bounded scan), for the "since you were away" summary. */
+async function publishedPostsFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<{ status: string; providerRef?: string; publishedAt?: number }[]> {
+  return await ctx.db
+    .query("posts")
+    .withIndex("by_project_status", (q) => q.eq("projectId", projectId).eq("status", "published"))
+    .take(POSTS_SCAN_LIMIT);
 }
 
 /** A saved business profile with the fields kit drafts and site copy lean
@@ -127,22 +162,17 @@ export const priorities = orgQuery({
       ownVisit(ctx, userId, projectId),
     ]);
 
-    const posts = promoteIncluded
-      ? await ctx.db
-          .query("posts")
-          .withIndex("by_project", (q) => q.eq("projectId", projectId))
-          .collect()
-      : [];
-    const { drafted, missingPictures } = postPictureCounts(posts);
+    const { drafted, missingPictures } = promoteIncluded
+      ? await draftPostCounts(ctx, projectId)
+      : { drafted: 0, missingPictures: 0 };
 
     const deployments = buildIncluded ? await confirmedLiveDeployment(ctx, projectId) : [];
     const live = deployments.length > 0;
+    const website = buildIncluded ? await websiteStateFor(ctx, projectId, live) : "none";
 
     let since = null as ReturnType<typeof summarizeSinceLastVisit> | null;
     if (visit) {
-      const publishedPosts = promoteIncluded
-        ? posts.filter((post) => post.status === "published")
-        : [];
+      const publishedPosts = promoteIncluded ? await publishedPostsFor(ctx, projectId) : [];
       since = summarizeSinceLastVisit({
         since: visit.lastSeenAt,
         posts: promoteIncluded ? publishedPosts : null,
@@ -153,7 +183,7 @@ export const priorities = orgQuery({
 
     return rankHomePriorities({
       kit: toKitInput(kitRow),
-      build: { included: buildIncluded, live },
+      build: { included: buildIncluded, website },
       promote: { included: promoteIncluded },
       profile: { complete: profileComplete(project) },
       contactable: contactableFrom(project),
