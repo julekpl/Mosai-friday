@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ConvexError } from "convex/values";
 import { api, internal } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { currentUtcPeriod } from "@/convex/lib/providerUsage";
+import { LOOKUP_RESTING_CODE, isLookupResting } from "@/lib/lookupErrors";
 import { newBackend, seedUser, type TestBackend } from "./helpers";
 
 /**
@@ -87,34 +89,34 @@ describe("providerUsage.reserveProviderCall (platform monthly ceiling)", () => {
   });
 });
 
-describe("guards.consumeSerpApiDailyQuota (per-user daily cap)", () => {
+describe("providerUsage.reserveSerpApiCall (platform ceiling + per-user daily cap, combined)", () => {
   it("refuses the 11th SerpApi call from one user in a day (default cap 10)", async () => {
     const t = newBackend();
     const { userId } = await seedUser(t);
     for (let i = 0; i < 10; i++) {
-      await t.mutation(internal.guards.consumeSerpApiDailyQuota, { userId: userId as Id<"users"> });
+      const result = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+      expect(result.ok).toBe(true);
     }
-    await expect(
-      t.mutation(internal.guards.consumeSerpApiDailyQuota, { userId: userId as Id<"users"> }),
-    ).rejects.toThrow(/Too many business searches today/);
+    const eleventh = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    expect(eleventh).toEqual({ ok: false, reason: "daily_cap" });
   });
 
   it("respects SERPAPI_USER_DAILY_CAP", async () => {
     process.env.SERPAPI_USER_DAILY_CAP = "2";
     const t = newBackend();
     const { userId } = await seedUser(t);
-    await t.mutation(internal.guards.consumeSerpApiDailyQuota, { userId: userId as Id<"users"> });
-    await t.mutation(internal.guards.consumeSerpApiDailyQuota, { userId: userId as Id<"users"> });
-    await expect(
-      t.mutation(internal.guards.consumeSerpApiDailyQuota, { userId: userId as Id<"users"> }),
-    ).rejects.toThrow(/Too many business searches today/);
+    await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    const third = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    expect(third).toEqual({ ok: false, reason: "daily_cap" });
   });
 
   it("does not disturb the existing 60-per-10-minute google_maps limit", async () => {
     const t = newBackend();
     const { userId } = await seedUser(t);
-    // The 10-minute google_maps bucket and the daily bucket are different
-    // rows (different `kind`), so consuming one never touches the other.
+    // The 10-minute google_maps bucket and the daily-cap bucket are
+    // different rows (different `kind`), so consuming one never touches
+    // the other.
     await t.mutation(internal.guards.consumeLookupQuota, { userId: userId as Id<"users">, kind: "google_maps" });
     const rows = await t.run((ctx) =>
       ctx.db
@@ -124,6 +126,71 @@ describe("guards.consumeSerpApiDailyQuota (per-user daily cap)", () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.kind).toBe("google_maps");
+  });
+
+  it("a platform ceiling refusal never consumes the user's daily slot", async () => {
+    process.env.SERPAPI_MONTHLY_CEILING = "1";
+    const t = newBackend();
+    const { userId } = await seedUser(t);
+    await fillCeiling(t, "serpapi", 1);
+
+    const result = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    expect(result).toEqual({ ok: false, reason: "ceiling" });
+
+    // The user's daily bucket was never written — refused entirely on the
+    // platform side, so all 10 of their daily slots are still available.
+    const dailyRows = await t.run((ctx) =>
+      ctx.db
+        .query("lookupRateLimits")
+        .withIndex("by_user_kind_window", (q) => q.eq("userId", userId as Id<"users">))
+        .collect(),
+    );
+    expect(dailyRows).toHaveLength(0);
+  });
+
+  it("a daily-cap refusal never consumes the platform's monthly slot", async () => {
+    process.env.SERPAPI_USER_DAILY_CAP = "1";
+    process.env.SERPAPI_MONTHLY_CEILING = "50";
+    const t = newBackend();
+    const { userId } = await seedUser(t);
+    const first = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    expect(first.ok).toBe(true);
+
+    const second = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    expect(second).toEqual({ ok: false, reason: "daily_cap" });
+
+    const platformRow = await t.run((ctx) =>
+      ctx.db
+        .query("providerUsageRollups")
+        .withIndex("by_kind_period", (q) => q.eq("kind", "serpapi").eq("period", currentUtcPeriod()))
+        .unique(),
+    );
+    // Only the first (successful) call incremented the platform counter.
+    expect(platformRow?.count).toBe(1);
+  });
+});
+
+describe("lookupErrors.isLookupResting (pure detector)", () => {
+  it("matches a ConvexError carrying the lookup_resting code", () => {
+    const error = new ConvexError({ code: LOOKUP_RESTING_CODE, message: "resting" });
+    expect(isLookupResting(error)).toBe(true);
+  });
+
+  it("does not match a ConvexError with a different or missing code", () => {
+    expect(isLookupResting(new ConvexError({ code: "something_else" }))).toBe(false);
+    expect(isLookupResting(new ConvexError({ message: "no code at all" }))).toBe(false);
+    expect(isLookupResting(new ConvexError("plain string data"))).toBe(false);
+  });
+
+  it("does not match a plain Error, even with matching text (production redacts its message)", () => {
+    expect(isLookupResting(new Error("Business search is resting for now, type your details instead."))).toBe(false);
+  });
+
+  it("does not match non-error values", () => {
+    expect(isLookupResting(null)).toBe(false);
+    expect(isLookupResting(undefined)).toBe(false);
+    expect(isLookupResting("lookup_resting")).toBe(false);
+    expect(isLookupResting({ data: { code: LOOKUP_RESTING_CODE } })).toBe(false);
   });
 });
 
@@ -140,9 +207,11 @@ describe("scraping SerpApi callers check the ceiling before fetching", () => {
       throw new Error("fetch must not be called at the ceiling");
     });
 
-    await expect(as.action(api.scraping.suggestGoogleBusiness, { query: "Northside Coffee" })).rejects.toThrow(
-      "Business search is resting for now, type your details instead.",
-    );
+    let caught: unknown;
+    await as.action(api.scraping.suggestGoogleBusiness, { query: "Northside Coffee" }).catch((e) => {
+      caught = e;
+    });
+    expect(isLookupResting(caught)).toBe(true);
     expect(fetchCalled).toBe(false);
   });
 
@@ -158,9 +227,11 @@ describe("scraping SerpApi callers check the ceiling before fetching", () => {
       throw new Error("fetch must not be called at the ceiling");
     });
 
-    await expect(as.action(api.scraping.lookupGoogleBusiness, { name: "Northside Coffee" })).rejects.toThrow(
-      "Business search is resting for now, type your details instead.",
-    );
+    let caught: unknown;
+    await as.action(api.scraping.lookupGoogleBusiness, { name: "Northside Coffee" }).catch((e) => {
+      caught = e;
+    });
+    expect(isLookupResting(caught)).toBe(true);
     expect(fetchCalled).toBe(false);
   });
 
@@ -202,14 +273,44 @@ describe("research.researchTopic SerpApi collectors check the ceiling before fet
     }
     expect(requestedHosts).not.toContain("serpapi.com");
   });
+
+  it("also degrades to needs_setup at the per-user daily cap (not just the platform ceiling)", async () => {
+    process.env.SERPAPI_KEY = "fixture-serp-secret";
+    process.env.SERPAPI_USER_DAILY_CAP = "1";
+    const t = newBackend();
+    const { as, userId } = await seedUser(t, { plan: "scale" });
+    // Spend the user's one daily slot before the research call.
+    const first = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId: userId as Id<"users"> });
+    expect(first.ok).toBe(true);
+
+    const requestedHosts: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requestedHosts.push(url.hostname);
+      if (url.hostname === "www.reddit.com") return json({ data: { children: [] } });
+      if (url.hostname.endsWith("wikipedia.org") || url.hostname.endsWith("wikibooks.org")) {
+        return json({ query: { search: [] } });
+      }
+      if (url.hostname === "api.gdeltproject.org") return json({ articles: [] });
+      if (url.hostname === "www.googleapis.com") return json({ items: [] });
+      throw new Error("Unexpected provider request: " + url.hostname);
+    });
+
+    const result = await as.action(api.research.researchTopic, { query: "sample topic" });
+    const byProvider = new Map(result.sources.map((source) => [source.provider, source]));
+    for (const provider of ["youtube", "trends", "local_news", "serp_news"]) {
+      expect(byProvider.get(provider)).toMatchObject({ status: "needs_setup", errorCategory: "ceiling" });
+    }
+    expect(requestedHosts).not.toContain("serpapi.com");
+  });
 });
 
 describe("contentSourceImport YouTube transcript checks the ceiling before fetching", () => {
   async function seedPiece(t: TestBackend) {
-    const { as } = await seedUser(t, { email: "alice@example.com", plan: "scale" });
+    const { as, userId } = await seedUser(t, { email: "alice@example.com", plan: "scale" });
     const projectId = (await as.mutation(api.projects.create, { name: "Heat pump installer" })) as Id<"projects">;
     const pieceId = (await as.mutation(api.content.create, { projectId, title: "Guide" })) as Id<"contentPieces">;
-    return { as, pieceId };
+    return { as, pieceId, userId: userId as Id<"users"> };
   }
 
   it("reports needs setup and never calls fetch once the platform ceiling is reached", async () => {
@@ -224,9 +325,37 @@ describe("contentSourceImport YouTube transcript checks the ceiling before fetch
       throw new Error("fetch must not be called at the ceiling");
     });
 
-    await expect(
-      as.action(api.contentSourceImport.importUrl, { pieceId, url: "https://www.youtube.com/watch?v=abc123defgh" }),
-    ).rejects.toThrow(/monthly search limit/);
+    let caught: unknown;
+    await as
+      .action(api.contentSourceImport.importUrl, { pieceId, url: "https://www.youtube.com/watch?v=abc123defgh" })
+      .catch((e) => {
+        caught = e;
+      });
+    expect(isLookupResting(caught)).toBe(true);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it("also degrades at the per-user daily cap and never calls fetch", async () => {
+    process.env.SERPAPI_KEY = "fixture-serp-secret";
+    process.env.SERPAPI_USER_DAILY_CAP = "1";
+    const t = newBackend();
+    const { as, pieceId, userId } = await seedPiece(t);
+    // Spend the user's one daily slot before the import call.
+    const first = await t.mutation(internal.lib.providerUsage.reserveSerpApiCall, { userId });
+    expect(first.ok).toBe(true);
+    let fetchCalled = false;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalled = true;
+      throw new Error("fetch must not be called at the daily cap");
+    });
+
+    let caught: unknown;
+    await as
+      .action(api.contentSourceImport.importUrl, { pieceId, url: "https://www.youtube.com/watch?v=abc123defgh" })
+      .catch((e) => {
+        caught = e;
+      });
+    expect(isLookupResting(caught)).toBe(true);
     expect(fetchCalled).toBe(false);
   });
 
@@ -266,7 +395,7 @@ describe("stock.searchPhotos / importStockPhoto check the Pexels ceiling before 
 });
 
 describe("wizard NameQuestion: search is explicit, never on typing", () => {
-  it("no longer wires a debounced search effect to the source field", () => {
+  it("no longer wires a debounced search effect, and detects the ceiling via the shared code, not message text", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/app/wizard/NameQuestion.tsx"),
       "utf8",
@@ -278,8 +407,13 @@ describe("wizard NameQuestion: search is explicit, never on typing", () => {
     // An explicit, labelled action triggers the search instead.
     expect(source).toContain("Search Google for my listing");
     expect(source).toContain("onClick={runSearch}");
-    // The ceiling copy from scraping.ts is recognized and shown.
-    expect(source).toContain("Business search is resting for now, type your details instead");
+    expect(source).toContain('aria-busy={searchState === "loading"}');
+    // The detector is the shared, unit-tested `isLookupResting` (see the
+    // "lookupErrors.isLookupResting" describe block above) — the component
+    // never matches on a plain Error's message, which production redacts.
+    expect(source).toContain('from "@/lib/lookupErrors"');
+    expect(source).toContain("isLookupResting(error)");
+    expect(source).not.toMatch(/error\.message\.includes/);
     expect(source).toContain('"resting"');
   });
 });

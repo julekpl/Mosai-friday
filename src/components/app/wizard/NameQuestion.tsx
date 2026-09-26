@@ -7,16 +7,17 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { displayDomain } from "@/lib/url";
+import { isLookupResting } from "@/lib/lookupErrors";
 import { classifySource } from "@/components/app/wizard/classifySource";
 import type { BusinessSearchState, BusinessSuggestion } from "@/components/app/wizard/types";
 
-// LQ-1: shown at the platform SerpApi ceiling (or the per-user daily cap).
-// The server throws `GOOGLE_MAPS_CEILING_MESSAGE` (scraping.ts) for both;
-// this only needs to recognize it, not match it byte for byte.
+// LQ-1: shown at the platform SerpApi ceiling or the per-user daily cap.
+// The server throws a `ConvexError` with `data.code === "lookup_resting"`
+// (see `src/lib/lookupErrors.ts`) rather than a plain `Error`, because
+// Convex redacts a plain error's message in production — matching on text
+// would never fire once deployed. This copy is the wizard's own, not the
+// server's, so it can change independently of the server message.
 const CEILING_MESSAGE = "Business search is resting for now, type your details instead.";
-function isCeilingError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("resting for now");
-}
 
 /**
  * Q2 "What is it called?" (required) and one optional field for a website or
@@ -79,7 +80,7 @@ export function NameQuestion({
     }).catch((error) => {
       setSuggestions([]);
       setActiveIndex(-1);
-      setSearchState(isCeilingError(error) ? "resting" : "error");
+      setSearchState(isLookupResting(error) ? "resting" : "error");
     });
   };
 
@@ -171,10 +172,11 @@ export function NameQuestion({
               variant="outline"
               className="h-12 shrink-0 gap-2"
               disabled={listingQuery.length < 3 || searchState === "loading"}
+              aria-busy={searchState === "loading"}
               onClick={runSearch}
             >
               <Search className="size-4" aria-hidden="true" />
-              Search Google for my listing
+              {searchState === "loading" ? "Searching…" : "Search Google for my listing"}
             </Button>
           )}
         </div>

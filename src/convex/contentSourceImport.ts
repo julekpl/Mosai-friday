@@ -1,12 +1,12 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { consumeAiQuotaForAction, moduleAction } from "./guards";
 import { safeFetch } from "./lib/safeFetch";
-import { reserveProviderCallForAction } from "./lib/providerUsage";
+import { LOOKUP_RESTING_CODE, reserveSerpApiCallForAction } from "./lib/providerUsage";
 import {
   SOURCE_FILE_MAX_BYTES,
   capSourceText,
@@ -109,16 +109,21 @@ async function fetchJson(url: string, timeoutMs = 20_000): Promise<Record<string
   }
 }
 
-async function importYouTube(ctx: ActionCtx, videoId: string, languageCode?: string): Promise<{ title: string; url: string; text: string; extraction: string }> {
+async function importYouTube(ctx: ActionCtx, userId: Id<"users">, videoId: string, languageCode?: string): Promise<{ title: string; url: string; text: string; extraction: string }> {
   const serpKey = process.env.SERPAPI_KEY;
   if (!serpKey) {
     throw new Error("YouTube transcripts need setup: the SERPAPI_KEY environment variable is not configured for this deployment.");
   }
-  // LQ-1: reserve against the platform monthly ceiling before the paid
-  // SerpApi fetch. At the ceiling this degrades exactly like a missing key.
-  const reserved = await reserveProviderCallForAction(ctx, "serpapi");
-  if (!reserved) {
-    throw new Error("YouTube transcripts need setup: the monthly search limit for this deployment has been reached. Try again next month.");
+  // LQ-1: reserve against the platform monthly ceiling and the per-user
+  // daily cap together before the paid SerpApi fetch. A plain `Error`'s
+  // message is redacted in production, so this is a `ConvexError` the
+  // client can reliably detect by `data.code`.
+  const reserved = await reserveSerpApiCallForAction(ctx, userId);
+  if (!reserved.ok) {
+    throw new ConvexError({
+      code: LOOKUP_RESTING_CODE,
+      message: "YouTube transcripts are resting for now: this deployment's monthly search limit has been reached. Try again next month.",
+    });
   }
   const url = `https://www.youtube.com/watch?v=${videoId}`;
   const params = new URLSearchParams({ engine: "youtube_video_transcript", v: videoId, api_key: serpKey });
@@ -287,7 +292,7 @@ export const importUrl = moduleAction("create", {
     if (videoId) {
       await consumeAiQuotaForAction(ctx, userId); // SerpApi call is metered
       const language = languageCode && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(languageCode) ? languageCode : undefined;
-      const video = await importYouTube(ctx, videoId, language);
+      const video = await importYouTube(ctx, userId, videoId, language);
       return await store(ctx, piece, userId, { kind: "youtube", provider: "youtube", ...video });
     }
     const page = await importWebPage(url);
@@ -318,7 +323,7 @@ export const importResearchFinding = moduleAction("create", {
         const videoId = parseYouTubeVideoId(finding.url);
         if (videoId) {
           await consumeAiQuotaForAction(ctx, userId);
-          const video = await importYouTube(ctx, videoId);
+          const video = await importYouTube(ctx, userId, videoId);
           return { ...(await store(ctx, piece, userId, { kind: "youtube", provider: "youtube", ...video })), fullText: true };
         }
         const page = await importWebPage(finding.url);

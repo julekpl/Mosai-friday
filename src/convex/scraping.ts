@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -8,7 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
 import { safeFetch } from "./lib/safeFetch";
-import { reserveProviderCallForAction } from "./lib/providerUsage";
+import { LOOKUP_RESTING_CODE, reserveSerpApiCallForAction } from "./lib/providerUsage";
 import {
   extractSitemapLocations,
   extractWebsitePage,
@@ -390,22 +390,19 @@ const SERPAPI_SEARCH = "https://serpapi.com/search.json";
 const GOOGLE_MAPS_NOT_CONFIGURED =
   "Google Business search isn't set up on this workspace yet. You can skip this step.";
 // LQ-1: shown, unchanged, when the platform monthly ceiling or the per-user
-// daily cap is reached. The wizard matches this exact text to switch to its
-// "resting" state; other errors keep their own message.
+// daily cap is reached. The wizard matches the `LOOKUP_RESTING_CODE` error
+// code (lib/providerUsage.ts), not this text, so the copy can change freely.
 export const GOOGLE_MAPS_CEILING_MESSAGE =
   "Business search is resting for now, type your details instead.";
 
-/** Platform ceiling + per-user daily cap, checked before every paid
- *  SerpApi `google_maps` call. Throws the same needs_setup-style message
- *  either way so the wizard degrades the same way for both. */
+/** Platform ceiling + per-user daily cap, checked and spent together
+ *  (`reserveSerpApiCall`) before every paid SerpApi `google_maps` call, so
+ *  a refusal on either side never spends the other's slot. */
 async function guardGoogleMapsCall(ctx: ActionCtx, userId: Id<"users">): Promise<void> {
-  try {
-    await ctx.runMutation(internal.guards.consumeSerpApiDailyQuota, { userId });
-  } catch {
-    throw new Error(GOOGLE_MAPS_CEILING_MESSAGE);
+  const result = await reserveSerpApiCallForAction(ctx, userId);
+  if (!result.ok) {
+    throw new ConvexError({ code: LOOKUP_RESTING_CODE, message: GOOGLE_MAPS_CEILING_MESSAGE });
   }
-  const reserved = await reserveProviderCallForAction(ctx, "serpapi");
-  if (!reserved) throw new Error(GOOGLE_MAPS_CEILING_MESSAGE);
 }
 
 async function serpApiGoogleMaps(
