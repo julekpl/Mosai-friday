@@ -67,6 +67,8 @@ type SourceFindings = {
 
 export function NewProjectWizard() {
   const [step, setStepState] = useState(0);
+  // FR-M: when the owner opened the wizard (sent once the project exists).
+  const [startedAt] = useState(() => Date.now());
   const [direction, setDirection] = useState(1);
   const stepRegionRef = useRef<HTMLDivElement>(null);
   const focusPending = useRef(false);
@@ -116,6 +118,7 @@ export function NewProjectWizard() {
   const create = useMutation(api.projects.create);
   const createClientProject = useMutation(api.projects.createClientProject);
   const saveScan = useMutation(api.projects.saveScan);
+  const recordFirstRunStep = useMutation(api.projects.recordFirstRunStep);
   const startKit = useMutation(api.starterKit.start);
   const draftBusinessProfile = useAction(api.ai.generateBusinessProfile);
   const scanWebsite = useAction(api.scraping.scanWebsite);
@@ -292,6 +295,10 @@ export function NewProjectWizard() {
             ...answers,
             ...fields,
           });
+      // FR-M: the project only exists from here, so the start time and the
+      // "made it" step are recorded now. Metrics only: never awaited, and a
+      // failure is silent.
+      void recordFirstRunStep({ id, step: "created", startedAt }).catch(() => undefined);
 
       // Keep the findings so every module can reuse the enriched context.
       if (scan || listing) {

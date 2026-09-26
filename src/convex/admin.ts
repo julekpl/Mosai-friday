@@ -14,6 +14,7 @@ import { checkoutConfigured, planCatalog } from "./lib/billingCatalog";
 import { stripeMode, stripeWebhookSecret } from "./lib/stripe";
 import { dayPeriod } from "./lib/aiBudget";
 import { currentUtcPeriod } from "./lib/providerUsage";
+import { firstRunStepCounts } from "./projects";
 import {
   LIMIT_KEYS,
   LIMIT_SPECS,
@@ -567,5 +568,27 @@ export const setProviderUsageCount = mutation({
     if (row) await ctx.db.patch(row._id, { count, updatedAt: now });
     else await ctx.db.insert("providerUsageRollups", { kind, period, count, updatedAt: now });
     await audit(ctx, actorId, "provider_usage.set", "providerUsageRollups", `${kind}:${period}`, `${previous} -> ${count}`);
+  },
+});
+
+const FIRST_RUN_SAMPLE_LIMIT = 2_000;
+
+/**
+ * FR-M (owner decision O4): how far the first-run wizard got, counted per
+ * last recorded step, for projects created in the last `days` days. Bounded:
+ * reads at most the newest 2,000 projects and says when it was capped.
+ * Projects with no record count under "none".
+ */
+export const firstRunDropOff = query({
+  args: { days: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { days },
+  ): Promise<{ since: number; sampled: number; capped: boolean; counts: Record<string, number> }> => {
+    await requirePlatformAdmin(ctx);
+    const window = Math.min(365, Math.max(1, Math.floor(days ?? 30)));
+    const since = Date.now() - window * 24 * 60 * 60_000;
+    const { sampled, counts } = await firstRunStepCounts(ctx, since, FIRST_RUN_SAMPLE_LIMIT);
+    return { since, sampled, capped: sampled >= FIRST_RUN_SAMPLE_LIMIT, counts };
   },
 });

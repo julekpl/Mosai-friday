@@ -315,6 +315,11 @@ const schema = defineSchema(
       postingChannels: v.optional(v.array(postingChannelValidator)),
       customerGroups: v.optional(v.array(customerGroupValidator)),
       firstRunNotes: v.optional(firstRunNotesValidator),
+      // FR-M (owner decision O4): when the first-run wizard started and the
+      // furthest step it recorded (a step id from FIRST_RUN_STEPS), so the
+      // operator can see where owners stop. Metrics only, never shown.
+      firstRunStartedAt: v.optional(v.number()),
+      firstRunLastStep: v.optional(v.string()),
       // The project's chosen AI model (one of the operator-enabled aiModels).
       aiModelId: v.optional(v.string()),
       // The reviewed "what this business is" statement every AI prompt is
