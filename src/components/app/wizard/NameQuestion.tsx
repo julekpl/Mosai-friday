@@ -118,7 +118,7 @@ export function NameQuestion({
           aria-invalid={nameError || undefined}
           aria-describedby={nameError ? "np-name-error" : undefined}
           autoComplete="organization"
-          className="h-12 text-small"
+          className="min-h-11 text-small"
         />
         {nameError && (
           <p id="np-name-error" role="alert" className="font-mono text-caption text-destructive">
@@ -157,7 +157,7 @@ export function NameQuestion({
               }
             }}
             placeholder="yourbusiness.com or Northside Coffee, Bristol"
-            className="h-12"
+            className="min-h-11"
             autoComplete="off"
             role="combobox"
             aria-autocomplete="list"
@@ -170,7 +170,7 @@ export function NameQuestion({
             <Button
               type="button"
               variant="outline"
-              className="h-12 shrink-0 gap-2"
+              className="min-h-11 shrink-0 gap-2"
               disabled={listingQuery.length < 3 || searchState === "loading"}
               aria-busy={searchState === "loading"}
               onClick={runSearch}

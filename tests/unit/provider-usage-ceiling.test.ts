@@ -370,7 +370,7 @@ describe("contentSourceImport YouTube transcript checks the ceiling before fetch
 });
 
 describe("stock.searchPhotos / importStockPhoto check the Pexels ceiling before fetching", () => {
-  it("returns needs_setup and never calls fetch once the platform ceiling is reached", async () => {
+  it("returns unavailable (nothing to set up) and never calls fetch once the platform ceiling is reached", async () => {
     process.env.PEXELS_MONTHLY_CEILING = "1";
     const t = newBackend();
     await fillCeiling(t, "pexels", 1);
@@ -388,7 +388,7 @@ describe("stock.searchPhotos / importStockPhoto check the Pexels ceiling before 
       query: "bread",
       orientation: "square",
     });
-    expect(result).toEqual({ status: "needs_setup" });
+    expect(result).toEqual({ status: "unavailable" });
     expect(fetchCalled).toBe(false);
     delete process.env[PEXELS_KEY_ENV];
   });
