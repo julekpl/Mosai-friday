@@ -27,7 +27,16 @@ export type SourceFindingsStatus =
   /** A read is still in flight. */
   | { status: "running"; kind: "website" | "listing" }
   /** The read ended; `failed` means nothing came back. */
-  | { status: "done"; kind: "website" | "listing"; failed: boolean; partial: boolean; details: FoundDetails };
+  | {
+      status: "done";
+      kind: "website" | "listing";
+      failed: boolean;
+      /** Business search was paused by a spending limit (LQ-1), so the
+       *  listing was not read; not the owner's fault and not an error. */
+      resting?: boolean;
+      partial: boolean;
+      details: FoundDetails;
+    };
 
 /** Only what the scan or the listing actually returned (never invented). */
 export type FoundDetails = {

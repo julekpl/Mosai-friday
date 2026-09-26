@@ -106,7 +106,9 @@ function Findings({ findings }: { findings: SourceFindingsStatus }) {
     return (
       <p className="flex items-start gap-2">
         <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        {findings.failed
+        {findings.resting
+          ? "Business search is resting for now, so we didn’t read your listing; that’s fine, the kit will use your answers."
+          : findings.failed
           ? `We couldn’t read ${what}; that’s fine, the kit will use your answers.`
           : `We read ${what} but found no contact details; that’s fine, the kit will use your answers.`}
       </p>

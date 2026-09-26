@@ -31,6 +31,7 @@ import { GoalQuestion } from "@/components/app/wizard/GoalQuestion";
 import { ChannelsQuestion } from "@/components/app/wizard/ChannelsQuestion";
 import { CustomersQuestion } from "@/components/app/wizard/CustomersQuestion";
 import { SummaryStep } from "@/components/app/wizard/SummaryStep";
+import { isLookupResting } from "@/lib/lookupErrors";
 
 /** First run: six short screens (first-run blueprint §2–§3, U2d). Screens 1
  *  and 2 must be answered; 3 to 5 can be skipped; 6 is the check-over. */
@@ -59,6 +60,9 @@ type SourceFindings = {
   websitePartial: boolean;
   listing: BusinessListing | null;
   failed: boolean;
+  /** LQ-1: the paid business search is paused (platform or daily limit),
+   *  which is not a failure of the owner's listing. */
+  resting?: boolean;
 };
 
 export function NewProjectWizard() {
@@ -166,6 +170,9 @@ export function NewProjectWizard() {
           failed: false,
         }))
         .catch((error: unknown) => {
+          if (isLookupResting(error)) {
+            return { ...empty, failed: true, resting: true };
+          }
           toast.warning("We couldn’t load your Google listing", {
             description: error instanceof Error ? error.message : "Try again later.",
           });
@@ -187,6 +194,7 @@ export function NewProjectWizard() {
                   status: "done",
                   kind: readKind,
                   failed: found.failed,
+                  resting: found.resting === true,
                   partial: found.websitePartial,
                   details: foundDetails(found.website, found.listing),
                 },
