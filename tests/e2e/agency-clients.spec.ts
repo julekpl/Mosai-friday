@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures/signed-in-backend";
 
 /**
- * U9 — agency path, first slice: the "I do marketing for clients" branch of
+ * U9 — agency path, first slice: the "I set this up for a client" branch of
  * the first-run wizard and the client list on `/app`.
  *
  * Runs against the signed-in test backend double: synthetic data, no network.
@@ -66,7 +66,7 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
 });
 
-test.describe("wizard: I do marketing for clients", () => {
+test.describe("wizard: I set this up for a client", () => {
   test.use({
     backendData: {
       "users:currentUser": user,
@@ -82,12 +82,12 @@ test.describe("wizard: I do marketing for clients", () => {
 
     // The client group appears only for an agency.
     await expect(page.getByRole("radiogroup", { name: "What kind of business is your client?" })).toHaveCount(0);
-    await page.getByRole("radio", { name: "I do marketing for clients" }).click();
+    await page.getByRole("checkbox", { name: "I set this up for a client" }).check();
     const clientTypes = page.getByRole("radiogroup", { name: "What kind of business is your client?" });
-    await expect(clientTypes.getByRole("radio")).toHaveCount(3);
-    await expect(clientTypes.getByRole("radio", { name: /marketing for clients/ })).toHaveCount(0);
-    await clientTypes.getByRole("radio", { name: /^Shop/ }).click();
-    await expect(clientTypes.getByRole("radio", { name: /^Shop/ })).toBeChecked();
+    await expect(clientTypes.getByRole("radio")).toHaveCount(7);
+    await expect(clientTypes.getByRole("radio", { name: /for a client/ })).toHaveCount(0);
+    await clientTypes.getByRole("radio", { name: /^Shop you can walk into/ }).click();
+    await expect(clientTypes.getByRole("radio", { name: /^Shop you can walk into/ })).toBeChecked();
     await expectNoSidewaysScroll(page);
     await expectAxeClean(page);
 
@@ -101,25 +101,38 @@ test.describe("wizard: I do marketing for clients", () => {
     await expectAxeClean(page);
     await page.getByRole("button", { name: "Continue" }).click();
 
-    // Q3 is unchanged; skipping uses the client type's default.
-    await expect(page.getByRole("heading", { level: 1, name: "What do you want most right now?" })).toBeFocused();
-    await expect(page.getByText("Skip this and we’ll start with “More sales”.")).toBeVisible();
+    // Goals: skipping uses the client type's default.
+    await expect(page.getByRole("heading", { level: 1, name: "What do you want more of?" })).toBeFocused();
+    await expect(page.getByText("Pick all that matter, or skip and we’ll start with “More sales in store”.")).toBeVisible();
+    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.getByRole("checkbox", { name: "Instagram" }).check();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Skip for now" }).click();
+
+    await expect(page.getByRole("heading", { level: 1, name: "Here’s what we found" })).toBeFocused();
+    const type = page.getByRole("region", { name: "Kind of business" });
+    await expect(type).toContainText("I set this up for a client");
+    await expect(type).toContainText("Client: Shop you can walk into");
+    await expect(page.getByRole("region", { name: "Your client’s business" })).toContainText("Northside Coffee");
+    await expectAxeClean(page);
     await page.getByRole("button", { name: "Make my starter kit" }).click();
 
     await expect
       .poll(async () => (await sent()).find((m) => m.udfPath.startsWith("projects:createClientProject"))?.args[0])
-      .toEqual({ clientName: "Northside Coffee", businessType: "shop", primaryGoal: "sales" });
+      .toEqual({ clientName: "Northside Coffee", businessType: "shop", primaryGoal: "sales", postingChannels: ["instagram"] });
     expect((await sent()).some((m) => /^projects(\.js)?:create$/.test(m.udfPath))).toBe(false);
   });
 
   test("the client's type can be skipped", async ({ page }) => {
     const sent = await recordMutations(page);
     await page.goto("/app/new");
-    await page.getByRole("radio", { name: "I do marketing for clients" }).click();
+    await page.getByRole("checkbox", { name: "I set this up for a client" }).check();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByLabel("Client’s business name").fill("Studio");
     await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByText("Skip this if you are not sure yet.")).toBeVisible();
+    await expect(page.getByText("Pick all that matter, or skip this if you are not sure yet.")).toBeVisible();
+    for (let i = 0; i < 3; i += 1) await page.getByRole("button", { name: "Skip for now" }).click();
+    await expect(page.getByRole("region", { name: "Kind of business" })).toContainText("Client: Not picked");
     await page.getByRole("button", { name: "Make my starter kit" }).click();
     await expect
       .poll(async () => (await sent()).find((m) => m.udfPath.startsWith("projects:createClientProject"))?.args[0])
