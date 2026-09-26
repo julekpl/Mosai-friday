@@ -129,7 +129,7 @@ export function NameQuestion({
 
       <div className="grid gap-2">
         <Label htmlFor="np-source">
-          Where can we read about it? <span className="font-normal text-muted-foreground">(website or Google listing, optional)</span>
+          Your website or Google listing <span className="font-normal text-muted-foreground">(optional)</span>
         </Label>
         <div className="flex gap-2">
           <Input
