@@ -12,7 +12,7 @@ import {
 import { brandProfileFields, businessProfileFields } from "./schema";
 import { boundBrandProfile, brandProfileProblems, describeVoice } from "./lib/brandProfile";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { getOrCreatePersonalOrganization, seedRoles } from "./organizations";
 import { roleCan } from "./lib/roles";
 import {
@@ -560,57 +560,6 @@ export const saveFirstRunAnswers = orgMutation({
     return answers;
   },
 });
-
-/** FR-M: first-run steps in order; the last one means the project was made. */
-export const FIRST_RUN_STEPS = ["type", "name", "goals", "channels", "customers", "summary", "created"] as const;
-export type FirstRunStep = (typeof FIRST_RUN_STEPS)[number];
-const firstRunStepValidator = v.union(...FIRST_RUN_STEPS.map((step) => v.literal(step)));
-const FIRST_RUN_START_WINDOW_MS = 24 * 60 * 60_000;
-
-/**
- * FR-M (owner decision O4): record how far the first-run wizard got, for the
- * operator's drop-off count. Only the member who created the project may
- * write it; the step only ever moves forward and the start time is kept from
- * the first call (clamped to the last day, so a client cannot backdate it).
- */
-export const recordFirstRunStep = orgMutation({
-  args: { id: v.id("projects"), step: firstRunStepValidator, startedAt: v.optional(v.number()) },
-  handler: async (ctx, { id, step, startedAt }, access) => {
-    const { userId, project } = await access.requireProject(id);
-    if (project.ownerId !== userId) throw new Error("Not found");
-    const now = Date.now();
-    const rank = (value: string | undefined) => FIRST_RUN_STEPS.indexOf(value as FirstRunStep);
-    const patch: { firstRunStartedAt?: number; firstRunLastStep?: string } = {};
-    if (project.firstRunStartedAt === undefined) {
-      const start = startedAt ?? now;
-      patch.firstRunStartedAt = Math.min(now, Math.max(now - FIRST_RUN_START_WINDOW_MS, start));
-    }
-    if (rank(step) > rank(project.firstRunLastStep)) patch.firstRunLastStep = step;
-    if (Object.keys(patch).length) await ctx.db.patch(id, patch);
-    return null;
-  },
-});
-
-/** FR-M: projects created since `since` (newest first, at most `limit`),
- *  counted per last recorded first-run step ("none" when never recorded).
- *  Platform-wide: only the admin drop-off query calls it, after its guard. */
-export async function firstRunStepCounts(
-  ctx: QueryCtx,
-  since: number,
-  limit: number,
-): Promise<{ sampled: number; counts: Record<string, number> }> {
-  const rows = await ctx.db
-    .query("projects")
-    .withIndex("by_creation_time", (q) => q.gte("_creationTime", since))
-    .order("desc")
-    .take(limit);
-  const counts: Record<string, number> = {};
-  for (const row of rows) {
-    const key = row.firstRunLastStep ?? "none";
-    counts[key] = (counts[key] ?? 0) + 1;
-  }
-  return { sampled: rows.length, counts };
-}
 
 /** Choose the project's AI model from the operator's enabled list, or clear
  *  the choice (null) to follow the platform default. */

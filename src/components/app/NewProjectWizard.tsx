@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation } from "convex/react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -46,6 +46,13 @@ const steps = [
 ] as const;
 const SKIPPABLE = new Set([2, 3, 4]);
 
+/** A random per-visit key for first-run progress (no personal data). */
+function newFirstRunKey(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** Step slide: a short 12px travel in the direction of navigation. The app's
  *  MotionConfig (reducedMotion="user") removes the travel when asked. */
 const stepVariants = {
@@ -68,8 +75,17 @@ type SourceFindings = {
 
 export function NewProjectWizard() {
   const [step, setStepState] = useState(0);
-  // FR-M: when the owner opened the wizard (sent once the project exists).
-  const [startedAt] = useState(() => Date.now());
+  // FR-M (owner decision O4): one random key per wizard visit, so the
+  // furthest step is counted even when the owner stops before the project
+  // exists. Metrics only: never awaited, failures are silent.
+  const [firstRunKey] = useState(newFirstRunKey);
+  const recordFirstRun = useMutation(api.firstRun.record);
+  const reachedStep = useRef(-1);
+  useEffect(() => {
+    if (step <= reachedStep.current) return;
+    reachedStep.current = step;
+    void recordFirstRun({ sessionKey: firstRunKey, step: steps[step].key }).catch(() => undefined);
+  }, [step, firstRunKey, recordFirstRun]);
   const [direction, setDirection] = useState(1);
   const stepRegionRef = useRef<HTMLDivElement>(null);
   const focusPending = useRef(false);
@@ -119,7 +135,6 @@ export function NewProjectWizard() {
   const create = useMutation(api.projects.create);
   const createClientProject = useMutation(api.projects.createClientProject);
   const saveScan = useMutation(api.projects.saveScan);
-  const recordFirstRunStep = useMutation(api.projects.recordFirstRunStep);
   const startKit = useMutation(api.starterKit.start);
   const draftBusinessProfile = useAction(api.ai.generateBusinessProfile);
   const scanWebsite = useAction(api.scraping.scanWebsite);
@@ -300,10 +315,8 @@ export function NewProjectWizard() {
             ...answers,
             ...fields,
           });
-      // FR-M: the project only exists from here, so the start time and the
-      // "made it" step are recorded now. Metrics only: never awaited, and a
-      // failure is silent.
-      void recordFirstRunStep({ id, step: "created", startedAt }).catch(() => undefined);
+      // FR-M: the owner made it through.
+      void recordFirstRun({ sessionKey: firstRunKey, step: "created" }).catch(() => undefined);
 
       // Keep the findings so every module can reuse the enriched context.
       if (scan || listing) {

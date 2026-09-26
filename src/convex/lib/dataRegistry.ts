@@ -122,6 +122,8 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   adsExecutions: project("guards.requireProject", "excluded"), adsCopilotMessages: project("guards.requireProject"),
   appSettings: global("Server-managed settings", "Shared server configuration is retained"),
   platformAdmins: user("userId", "guards.requirePlatformAdmin", "excluded", "by_user"),
+  // FR-M: first-run progress per wizard visit; the user's own rows, deleted with the account.
+  firstRunSessions: { ...user("userId", "firstRun.record (own rows only)", "excluded", "by_user"), accountCleanup: [{ kind: "index", index: "by_user", field: "userId", source: "user" }] },
   billingPlans: global("guards.requirePlatformAdmin (writes); signed-in users read active rows", "Operator catalog; no tenant data"),
   organizationAddons: { ...organization("Verified Stripe webhook / audited operator grant"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only with the verified sole-owned organization cascade" }] },
   aiModels: global("guards.requirePlatformAdmin (writes); any signed-in user reads enabled models", "Operator configuration; no tenant data"),

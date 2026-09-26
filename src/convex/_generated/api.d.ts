@@ -50,6 +50,7 @@ import type * as crons from "../crons.js";
 import type * as dal from "../dal.js";
 import type * as entitlements from "../entitlements.js";
 import type * as files from "../files.js";
+import type * as firstRun from "../firstRun.js";
 import type * as google_config from "../google/config.js";
 import type * as google_credentials from "../google/credentials.js";
 import type * as google_insights from "../google/insights.js";
@@ -175,6 +176,7 @@ declare const fullApi: ApiFromModules<{
   dal: typeof dal;
   entitlements: typeof entitlements;
   files: typeof files;
+  firstRun: typeof firstRun;
   "google/config": typeof google_config;
   "google/credentials": typeof google_credentials;
   "google/insights": typeof google_insights;

@@ -14,7 +14,6 @@ import { checkoutConfigured, planCatalog } from "./lib/billingCatalog";
 import { stripeMode, stripeWebhookSecret } from "./lib/stripe";
 import { dayPeriod } from "./lib/aiBudget";
 import { currentUtcPeriod } from "./lib/providerUsage";
-import { firstRunStepCounts } from "./projects";
 import {
   LIMIT_KEYS,
   LIMIT_SPECS,
@@ -588,7 +587,16 @@ export const firstRunDropOff = query({
     await requirePlatformAdmin(ctx);
     const window = Math.min(365, Math.max(1, Math.floor(days ?? 30)));
     const since = Date.now() - window * 24 * 60 * 60_000;
-    const { sampled, counts } = await firstRunStepCounts(ctx, since, FIRST_RUN_SAMPLE_LIMIT);
+    // One row per wizard visit (firstRun.record), so owners who stop before
+    // the project exists are counted at the step they reached.
+    const rows = await ctx.db
+      .query("firstRunSessions")
+      .withIndex("by_started", (q) => q.gte("startedAt", since))
+      .order("desc")
+      .take(FIRST_RUN_SAMPLE_LIMIT);
+    const counts: Record<string, number> = {};
+    for (const row of rows) counts[row.lastStep] = (counts[row.lastStep] ?? 0) + 1;
+    const sampled = rows.length;
     return { since, sampled, capped: sampled >= FIRST_RUN_SAMPLE_LIMIT, counts };
   },
 });

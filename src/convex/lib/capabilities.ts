@@ -516,6 +516,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
 
   // ── base spine ──
   projects: "base",
+  firstRun: "base", // FR-M first-run progress metrics (the caller's own rows)
   files: "base",
   users: "base",
   billing: "base",

@@ -315,11 +315,6 @@ const schema = defineSchema(
       postingChannels: v.optional(v.array(postingChannelValidator)),
       customerGroups: v.optional(v.array(customerGroupValidator)),
       firstRunNotes: v.optional(firstRunNotesValidator),
-      // FR-M (owner decision O4): when the first-run wizard started and the
-      // furthest step it recorded (a step id from FIRST_RUN_STEPS), so the
-      // operator can see where owners stop. Metrics only, never shown.
-      firstRunStartedAt: v.optional(v.number()),
-      firstRunLastStep: v.optional(v.string()),
       // The project's chosen AI model (one of the operator-enabled aiModels).
       aiModelId: v.optional(v.string()),
       // The reviewed "what this business is" statement every AI prompt is
@@ -2274,6 +2269,20 @@ const schema = defineSchema(
     // SerpApi and Pexels caller runs before its provider fetch. Never
     // project- or user-scoped: this caps total platform spend, not one
     // tenant's usage (that is `lookupRateLimits`).
+    // FR-M (owner decision O4): furthest first-run step reached per wizard
+    // visit, keyed by a random key the wizard makes on open. Written only by
+    // `firstRun.record` (the signed-in user's own rows). No answers stored.
+    firstRunSessions: defineTable({
+      userId: v.id("users"),
+      sessionKey: v.string(),
+      startedAt: v.number(),
+      lastStep: v.string(),
+      updatedAt: v.number(),
+    })
+      .index("by_user_key", ["userId", "sessionKey"])
+      .index("by_user", ["userId"])
+      .index("by_started", ["startedAt"]),
+
     providerUsageRollups: defineTable({
       kind: v.union(v.literal("serpapi"), v.literal("pexels")),
       period: v.string(), // "2026-09", UTC month
