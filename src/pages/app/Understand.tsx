@@ -39,6 +39,20 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  BIG_FIVE_SOURCE_LABELS,
+  BIG_FIVE_TRAITS,
+  BIG_FIVE_TRAIT_LABELS,
+  bigFiveSourceOf,
+  describeBigFive,
+  type BigFive,
+  type BigFiveSource,
+} from "@/shared/bigFive";
+
+/** Why AI personality scores are labelled as a guess (country blueprint:
+ *  never present model-invented personality as fact). */
+const AI_GUESS_EXPLANATION =
+  "MOSAI's AI guessed these from your business details. Nobody measured them with real customers, so treat them as a starting idea, not a fact.";
 
 function PersonaForm({
   projectId,
@@ -64,13 +78,9 @@ function PersonaForm({
   const [country, setCountry] = useState("");
   const [demographics, setDemographics] = useState("");
   const [culturalContext, setCulturalContext] = useState("");
-  const [bigFive, setBigFive] = useState<{
-    openness: number;
-    conscientiousness: number;
-    extraversion: number;
-    agreeableness: number;
-    neuroticism: number;
-  } | null>(null);
+  const [bigFive, setBigFive] = useState<BigFive | null>(null);
+  const [bigFiveSource, setBigFiveSource] = useState<BigFiveSource | undefined>(undefined);
+  const [bigFiveCleared, setBigFiveCleared] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Seed once loaded when editing
@@ -84,6 +94,7 @@ function PersonaForm({
     setDemographics(existing.demographics ?? "");
     setCulturalContext(existing.culturalContext ?? "");
     setBigFive(existing.bigFive ?? null);
+    setBigFiveSource(existing.bigFive ? bigFiveSourceOf(existing) : undefined);
   }
 
   const split = (s: string) =>
@@ -103,9 +114,10 @@ function PersonaForm({
         demographics: demographics.trim() || undefined,
         culturalContext: culturalContext.trim() || undefined,
         bigFive: bigFive ?? undefined,
+        bigFiveSource: bigFive ? bigFiveSource : undefined,
       };
       if (personaId) {
-        await update({ id: personaId, ...payload });
+        await update({ id: personaId, ...payload, clearBigFive: bigFiveCleared && !bigFive ? true : undefined });
       } else {
         await create({ projectId, ...payload });
       }
@@ -170,17 +182,21 @@ function PersonaForm({
       </div>
       <details className="rounded-md border p-3">
         <summary className="cursor-pointer font-mono text-caption">Advanced personality (Big Five, optional)</summary>
-        <p className="mt-2 font-mono text-caption text-muted-foreground">AI guess, not a real customer. Add only if it helps your decisions. Scores are 0–100 and are hypotheses, not clinical assessments.</p>
+        {bigFive && bigFiveSource ? (
+          <div className="mt-2 grid gap-1" data-testid="persona-bigfive-source">
+            <Badge variant="outline" className="w-fit font-mono text-caption">
+              {BIG_FIVE_SOURCE_LABELS[bigFiveSource]}
+            </Badge>
+            {bigFiveSource === "ai_hypothesis" ? (
+              <p className="font-mono text-caption text-muted-foreground">{AI_GUESS_EXPLANATION}</p>
+            ) : null}
+          </div>
+        ) : null}
+        <p className="mt-2 font-mono text-caption text-muted-foreground">Scores are 0–100 and are estimates, not clinical assessments. Leave a box empty when you do not know. Changing a score marks the set as your own estimate.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {([
-            ["openness", "Openness"],
-            ["conscientiousness", "Conscientiousness"],
-            ["extraversion", "Extraversion"],
-            ["agreeableness", "Agreeableness"],
-            ["neuroticism", "Emotional sensitivity"],
-          ] as const).map(([key, label]) => (
+          {BIG_FIVE_TRAITS.map((key) => (
             <div className="grid gap-1" key={key}>
-              <Label htmlFor={`pf-bigfive-${key}`}>{label} (0–100)</Label>
+              <Label htmlFor={`pf-bigfive-${key}`}>{BIG_FIVE_TRAIT_LABELS[key]} (0–100)</Label>
               <Input
                 id={`pf-bigfive-${key}`}
                 type="number"
@@ -188,22 +204,37 @@ function PersonaForm({
                 max={100}
                 value={bigFive?.[key] ?? ""}
                 onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (!Number.isFinite(value) || value < 0 || value > 100) return;
-                  setBigFive((current) => ({
-                    openness: current?.openness ?? 50,
-                    conscientiousness: current?.conscientiousness ?? 50,
-                    extraversion: current?.extraversion ?? 50,
-                    agreeableness: current?.agreeableness ?? 50,
-                    neuroticism: current?.neuroticism ?? 50,
-                    [key]: value,
-                  }));
+                  const text = event.target.value.trim();
+                  const value = Number(text);
+                  if (text && (!Number.isFinite(value) || value < 0 || value > 100)) return;
+                  setBigFive((current) => {
+                    const next: BigFive = { ...(current ?? {}) };
+                    if (text) next[key] = value;
+                    else delete next[key];
+                    return Object.keys(next).length ? next : null;
+                  });
+                  setBigFiveSource("user_assessed");
+                  setBigFiveCleared(false);
                 }}
-                placeholder="Optional"
+                placeholder="Unknown"
               />
             </div>
           ))}
         </div>
+        {bigFive ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-3 min-h-11"
+            onClick={() => {
+              setBigFive(null);
+              setBigFiveSource(undefined);
+              setBigFiveCleared(true);
+            }}
+          >
+            Clear personality scores
+          </Button>
+        ) : null}
       </details>
       <div className="grid gap-2">
         <Label htmlFor="pf-culture">Language &amp; cultural context (optional)</Label>
@@ -270,6 +301,7 @@ function AiPersonaDialog({
         country: p.country,
         demographics: p.demographics,
         bigFive: p.bigFive,
+        bigFiveSource: p.bigFiveSource,
         culturalContext: p.culturalContext,
         evidence: p.evidence,
       });
@@ -502,7 +534,7 @@ export default function Understand({
         <div className="grid gap-3 md:grid-cols-2">
           {personas.map((p) => (
             <div key={p._id} className="rounded-md border bg-card p-4 shadow-card">
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="font-mono text-small font-medium">{p.name}</p>
                   {p.role && (
@@ -511,7 +543,7 @@ export default function Understand({
                     </p>
                   )}
                 </div>
-                <div className="flex shrink-0 gap-1">
+                <div className="flex flex-wrap gap-1">
                   <Button
                     size="sm"
                     variant="outline"
@@ -592,8 +624,13 @@ export default function Understand({
                   {p.country && <p>where this customer lives: {p.country}</p>}
                   {p.demographics && <p>context: {p.demographics}</p>}
                   {p.culturalContext && <p>language &amp; culture: {p.culturalContext}</p>}
-                  {p.bigFive && (
-                    <p>Big Five hypotheses (AI guess, not a real customer): openness {p.bigFive.openness}, conscientiousness {p.bigFive.conscientiousness}, extraversion {p.bigFive.extraversion}, agreeableness {p.bigFive.agreeableness}, emotional sensitivity {p.bigFive.neuroticism} / 100</p>
+                  {p.bigFive && describeBigFive(p.bigFive) && (
+                    <div data-testid="persona-bigfive">
+                      <p>
+                        Big Five ({BIG_FIVE_SOURCE_LABELS[bigFiveSourceOf(p)]}): {describeBigFive(p.bigFive)} / 100
+                      </p>
+                      {bigFiveSourceOf(p) === "ai_hypothesis" ? <p>{AI_GUESS_EXPLANATION}</p> : null}
+                    </div>
                   )}
                 </div>
               )}

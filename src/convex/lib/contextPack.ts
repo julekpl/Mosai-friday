@@ -1,3 +1,5 @@
+import type { BigFive, BigFiveSource } from "../../shared/bigFive";
+
 /** `provider_data`: numbers imported from a connected provider by a verified
  *  server sync. Labels inside it (queries, page paths) remain untrusted text. */
 export type ContextTrust = "workspace_entry" | "untrusted_source_text" | "provider_data";
@@ -23,13 +25,9 @@ export type ContextPersona = {
   country?: string;
   demographics?: string;
   culturalContext?: string;
-  bigFive?: {
-    openness: number;
-    conscientiousness: number;
-    extraversion: number;
-    agreeableness: number;
-    neuroticism: number;
-  };
+  bigFive?: BigFive;
+  /** Missing = AI guess (shared/bigFive.ts). */
+  bigFiveSource?: BigFiveSource;
   evidence?: string;
 };
 

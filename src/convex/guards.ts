@@ -1250,6 +1250,7 @@ function buildContextPack(
     demographics: compactText(persona.demographics, 240),
     culturalContext: compactText(persona.culturalContext, 300),
     bigFive: persona.bigFive,
+    bigFiveSource: persona.bigFive ? persona.bigFiveSource ?? "ai_hypothesis" : undefined,
     evidence: compactText(persona.evidence, 300),
   }));
   const journeys: ContextJourney[] = input.journeys.slice(0, 8).map((journey) => ({

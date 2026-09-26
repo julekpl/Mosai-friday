@@ -1,5 +1,6 @@
 import { moduleMutation, moduleQuery } from "./guards";
 import { v } from "convex/values";
+import { bigFiveSourceValidator, bigFiveValidator, cleanBigFive } from "../shared/bigFive";
 
 const journeyStage = v.object({
   stage: v.string(),
@@ -38,16 +39,21 @@ export const create = moduleMutation("understand", {
     country: v.optional(v.string()),
     demographics: v.optional(v.string()),
     culturalContext: v.optional(v.string()),
-    bigFive: v.optional(v.object({ openness: v.number(), conscientiousness: v.number(), extraversion: v.number(), agreeableness: v.number(), neuroticism: v.number() })),
+    bigFive: v.optional(bigFiveValidator),
+    bigFiveSource: v.optional(bigFiveSourceValidator),
     evidence: v.optional(v.string()),
     journeyStages: v.optional(v.array(journeyStage)),
   },
   handler: async (ctx, args, access) => {
     const { userId } = await access.requireProject(args.projectId);
-    const { projectId, ...rest } = args;
+    const { projectId, bigFive: rawBigFive, bigFiveSource, ...rest } = args;
+    // Scores without a stated source are an AI guess (shared/bigFive.ts).
+    const bigFive = cleanBigFive(rawBigFive);
     return await ctx.db.insert("personas", {
       projectId,
       ...rest,
+      bigFive,
+      bigFiveSource: bigFive ? bigFiveSource ?? "ai_hypothesis" : undefined,
       createdBy: userId,
       createdAt: Date.now(),
     });
@@ -66,16 +72,29 @@ export const update = moduleMutation("understand", {
     country: v.optional(v.string()),
     demographics: v.optional(v.string()),
     culturalContext: v.optional(v.string()),
-    bigFive: v.optional(v.object({ openness: v.number(), conscientiousness: v.number(), extraversion: v.number(), agreeableness: v.number(), neuroticism: v.number() })),
+    bigFive: v.optional(bigFiveValidator),
+    bigFiveSource: v.optional(bigFiveSourceValidator),
+    // Remove the scores (and their source) altogether.
+    clearBigFive: v.optional(v.boolean()),
     evidence: v.optional(v.string()),
     journeyStages: v.optional(v.array(journeyStage)),
   },
-  handler: async (ctx, { id, ...patch }, access) => {
+  handler: async (ctx, { id, bigFive: rawBigFive, bigFiveSource, clearBigFive, ...patch }, access) => {
     const row = await access.ownedRow(await ctx.db.get(id));
     if (!row) throw new Error("Not found");
-    const clean = Object.fromEntries(
+    const clean: Record<string, unknown> = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     );
+    if (clearBigFive) {
+      clean.bigFive = undefined;
+      clean.bigFiveSource = undefined;
+    } else if (rawBigFive !== undefined) {
+      const bigFive = cleanBigFive(rawBigFive);
+      clean.bigFive = bigFive;
+      clean.bigFiveSource = bigFive ? bigFiveSource ?? row.bigFiveSource ?? "ai_hypothesis" : undefined;
+    } else if (bigFiveSource !== undefined && row.bigFive) {
+      clean.bigFiveSource = bigFiveSource;
+    }
     if (Object.keys(clean).length) await ctx.db.patch(id, clean);
   },
 });

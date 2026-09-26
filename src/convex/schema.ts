@@ -18,6 +18,7 @@ import {
   videoJobStatusValidator,
   videoStatusValidator,
 } from "./modules/video/validators";
+import { bigFiveSourceValidator, bigFiveValidator } from "../shared/bigFive";
 
 // default user roles. can add / remove based on the project as needed
 export const ROLES = {
@@ -446,13 +447,10 @@ const schema = defineSchema(
       country: v.optional(v.string()),
       demographics: v.optional(v.string()),
       culturalContext: v.optional(v.string()),
-      bigFive: v.optional(v.object({
-        openness: v.number(),
-        conscientiousness: v.number(),
-        extraversion: v.number(),
-        agreeableness: v.number(),
-        neuroticism: v.number(),
-      })),
+      // Each trait optional: a trait the AI did not give stays unknown.
+      bigFive: v.optional(bigFiveValidator),
+      // Where the scores came from (shared/bigFive.ts); missing = AI guess.
+      bigFiveSource: v.optional(bigFiveSourceValidator),
       evidence: v.optional(v.string()),
       journeyStages: v.optional(
         v.array(
