@@ -278,6 +278,9 @@
 }
 
 @theme {
+  --ease-mosaic: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-terminal: cubic-bezier(0.22, 1, 0.36, 1);
+
   --font-sans: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
     "Liberation Mono", monospace;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
@@ -386,16 +389,12 @@
   }
 }
 
-@utility ease-mosaic {
-  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
 @utility animate-mosaic-in {
-  animation: mosaic-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: mosaic-in 0.55s var(--ease-terminal) both;
 }
 
 @utility animate-mosaic-pop {
-  animation: mosaic-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: mosaic-pop 0.6s var(--ease-mosaic) both;
 }
 
 @utility animate-mosaic-float {
@@ -422,14 +421,11 @@
    child selectors like `> *`. */
 @layer utilities {
   .mosaic-stagger > * {
-    animation: mosaic-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: mosaic-in 0.55s var(--ease-terminal) both;
     animation-delay: calc(var(--i, 0) * 70ms);
   }
 }
 
-@utility ease-terminal {
-  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-}
 @utility bg-grid {
   background-image:
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
@@ -505,7 +501,7 @@
 @utility hover-lift {
   transition-property: transform, box-shadow, border-color;
   transition-duration: 180ms;
-  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  transition-timing-function: var(--ease-terminal);
   &:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-lift);
