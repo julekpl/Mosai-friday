@@ -1,5 +1,7 @@
 # First run and Home: Direction A vs Direction B
 
+> Superseded (26 Sep 2026): the question and screen caps here are replaced by the owner's six-screen first-run decision (`docs/integration/2026-09-25/MVP-BLUEPRINT-PLAN.md` section 11).
+
 Supervising architect, 26 Sep 2026. Read-only review of `origin/main` (a6e9358), the
 approved plan (`docs/integration/2026-09-25/MVP-BLUEPRINT-PLAN.md` sections 2, 3, 9, 10),
 `docs/ux/first-run-blueprint.md`, and branches pr25, pr26, pr27. Nothing was merged or changed.

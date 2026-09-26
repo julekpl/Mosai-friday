@@ -31,6 +31,13 @@ Repo facts were checked on `main` at `a5b4255`.
 | D12 | Look up the website at a signup email's domain | Only after sign-in, shown openly with Skip; never for gmail/outlook-type addresses | $0 | OD-1 | Now |
 | D13 | Prefill shop currency from the detected market | Prefill empty fields only, labelled "Suggested" | $0 | MK-2 | Before the market lane (MK) |
 | D14 | How far to build the agent spine | Stop after AG-4a; build more only when a Home or Create feature needs it | $0 | AG-4b/c (stays parked) | Wave 3 review |
+| F1 | Free owner and the starter kit | DECIDED 25 Sep: closed. The 14-day Starter trial requires a card (see `MVP-BLUEPRINT-PLAN.md` section 10) | $0 | KIT-F1 (trial copy) | Closed |
+| O1 | SerpApi quota and ceiling | DECIDED 26 Sep: stay on the free tier (250 searches a month). Ceiling (about 200), per-person daily cap and Pexels ceiling are editable in admin > Limits (admin value > env var > default); use "Match the SerpApi dashboard" to enter searches already used. Google Places stays the exit path | $0 | LQ-1 (#28) | Closed |
+| O2 | Starter kit AI budget and default model | DECIDED 26 Sep: keep the $0.40 per-kit ceiling and `gpt-4o-mini`; confirm the default in the production admin | About $1 to $2 | Launch setting | Closed |
+| O3 | Platform daily cap on trial kit AI spend | DECIDED 26 Sep: $1 a day by default, editable in admin > Limits (env `MOSAI_AI_TRIAL_DAILY_CAP_MICROUSD`). Beyond it trial AI features refuse, nothing generated or charged, until midnight UTC. The overall $10 platform AI day cap is editable in the same tab | Up to about $30 | KIT-F1 | Closed |
+| O4 | First-run step tracking | DECIDED 26 Sep: yes. Two additive fields in MOSAI's own database, no third party | $0 | FR-M | Closed |
+| O5 | `.env.keys` rotation | DECIDED 26 Sep: deferred until closer to launch; tracked as D-01 in `docs/implementation/DEFERRED-WORK-BACKLOG.md`. Still a release blocker | $0 | Release | Deferred |
+| D15 | How much of the four blueprints to build | DECIDED 26 Sep (owner): implement all four blueprints now, in waves. Paid providers sit behind adapters that stay `needs_setup` until keys are added; budget decisions come later | $0 until keys are added | All blueprint lanes | Closed |
 
 Total new monthly spend if you accept every recommendation: about $1 to $2 of AI
 usage, plus $0 for vendors. The only open cost risk is the Google listing search

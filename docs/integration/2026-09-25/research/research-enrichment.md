@@ -1,5 +1,7 @@
 # Company enrichment at signup: provider comparison (D3, D11, D12)
 
+> Superseded (26 Sep 2026): the ~$400/month cap below is replaced by owner decision D11 ($0, feature off; see `OWNER-DECISIONS.md`).
+
 Researched 2026-09-25. Low-effort pass; several figures marked unverified where
 official pricing pages were not directly loaded.
 

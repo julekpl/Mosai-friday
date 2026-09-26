@@ -1,5 +1,7 @@
 # MOSAI Future-Proof Agent Architecture: implementation plan (Phases A-C)
 
+> Naming (26 Sep 2026): `capabilityRuns`, `CapabilityId` and `Capability<I,O>` below are renamed to skills (`skillRuns`, `SkillId`, `Skill<I,O>`) per `MVP-BLUEPRINT-PLAN.md` section 12. "Capability" means plan entitlement.
+
 Scope: blueprint Phases A-C, reconciled with INTEGRATION-PLAN.md sections 3-6,
 against current main (`a5b4255`, starter-kit stack merged). Phases D-G
 deferred per the integration plan's wave sequencing (D1, D7).

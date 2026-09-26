@@ -178,7 +178,10 @@ Google listing"; Big Five -> "AI guess, not a real customer".
 
 ---
 
-## 6. Metrics (no new tracking; existing tables)
+## 6. Metrics (existing tables; one exception)
+
+Exception (owner O4, 26 Sep 2026): two additive first-run fields, `firstRunStartedAt`
+and `lastStepReached`, in MOSAI's own database, no third party (FR-M).
 
 | Slice | Metric | Source |
 |---|---|---|
@@ -203,6 +206,8 @@ by typing.
 ---
 
 ## 7. Owner decisions still open
+
+> Update 26 Sep 2026: D8 and D10 are closed (section 10). F1 is closed: the trial requires a card.
 
 **F1 / Q2. What does a free owner get from the starter kit?** (money, AGENTS section 7)
 Today free completes onboarding and gets only the plan draft; site and posts show
@@ -240,8 +245,8 @@ draws from it; Google v. SerpApi litigation adds continuity risk.
 | D3 discovery provider | Open | No provider; OD lane only after U12 |
 | D4 photo processing | Open | No provider; browser + `capture`; revisit only with a paid reason |
 | D7 Workflow component | Open | Do not adopt (moot while AG deferred) |
-| D8 Home one list, max 3 | Open | Approve; HM-2 depends on it |
-| D10 auto-deploy of `main` | Open, only owner knows | Answer before KIT-2/MK-1 schema writes reach production |
+| D8 Home one list, max 3 | Closed 25 Sep | Approved (section 10) |
+| D10 auto-deploy of `main` | Closed 25 Sep | Owner merges every PR personally (section 10) |
 | D12 email-domain lookup | Open | Keep rule; add agency rule C12 |
 | D13 currency prefill | Open | Empty fields only, "Suggested" (MK-3b) |
 | D14 agent spine scope | Changed | Stop before AG-1; review after U12 |
@@ -285,7 +290,7 @@ Supervisor 2 approved this plan with changes (`MVP-PLAN-AUDIT.md`). The coordina
 re-checked items A1, A3, A5 and A6 against `main` at `7d8e949`. Where this section
 conflicts with sections 1-8, this section wins.
 
-- **A1. F1 is decided, not open.** `docs/ux/usability-backlog.md:13` records the owner's
+- **A1. (Superseded by section 10: the trial requires a card.) F1 is decided, not open.** `docs/ux/usability-backlog.md:13` records the owner's
   25 Sep decision: a 14-day Starter trial, no free-plan exemption. The U12 script
   depends on it (`u12-usability-test-script.md:32`). DEC-F1 is therefore reduced to the
   one open sub-question: does the trial require a card? Today it does
@@ -361,3 +366,25 @@ Changes to this plan:
   `DIRECTION-COMPARISON.md` section 5 (completion rate, time to kit start, whether
   owners notice better posts) and a blind before/after kit comparison on five sample
   businesses.
+
+## 12. Unifying decisions and the 26 Sep build decision
+
+From `docs/integration/2026-09-26/INTEGRATION-REVIEW.md` section 4 (owner-approved).
+
+- **Naming.** "Capability" means plan or role entitlement (`src/convex/lib/capabilities.ts`).
+  Versioned AI work units are **skills**: `SkillId` (`domain.verb.vN`),
+  `src/convex/agent/skills.ts`, `skillRuns`. "Action" stays with the action registry.
+- **One Home.** `home.priorities` (at most 3 items); the kit loader is the detail view of
+  the kit-working item. Extend `NextAction.tsx`; no `src/components/agent/*` folder.
+- **One cost mechanism, two units.** `aiSpendRollups` (microUSD) and `providerUsageRollups`
+  (calls), the latter extended with scope and kind. No third budget table.
+- **One job-state model.** The rule-13 states in `src/shared/starterKit.ts` move to
+  `src/shared/jobs.ts` when a second job needs them. No Workflow component yet (D7).
+- **Provenance.** One optional side-map on the project (field path, authority,
+  confirmedAt), written only where a writer could overwrite a user value. Types in
+  `src/shared/contracts/provenance.ts`.
+- **Media.** Extend `projectFiles`; no `mediaAssets` table.
+- **U12 gating lifted.** The owner decided on 26 Sep 2026 to implement all four
+  blueprints now, in waves; paid providers stay `needs_setup` behind adapters until keys
+  are added, and budget decisions come later. The U12 gate on blueprint lanes is lifted,
+  but the wave order in section 3 and the review's rollout stays.
