@@ -144,6 +144,10 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   // unattributed per-user rows go with the account; platform-day rows carry no
   // tenant and are plain operational counters.
   aiSpendRollups: { ...organization("Internal AI gateway ledger; read via aiBudget.usage (org-scoped)", "excluded"), accountCleanup: [{ kind: "index", index: "by_user", field: "userId", source: "user" }] },
+  // LQ-1: platform-wide SerpApi/Pexels monthly ceiling. No tenant data;
+  // written solely by the internal `providerUsage.reserveProviderCall`
+  // mutation, one counter row per (kind, month).
+  providerUsageRollups: global("Internal providerUsage.reserveProviderCall only", "Platform usage counters are retained for capacity planning"),
   privacyJobs: { scope: "global", tenantField: "_id", authorization: "self-scoped job reads / internal finalizer / operator report", export: "excluded", retention: "kept-until-revoked", deletion: { kind: "retain", reason: "Minimal deletion-job receipt supports audit and retry history" } },
   privacyExportChunks: { scope: "user", tenantField: "jobId", authorization: "parent privacyJobs owner", export: "excluded", retention: "cascade-with-user", deletion: { kind: "account-parent", parentTable: "privacyJobs", parentIndex: "by_user", childIndex: "by_job_sequence", childField: "jobId" }, accountCleanup: [{ kind: "export-jobs", parentIndex: "by_user", parentField: "userId", parentKindField: "kind", parentKinds: ["account_export", "project_export"], childIndex: "by_job_sequence", childField: "jobId" }] },
 };

@@ -1,6 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -8,6 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { normalizeWebsiteUrl } from "../lib/url";
 import { requireActionUser } from "./guards";
 import { safeFetch } from "./lib/safeFetch";
+import { LOOKUP_RESTING_CODE, reserveSerpApiCallForAction } from "./lib/providerUsage";
 import {
   extractSitemapLocations,
   extractWebsitePage,
@@ -388,6 +389,21 @@ type GmbLookup = NonNullable<ScanResult["gmb"]> & { source: string };
 const SERPAPI_SEARCH = "https://serpapi.com/search.json";
 const GOOGLE_MAPS_NOT_CONFIGURED =
   "Google Business search isn't set up on this workspace yet. You can skip this step.";
+// LQ-1: shown, unchanged, when the platform monthly ceiling or the per-user
+// daily cap is reached. The wizard matches the `LOOKUP_RESTING_CODE` error
+// code (lib/providerUsage.ts), not this text, so the copy can change freely.
+export const GOOGLE_MAPS_CEILING_MESSAGE =
+  "Business search is resting for now, type your details instead.";
+
+/** Platform ceiling + per-user daily cap, checked and spent together
+ *  (`reserveSerpApiCall`) before every paid SerpApi `google_maps` call, so
+ *  a refusal on either side never spends the other's slot. */
+async function guardGoogleMapsCall(ctx: ActionCtx, userId: Id<"users">): Promise<void> {
+  const result = await reserveSerpApiCallForAction(ctx, userId);
+  if (!result.ok) {
+    throw new ConvexError({ code: LOOKUP_RESTING_CODE, message: GOOGLE_MAPS_CEILING_MESSAGE });
+  }
+}
 
 async function serpApiGoogleMaps(
   params: Record<string, string>,
@@ -426,6 +442,7 @@ export const suggestGoogleBusiness = action({
     if (normalizedQuery.length < 3) return [];
     if (!process.env.SERPAPI_KEY) throw new Error(GOOGLE_MAPS_NOT_CONFIGURED);
     await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "google_maps" });
+    await guardGoogleMapsCall(ctx, userId);
 
     const data = await serpApiGoogleMaps({ type: "search", q: normalizedQuery });
     if (isEmptyGoogleMapsAnswer(data)) return [];
@@ -447,6 +464,7 @@ export const lookupGoogleBusiness = action({
     if (!title && !place) throw new Error("Enter the business name to look it up.");
     if (!process.env.SERPAPI_KEY) throw new Error(GOOGLE_MAPS_NOT_CONFIGURED);
     await ctx.runMutation(internal.guards.consumeLookupQuota, { userId, kind: "google_maps" });
+    await guardGoogleMapsCall(ctx, userId);
 
     const data = await serpApiGoogleMaps(
       place ? { place_id: place } : { type: "search", q: title },

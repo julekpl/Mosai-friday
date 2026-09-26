@@ -18,4 +18,4 @@ export type BusinessSuggestion = {
   rating?: number;
   reviews?: number;
 };
-export type BusinessSearchState = "idle" | "loading" | "results" | "empty" | "error";
+export type BusinessSearchState = "idle" | "loading" | "results" | "empty" | "error" | "resting";
