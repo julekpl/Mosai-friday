@@ -1743,6 +1743,13 @@ export const consumeLookupQuota = internalMutation({
   },
 });
 
+// LQ-1: the per-user daily SerpApi cap (default 10, env
+// `SERPAPI_USER_DAILY_CAP`) — the 10-minute `google_maps` window above (60
+// calls) still lets one account drain the whole platform month — is checked
+// and spent together with the platform monthly ceiling in one mutation, so
+// a refusal on either side never spends the other's slot. See
+// `lib/providerUsage.ts` (`reserveSerpApiCall`).
+
 /** Action-side quota gate. Call it AFTER the project is authorized (so a
  *  foreign caller's refused request writes nothing) and BEFORE the provider
  *  call (so a runaway loop is stopped before it costs money). */
