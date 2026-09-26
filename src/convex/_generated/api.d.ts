@@ -57,6 +57,7 @@ import type * as google_oauth from "../google/oauth.js";
 import type * as google_sync from "../google/sync.js";
 import type * as google_tokens from "../google/tokens.js";
 import type * as guards from "../guards.js";
+import type * as home from "../home.js";
 import type * as http from "../http.js";
 import type * as insights from "../insights.js";
 import type * as journeys from "../journeys.js";
@@ -181,6 +182,7 @@ declare const fullApi: ApiFromModules<{
   "google/sync": typeof google_sync;
   "google/tokens": typeof google_tokens;
   guards: typeof guards;
+  home: typeof home;
   http: typeof http;
   insights: typeof insights;
   journeys: typeof journeys;

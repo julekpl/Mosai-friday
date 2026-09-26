@@ -533,6 +533,10 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   starterKit: "base",
   // U7: per-member "since you were away" timestamps and summary.
   visits: "base",
+  // HM-1: Home "For you now" — spans the starter kit, Build and Promote, so
+  // it is org-scoped like `starterKit` / `visits` rather than owned by one
+  // module.
+  home: "base",
   http: "base",
   crons: "base",
   auth: "base",
