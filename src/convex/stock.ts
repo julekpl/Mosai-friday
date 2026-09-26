@@ -136,7 +136,7 @@ export const searchPhotos = internalAction({
       return { status: "rate_limited", resetAt: windowStart + LOOKUP_QUOTA_WINDOW_MS };
     }
     // LQ-1: platform monthly ceiling, checked before the paid Pexels fetch.
-    if (!(await reserveProviderCallForAction(ctx, "pexels"))) return { status: "needs_setup" };
+    if (!(await reserveProviderCallForAction(ctx, "pexels"))) return { status: "unavailable" };
 
     const request = buildSearchRequest(apiKey, normalized, shape);
     const res = await providerGet(request.url, request.headers);
@@ -182,7 +182,7 @@ export const importStockPhoto = internalAction({
     // LQ-1: platform monthly ceiling, checked before the paid Pexels fetch.
     // Re-imports of an already-stored photo are served above and never
     // count against the ceiling.
-    if (!(await reserveProviderCallForAction(ctx, "pexels"))) return { status: "needs_setup" };
+    if (!(await reserveProviderCallForAction(ctx, "pexels"))) return { status: "unavailable" };
 
     // Re-fetch BY ID: the download address comes from Pexels, not the client.
     const request = buildPhotoRequest(apiKey, externalId);
