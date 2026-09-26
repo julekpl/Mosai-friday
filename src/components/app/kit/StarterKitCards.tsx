@@ -90,9 +90,12 @@ export function StarterKitCards({
   return (
     <section aria-labelledby="starter-kit-title" className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="starter-kit-title" className="text-h2">
-          Your starter kit
-        </h2>
+        <div>
+          <h2 id="starter-kit-title" className="text-h2">
+            Your starter kit
+          </h2>
+          <p className="font-mono text-caption text-muted-foreground">Your first plan, website &amp; posts</p>
+        </div>
         <Button variant="ghost" className="min-h-11 text-muted-foreground" onClick={() => void hide()} disabled={hiding}>
           Hide the kit
         </Button>

@@ -1,7 +1,7 @@
 import { looksLikeUrl, normalizeWebsiteUrl } from "@/lib/url";
 
 /**
- * Q2's single "Where can we read about it?" field takes either a website or
+ * Q2's single "Your website or Google listing" field takes either a website or
  * a Google listing name (first-run blueprint §3). This decides which one the
  * owner typed:
  *
