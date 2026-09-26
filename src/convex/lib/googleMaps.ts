@@ -21,6 +21,11 @@ export type GoogleMapsSuggestion = {
   category?: string;
   rating?: number;
   reviews?: number;
+  /** LQ-1b: carried from the same search answer when Google has them, so a
+   *  picked suggestion can skip the second (paid) details lookup. */
+  phone?: string;
+  website?: string;
+  openHours?: string;
 };
 
 export type GoogleMapsPlace = {
@@ -106,6 +111,9 @@ export function parseGoogleMapsSuggestions(data: GoogleMapsResponse): GoogleMaps
       category: category(hit),
       rating: num(hit.rating),
       reviews: reviewCount(hit.reviews),
+      phone: str(hit.phone, 60),
+      website: str(hit.website, 500),
+      openHours: formatOpeningHours(hit),
     });
     if (out.length >= MAX_SUGGESTIONS) break;
   }

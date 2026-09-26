@@ -17,6 +17,9 @@ export type BusinessSuggestion = {
   category?: string;
   rating?: number;
   reviews?: number;
+  phone?: string;
+  website?: string;
+  openHours?: string;
 };
 export type BusinessSearchState = "idle" | "loading" | "results" | "empty" | "error" | "resting";
 

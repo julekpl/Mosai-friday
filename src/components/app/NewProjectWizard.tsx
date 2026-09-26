@@ -25,6 +25,7 @@ import {
   type NoteDrafts,
 } from "@/components/app/wizard/selection";
 import { foundDetails } from "@/components/app/wizard/findings";
+import { listingFromSuggestion } from "@/components/app/wizard/listing";
 import { BusinessTypeQuestion } from "@/components/app/wizard/BusinessTypeQuestion";
 import { NameQuestion } from "@/components/app/wizard/NameQuestion";
 import { GoalQuestion } from "@/components/app/wizard/GoalQuestion";
@@ -155,8 +156,12 @@ export function NewProjectWizard() {
         });
     } else if (selectedBusiness) {
       kind = "listing";
-      // Only a listing the owner picked from the list is used.
-      promise = lookupGmb({ name: selectedBusiness.title, placeId: selectedBusiness.placeId })
+      // Only a listing the owner picked from the list is used. When the
+      // pick already carries the details (LQ-1b), no second paid lookup.
+      const fromPick = listingFromSuggestion(selectedBusiness);
+      promise = fromPick
+        ? Promise.resolve({ ...empty, listing: fromPick })
+        : lookupGmb({ name: selectedBusiness.title, placeId: selectedBusiness.placeId })
         .then((listing) => ({
           website: null,
           websitePartial: false,
