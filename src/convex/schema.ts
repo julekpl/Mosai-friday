@@ -18,6 +18,7 @@ import {
   videoJobStatusValidator,
   videoStatusValidator,
 } from "./modules/video/validators";
+import { bigFiveSourceValidator, bigFiveValidator } from "../shared/bigFive";
 
 // default user roles. can add / remove based on the project as needed
 export const ROLES = {
@@ -102,6 +103,28 @@ const brandProfileValidator = v.object({
   status: v.union(v.literal("ai_draft"), v.literal("confirmed")),
   updatedAt: v.number(),
   confirmedAt: v.optional(v.number()),
+});
+
+const fieldAuthorityValidator = v.object({
+  authority: v.union(
+    v.literal("user_locked"),
+    v.literal("user_confirmed"),
+    v.literal("first_party"),
+    v.literal("provider"),
+    v.literal("external"),
+    v.literal("inferred"),
+  ),
+  confirmedAt: v.optional(v.number()),
+  sourceRefs: v.optional(
+    v.array(
+      v.object({
+        type: v.string(),
+        id: v.string(),
+        version: v.optional(v.string()),
+        label: v.optional(v.string()),
+      }),
+    ),
+  ),
 });
 
 const businessProfileValidator = v.object({
@@ -321,6 +344,11 @@ const schema = defineSchema(
       // grounded in (lib/businessProfile.ts). Drafted by AI on the server,
       // confirmed by the owner in project settings.
       businessProfile: v.optional(businessProfileValidator),
+      // Per-field provenance for businessProfile (KIT-2, shared/contracts/
+      // provenance.ts), keyed by field name ("summary", "customerSegments").
+      // A field at user_confirmed/user_locked is never replaced by an AI
+      // draft. Missing key = the profile's own status decides.
+      profileAuthority: v.optional(v.record(v.string(), fieldAuthorityValidator)),
       // The brand kit every AI feature writes and designs with
       // (lib/brandProfile.ts). Same ai_draft -> confirmed lifecycle.
       brandProfile: v.optional(brandProfileValidator),
@@ -419,13 +447,10 @@ const schema = defineSchema(
       country: v.optional(v.string()),
       demographics: v.optional(v.string()),
       culturalContext: v.optional(v.string()),
-      bigFive: v.optional(v.object({
-        openness: v.number(),
-        conscientiousness: v.number(),
-        extraversion: v.number(),
-        agreeableness: v.number(),
-        neuroticism: v.number(),
-      })),
+      // Each trait optional: a trait the AI did not give stays unknown.
+      bigFive: v.optional(bigFiveValidator),
+      // Where the scores came from (shared/bigFive.ts); missing = AI guess.
+      bigFiveSource: v.optional(bigFiveSourceValidator),
       evidence: v.optional(v.string()),
       journeyStages: v.optional(
         v.array(
