@@ -219,8 +219,8 @@ describe("heading", () => {
     const ok = part({ status: "succeeded" });
     expect(bootHeading(parts({ plan: ok, site: ok, posts: ok }))).toMatchObject({ title: "Your kit is ready" });
     const partial = bootHeading(parts({ plan: ok, site: part({ status: "failed" }), posts: ok }));
-    expect(partial.title).toBe("Your kit is ready");
-    expect(partial.description).toContain("need a hand");
+    expect(partial.title).toBe("Part of your kit is ready");
+    expect(partial.description).toBe("Your website needs a hand. Your kit shows what to do next.");
     const failed = part({ status: "failed" });
     expect(bootHeading(parts({ plan: failed, site: failed, posts: failed })).title).toBe("We could not finish your kit");
   });
@@ -319,5 +319,37 @@ describe("explainers", () => {
     expect(nextExplainer(0, -1)).toBe(EXPLAINERS.length - 1);
     expect(nextExplainer(EXPLAINERS.length - 1, 1)).toBe(0);
     expect(nextExplainer(2, 1)).toBe(3);
+  });
+});
+
+describe("heading never overstates or calls a plan lock a failure", () => {
+  const ok = part({ status: "succeeded" });
+  const failed = part({ status: "failed" });
+  const locked = part({ status: "queued", errorCode: NEEDS_PLAN_CODE });
+
+  it("says only part is ready when some parts failed, naming them", () => {
+    const heading = bootHeading(parts({ plan: ok, site: failed, posts: failed }));
+    expect(heading.title).toBe("Part of your kit is ready");
+    expect(heading.title).not.toBe("Your kit is ready");
+    expect(heading.description).toBe("Your website and posts need a hand. Your kit shows what to do next.");
+  });
+
+  it("says ready when the rest is only locked, and names the plan needed", () => {
+    const heading = bootHeading(parts({ plan: ok, site: locked, posts: locked }));
+    expect(heading.title).toBe("Your kit is ready");
+    expect(heading.description).toContain("Your website and posts need the Starter plan");
+  });
+
+  it("never says could not finish when every part is locked", () => {
+    const heading = bootHeading(parts({ plan: locked, site: locked, posts: locked }));
+    expect(heading.title).toBe("Your plan, website and posts need the Starter plan");
+    expect(heading.title).not.toContain("could not finish");
+  });
+
+  it("names only the locked parts when failures and locks mix without a success", () => {
+    const heading = bootHeading(parts({ plan: failed, site: locked, posts: failed }));
+    expect(heading.title).not.toBe("Your kit is ready");
+    expect(heading.title).toBe("We could not finish your kit");
+    expect(heading.description).toContain("Your website needs the Starter plan");
   });
 });

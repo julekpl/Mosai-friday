@@ -193,6 +193,23 @@ export function checklistRows(parts: Record<StarterKitPartName, PartInput>): Che
 
 export type BootHeading = { title: string; description: string };
 
+/** "Your plan", "Your website and posts", "Your plan, website and posts". */
+function partList(names: readonly StarterKitPartName[]): string {
+  const nouns = names.map((name) => PART_NOUN[name]);
+  const joined = nouns.length > 1 ? `${nouns.slice(0, -1).join(", ")} and ${nouns[nouns.length - 1]}` : nouns[0];
+  return `Your ${joined}`;
+}
+
+/** "needs" for one singular part, "need" otherwise ("posts" is plural). */
+function needVerb(names: readonly StarterKitPartName[]): string {
+  return names.length === 1 && names[0] !== "posts" ? "needs" : "need";
+}
+
+/**
+ * The loader's header once settled. Truth rule: "ready" only when nothing
+ * failed; a plan-gated (`locked`) part is not a failure and never reads as
+ * "could not finish".
+ */
 export function bootHeading(parts: Record<StarterKitPartName, PartInput>): BootHeading {
   if (!isKitSettled(parts)) {
     return {
@@ -200,19 +217,38 @@ export function bootHeading(parts: Record<StarterKitPartName, PartInput>): BootH
       description: "Your plan, website and posts fill in as each one is drafted.",
     };
   }
-  const states = KIT_PART_ORDER.map((name) => bootPartState(parts[name]));
-  if (states.every((state) => state === "done")) {
+  const withState = (...wanted: BootPartState[]) =>
+    KIT_PART_ORDER.filter((name) => wanted.includes(bootPartState(parts[name])));
+  const done = withState("done");
+  const ready = withState("done", "partial");
+  const needHand = withState("partial", "failed");
+  const failed = withState("failed");
+  const locked = withState("locked");
+  const lockedLine = locked.length ? `${partList(locked)} ${needVerb(locked)} the Starter plan.` : "";
+
+  if (done.length === KIT_PART_ORDER.length) {
     return { title: "Your kit is ready", description: "Everything is a draft you can change." };
   }
-  if (states.some((state) => state === "done" || state === "partial")) {
+  if (ready.length > 0) {
+    if (needHand.length === 0) {
+      return { title: "Your kit is ready", description: `Everything else is a draft you can change. ${lockedLine}` };
+    }
+    const handLine = `${partList(needHand)} ${needVerb(needHand)} a hand. Your kit shows what to do next.`;
     return {
-      title: "Your kit is ready",
-      description: "Some parts need a hand. Your kit shows what to do next.",
+      title: "Part of your kit is ready",
+      description: lockedLine ? `${handLine} ${lockedLine}` : handLine,
     };
   }
+  if (failed.length === 0) {
+    return {
+      title: `${partList(locked)} ${needVerb(locked)} the Starter plan`,
+      description: "Your answers are saved. Your kit fills in once your plan includes it.",
+    };
+  }
+  const retry = "Your answers are saved. You can try again from your kit.";
   return {
     title: "We could not finish your kit",
-    description: "Your answers are saved. You can try again from your kit.",
+    description: lockedLine ? `${retry} ${lockedLine}` : retry,
   };
 }
 
