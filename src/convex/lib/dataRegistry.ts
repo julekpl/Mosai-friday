@@ -78,6 +78,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   agencyClientLinks: { scope: "organization", tenantField: "agencyId", authorization: "guards.requireOrgRole", export: "excluded", retention: "cascade-with-organization", deletion: { kind: "organization-links", agencyIndex: "by_agency", clientIndex: "by_client", agencyField: "agencyId", clientField: "clientId" }, accountCleanup: [{ kind: "lifecycle", reason: "Organization links are removed only when their sole-owned organization is deleted" }] },
   projects: { ...user("ownerId", "guards.requireProject (owner)", "included", "by_owner"), accountCleanup: [{ kind: "lifecycle", reason: "Project data is cascaded or ownership is transferred before account cleanup" }] },
 
+  // ── agent blueprint lane tables (lib/schema/agentTables.ts) go here ──
   personas: project("guards.requireProject"), contentPieces: project("guards.requireProject"),
   connections: project("guards.requireProject", "excluded"), contacts: project("guards.requireProject"),
   campaigns: project("guards.requireProject"), posts: project("guards.requireProject"),
@@ -97,6 +98,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   // dal.buildChildTables) and project rows (removed with the project).
   appRuns: project("moduleQuery/moduleMutation build → access.ownedRow (parent builds)"),
   appSnapshots: project("moduleQuery/moduleMutation build → access.ownedRow (parent builds)"),
+  // ── discovery blueprint lane tables (lib/schema/discoveryTables.ts) go here ──
   appSourceFiles: project("moduleQuery/moduleMutation build → access.ownedRow (parent builds)"),
   projectFiles: project("guards.requireProject"),
   journeyMaps: project("guards.requireProject"), contentGaps: project("guards.requireProject"),
@@ -114,6 +116,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   // Grow — Google (GA4 / Search Console / Ads). Tokens are never exported.
   googleConnections: project("moduleQuery/moduleMutation grow → access.requireProject", "excluded"),
   googleSyncRuns: project("moduleQuery grow → access.ownedProject", "excluded"),
+  // ── media blueprint lane tables (lib/schema/mediaTables.ts) go here ──
   projectVisits: { ...project("orgQuery/orgMutation visits → access.requireProject (U7), own row only", "excluded"), accountCleanup: [{ kind: "index", index: "by_user", field: "userId", source: "user" }] },
   stockSearchCache: global("internal stock.searchPhotos only (U5)", "Search results expire after 24 h and are swept", true),
   starterKits: project("orgQuery/orgMutation starterKit → access.requireProject (U3)"),
@@ -130,6 +133,7 @@ export const DATA_REGISTRY: Record<string, TableRegistryEntry> = {
   adminAuditLog: global("guards.requirePlatformAdmin", "Operator audit records are retained"),
   billingCustomers: { ...organization("Verified Stripe webhook / billing access"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
   subscriptions: { ...organization("Verified Stripe webhook / reconciliation"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only after subscription obligations are verified and the sole-owned organization is cascaded" }] },
+  // ── market blueprint lane tables (lib/schema/marketTables.ts) go here ──
   billingEvents: global("Verified Stripe webhook", "Provider event ledger is retained"),
   billingReceipts: { scope: "organization", tenantField: "organizationId", authorization: "guards.requirePlatformAdmin / verified Stripe webhook", export: "excluded", retention: "kept-until-revoked", deletion: { kind: "retain", reason: "Financial receipts remain available for legal and audit retention" }, accountCleanup: [{ kind: "lifecycle", reason: "Retained under the financial receipt retention policy" }] },
   billingInvoices: { ...organization("Verified Stripe webhook / billing access", "excluded"), accountCleanup: [{ kind: "lifecycle", reason: "Removed only with the verified sole-owned organization cascade" }] },

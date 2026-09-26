@@ -19,6 +19,10 @@ import {
   videoStatusValidator,
 } from "./modules/video/validators";
 import { bigFiveSourceValidator, bigFiveValidator } from "../shared/bigFive";
+import { agentTables } from "./lib/schema/agentTables";
+import { discoveryTables } from "./lib/schema/discoveryTables";
+import { mediaTables } from "./lib/schema/mediaTables";
+import { marketTables } from "./lib/schema/marketTables";
 
 // default user roles. can add / remove based on the project as needed
 export const ROLES = {
@@ -2346,6 +2350,11 @@ const schema = defineSchema(
       count: v.number(),
       updatedAt: v.number(),
     }).index("by_kind_period", ["kind", "period"]),
+    // Blueprint lanes (26 Sep 2026): each lane owns its table file.
+    ...agentTables,
+    ...discoveryTables,
+    ...mediaTables,
+    ...marketTables,
   },
   {
     schemaValidation: false,

@@ -472,6 +472,10 @@ export function capabilityMatrix(input: {
 export type FileOwner = ModuleId | "base" | "service" | "internal";
 
 export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
+  "lib/schema/agentTables": "internal",
+  "lib/schema/discoveryTables": "internal",
+  "lib/schema/mediaTables": "internal",
+  "lib/schema/marketTables": "internal",
   // ── modules ──
   personas: "understand",
   personaChat: "understand",
@@ -489,6 +493,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   cms: "build",
   siteHosting: "build",
   "modules/buildApp/workspace": "build",
+  // ── agent blueprint lane files go here ──
   "modules/buildApp/generate": "internal",
   contacts: "customers",
   posts: "promote",
@@ -523,6 +528,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   billingPlans: "base",
   "modules/privacy/deletionJobs": "base",
   "modules/privacy/exportJobs": "base",
+  // ── discovery blueprint lane files go here ──
   "modules/privacy/obligations": "base",
   billingWebhooks: "base",
   admin: "base",
@@ -557,6 +563,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   buildPlan: "service",
 
   // ── internal helpers / libraries (no public functions) ──
+  // ── media blueprint lane files go here ──
   schema: "internal",
   stock: "internal", // U5: Pexels search/import and owner-photo import, internal only
   stockStore: "internal", // U5: stock cache, file rows and sweep (non-node half of stock)
@@ -591,6 +598,7 @@ export const CONVEX_FILE_OWNERS: Record<string, FileOwner> = {
   "lib/oauthBaseUrl": "internal",
   "lib/contextPack": "internal",
   "lib/platformAdmin": "internal",
+  // ── market blueprint lane files go here ──
   "lib/stripe": "internal",
   "lib/billingCatalog": "internal",
   "lib/billingReconcile": "internal",
