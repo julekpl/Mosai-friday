@@ -37,8 +37,19 @@ import type { SinceLastVisitSummary } from "./sinceLastVisit";
 export type HomePriorityKind = "needs_you" | "ready" | "next";
 export type HomePriorityState = "ready" | "needs_input" | "working";
 
-/** Route the item's button opens. Server-resolved, never a client guess. */
-export type HomePriorityAction = { label: string; to: string };
+export type HomeKitPartName = "plan" | "site" | "posts";
+
+/** What the item's button does. Server-resolved, never a client guess.
+ *  `link` navigates to a different route (never Home itself, which is where
+ *  this list is shown); `intent` asks the Home page to act in place. */
+export type HomePriorityAction =
+  | { kind: "link"; label: string; to: string }
+  | {
+      kind: "intent";
+      label: string;
+      intent: "show_kit_progress" | "start_kit" | "open_kit";
+    }
+  | { kind: "intent"; label: string; intent: "retry_kit_part"; part: HomeKitPartName };
 
 export type HomePriorityItem = {
   id: string;
@@ -84,12 +95,7 @@ const PART_NOUN: Record<"plan" | "site" | "posts", string> = {
   site: "website",
   posts: "posts",
 };
-const PART_ROUTE: Record<"plan" | "site" | "posts", string> = {
-  plan: "/app/create",
-  site: "/app/build",
-  posts: "/app/promote",
-};
-const KIT_PART_ORDER: readonly ("plan" | "site" | "posts")[] = ["plan", "site", "posts"];
+const KIT_PART_ORDER: readonly HomeKitPartName[] = ["plan", "site", "posts"];
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -112,7 +118,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
         kind: "next",
         title: "Building your starter kit",
         reason: "MOSAI is drafting your plan, website and posts from what you told us.",
-        action: { label: "Watch it build", to: "/app" },
+        action: { kind: "intent", label: "Watch it build", intent: "show_kit_progress" },
         state: "working",
       },
     ];
@@ -130,7 +136,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "needs_you",
       title: `We could not draft your ${PART_NOUN[stuckPart]}`,
       reason: "Something went wrong while MOSAI worked on it. Your answers are kept.",
-      action: { label: "Try again", to: PART_ROUTE[stuckPart] },
+      action: { kind: "intent", label: "Try again", intent: "retry_kit_part", part: stuckPart },
       state: "needs_input",
     });
   } else if (kit && kit.status === "waiting_for_user") {
@@ -139,7 +145,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "needs_you",
       title: "Your starter kit needs something from you",
       reason: "MOSAI needs one more thing from you before it can keep drafting.",
-      action: { label: "Open your kit", to: "/app" },
+      action: { kind: "intent", label: "Open your kit", intent: "open_kit" },
       state: "needs_input",
     });
   } else if (promote.included && posts.missingPictures > 0) {
@@ -148,7 +154,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "needs_you",
       title: "Add pictures to your posts",
       reason: `${plural(posts.missingPictures, "post needs", "posts need")} a picture.`,
-      action: { label: "Add pictures", to: "/app/promote" },
+      action: { kind: "link", label: "Add pictures", to: "/app/promote" },
       state: "needs_input",
     });
   } else if (!profile.complete) {
@@ -157,7 +163,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "needs_you",
       title: "Finish your business details",
       reason: "A few details are missing, so drafts may be off.",
-      action: { label: "Finish your details", to: "/app?edit=understanding" },
+      action: { kind: "link", label: "Finish your details", to: "/app?edit=understanding" },
       state: "needs_input",
     });
   }
@@ -171,7 +177,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "ready",
       title: "Look over your website",
       reason: "Your website draft is ready to look over.",
-      action: { label: "Look over your website", to: "/app/build" },
+      action: { kind: "link", label: "Look over your website", to: "/app/build" },
       state: "ready",
     });
   } else if (build.included && build.website === "none" && kit) {
@@ -182,7 +188,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "next",
       title: "Make your website",
       reason: "Start from your business details. It stays a draft until you publish it.",
-      action: { label: "Make your website", to: "/app/build" },
+      action: { kind: "link", label: "Make your website", to: "/app/build" },
       state: "ready",
     });
   }
@@ -198,7 +204,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       reason: sinceNote
         ? `${sinceNote} ${plural(posts.drafted, "more is", "more are")} ready to use.`
         : `${plural(posts.drafted, "post is", "posts are")} ready to use.`,
-      action: { label: "Review your posts", to: "/app/promote" },
+      action: { kind: "link", label: "Review your posts", to: "/app/promote" },
       state: "ready",
     });
   }
@@ -212,7 +218,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "next",
       title: "Start your kit",
       reason: "MOSAI drafts a plan, a website and posts from your business details in one go.",
-      action: { label: "Start your kit", to: "/app" },
+      action: { kind: "intent", label: "Start your kit", intent: "start_kit" },
       state: "ready",
     });
   }
@@ -224,7 +230,7 @@ export function rankHomePriorities(input: HomePrioritiesInput): HomePriorityItem
       kind: "next",
       title: "Add a way to reach you",
       reason: "Save a phone, email or address so customers can reach you.",
-      action: { label: "Add contact details", to: "/app?edit=details" },
+      action: { kind: "link", label: "Add contact details", to: "/app?edit=details" },
       state: "ready",
     });
   }

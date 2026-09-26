@@ -4,6 +4,7 @@ import {
   rankHomePriorities,
   type HomePrioritiesInput,
 } from "@/shared/homePriorities";
+import { STARTER_KIT_PART_STATUSES, STARTER_KIT_STATUSES } from "@/shared/starterKit";
 import { newBackend, seedUser } from "./helpers";
 
 // HM-1: home.priorities query and its pure ranking model
@@ -381,5 +382,74 @@ describe("home.priorities (convex-test)", () => {
     expect(await bob.as.query(api.home.priorities, { projectId })).toEqual([]);
     const aliceItems = await alice.as.query(api.home.priorities, { projectId });
     expect(aliceItems.length).toBeGreaterThan(0);
+  });
+});
+
+describe("rankHomePriorities actions never link Home to itself", () => {
+  const kits: HomePrioritiesInput["kit"][] = [null];
+  for (const status of STARTER_KIT_STATUSES) {
+    for (const part of STARTER_KIT_PART_STATUSES) {
+      kits.push({
+        status,
+        parts: { plan: { status: part }, site: { status: "succeeded" }, posts: { status: part } },
+      });
+    }
+  }
+
+  it("no item links to /app or /app/ across every kit, website and profile state", () => {
+    for (const kit of kits) {
+      for (const website of ["none", "draft", "live"] as const) {
+        for (const complete of [true, false]) {
+          for (const contactable of [true, false]) {
+            const items = rankHomePriorities({
+              ...BASE,
+              kit,
+              build: { included: true, website },
+              promote: { included: true },
+              profile: { complete },
+              contactable,
+              posts: { drafted: 2, missingPictures: complete ? 0 : 1 },
+            });
+            for (const item of items) {
+              const action: { to?: unknown } = item.action;
+              if (typeof action.to === "string") {
+                expect(["/app", "/app/"]).not.toContain(action.to);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("kit items use in-page intents; a failed part retries by name", () => {
+    const working = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "running",
+        parts: { plan: { status: "running" }, site: { status: "queued" }, posts: { status: "queued" } },
+      },
+    });
+    expect(working[0].action).toMatchObject({ kind: "intent", intent: "show_kit_progress" });
+
+    const failed = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "partially_succeeded",
+        parts: { plan: { status: "succeeded" }, site: { status: "failed" }, posts: { status: "succeeded" } },
+      },
+    });
+    expect(failed[0].action).toMatchObject({ kind: "intent", intent: "retry_kit_part", part: "site" });
+
+    const waiting = rankHomePriorities({
+      ...BASE,
+      kit: {
+        status: "waiting_for_user",
+        parts: { plan: { status: "succeeded" }, site: { status: "queued" }, posts: { status: "queued" } },
+      },
+    });
+    expect(waiting[0].action).toMatchObject({ kind: "intent", intent: "open_kit" });
+
+    expect(rankHomePriorities(BASE)[0].action).toMatchObject({ kind: "intent", intent: "start_kit" });
   });
 });
