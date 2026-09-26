@@ -42,6 +42,7 @@ import { ModuleGrid, type ModuleCardId } from "@/components/app/ModuleGrid";
 import { SinceYouWereAway } from "@/components/app/SinceYouWereAway";
 import { ThisWeekNextStep } from "@/components/app/ThisWeekNextStep";
 import { StarterKitCards } from "@/components/app/kit/StarterKitCards";
+import { KitBootloader } from "@/components/app/kit/KitBootloader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -914,6 +915,11 @@ export default function Overview({
           modulesLoading={modulesLoading}
           onFixFacts={() => openEdit("understanding")}
         />
+      </ModuleErrorBoundary>
+
+      {/* U2e: full-screen "Mosaic assembles" loader while a fresh kit is drafted. */}
+      <ModuleErrorBoundary>
+        <KitBootloader projectId={projectId} />
       </ModuleErrorBoundary>
 
       <ModuleErrorBoundary>
